@@ -1,0 +1,33 @@
+# Root-level environment and dependency folders
+node_modules/
+.env
+dist/
+build/
+
+# Client-side
+client/.next/
+client/node_modules/
+client/.env
+client/dist/
+client/build/
+
+# Server-side
+server/node_modules/
+server/.env
+server/dist/
+server/build/
+
+# Logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# OS and editor files
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Prisma
+server/prisma/dev.db
+server/prisma/dev.db-journal

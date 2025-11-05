@@ -1,0 +1,118 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum RoomType {
+  Single
+  Double
+  Triple
+  Quard
+}
+
+enum MealPlan {
+  BB
+  MAP
+  AP
+  EP
+  EPKitchen
+}
+
+enum Facility {
+  AC
+  NonAC
+}
+
+enum Role {
+  Owner
+  Manager
+  Viewer
+}
+
+enum Branch {
+  Kathmandu1
+  Kathmandu2
+  Pokhara
+  Bhairawaha
+}
+
+model User {
+  id        String   @id @default(uuid())
+  username  String   @unique
+  password  String
+  role      Role
+  branches  Branch[] // ✅ allow multiple branches
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Booking {
+  id            String   @id @default(uuid())
+  bookingNo     String   @unique
+  agentName     String
+  agentContact  String
+  roomsCount    Int
+  roomType      RoomType
+  facility      Facility
+  price         Int?
+  mealPlan      MealPlan
+  selfCooking   Int?
+  checkIn       DateTime
+  checkOut      DateTime
+  nights        Int
+  remark        String?
+  branch        Branch
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  bookingStatus String   @default("Confirmed")
+
+  @@index([branch, checkIn, checkOut])
+}
+
+model AuditLog {
+  id        String   @id @default(cuid())
+  timestamp DateTime @default(now())
+  username  String? // ✅ Optional — allow NULL
+  branch    String?
+  action    String
+  entity    String?
+  entityId  String?
+  details   Json? // ✅ Optional — allow NULL
+  ip        String?
+  userAgent String?
+}
+
+model Inventory {
+  id          String   @id @default(cuid())
+  branch      String   @unique
+  singleTotal Int      @default(10)
+  doubleTotal Int      @default(10)
+  tripleTotal Int      @default(10)
+  quardTotal  Int      @default(10)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model BranchCapacity {
+  id         Int      @id @default(autoincrement())
+  branch     String   @unique
+  singleCap  Int      @default(10)
+  doubleCap  Int      @default(10)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+}
+model TrialSignup {
+  id           String    @id @default(uuid())
+  username     String
+  email        String    @unique
+  phoneNumber  String
+  companyName  String
+  branches     String[]  // ✅ multiple branches allowed
+  createdAt    DateTime  @default(now())
+}
+
+

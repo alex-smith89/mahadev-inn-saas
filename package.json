@@ -1,0 +1,24 @@
+{
+  "name": "mahadev-inn-saas",
+  "private": true,
+  "scripts": {
+    "dev": "concurrently \"npm:dev:server\" \"npm:dev:client\"",
+    "dev:server": "npm --prefix server run start:dev",
+    "dev:client": "npm --prefix client run dev",
+    "build": "npm --prefix server run build && npm --prefix client run build",
+    "start": "concurrently \"npm:serve:server\" \"npm:serve:client\"",
+    "serve:server": "npm --prefix server run start:prod",
+    "serve:client": "npm --prefix client run start"
+  },
+  "devDependencies": {
+    "@types/node": "^24.3.1",
+    "@types/passport-jwt": "^4.0.1",
+    "concurrently": "^9.0.1"
+  },
+  "dependencies": {
+    "@prisma/client": "^6.15.0",
+    "@types/puppeteer": "^5.4.7",
+    "passport-jwt": "^4.0.1",
+    "puppeteer": "^24.19.0"
+  }
+}
