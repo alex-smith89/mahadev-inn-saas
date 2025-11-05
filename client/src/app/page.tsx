@@ -8,6 +8,17 @@ import html2canvas from 'html2canvas';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 
+// 🔹 Convert UTC ISO string → local Nepal time
+function formatLocalTime(utcString: string) {
+  if (!utcString) return "-";
+  const d = new Date(utcString);
+  // Format: YYYY-MM-DD HH:MM:SS (24-hour)
+  return d.toLocaleString("en-GB", {
+    timeZone: "Asia/Kathmandu",
+    hour12: false,
+  }).replace(",", "");
+}
+
 const countryCodes = [
   { code: '+977', name: 'Nepal (+977)' },
   { code: '+91', name: 'India (+91)' },
@@ -240,8 +251,25 @@ const [trialSignup, setTrialSignup] = useState({
     }
   }
 
+function getLocalTimestamp() {
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = String(now.getMonth() + 1).padStart(2, "0");
+  const day = String(now.getDate()).padStart(2, "0");
+  const hours = String(now.getHours()).padStart(2, "0");
+  const minutes = String(now.getMinutes()).padStart(2, "0");
+  const seconds = String(now.getSeconds()).padStart(2, "0");
+  return `${year}-${month}-${day} ${hours}:${minutes}:${seconds}`;
+}
+
 
   async function save() {
+    
+    function getLocalTimeString() {
+  const now = new Date();
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())} `
+       + `${pad(now.getHours())}:${pad(now.getMinutes())}:${pad(now.getSeconds())}`;}
     if (!/^\d{10}$/.test(form.agentContact)) {
       alert('Contact number must be exactly 10 digits.');
       return;
@@ -290,6 +318,10 @@ const [trialSignup, setTrialSignup] = useState({
       selfCooking: form.mealPlan === 'EPKitchen' ? Number(form.selfCooking) : null,
       bookingStatus: form.bookingStatus,
       agentContact: form.countryCode + form.agentContact,
+      // ✅ Force plain string, not Date
+  checkIn: `${form.checkIn} ${getLocalTimeString().split(" ")[1]}`,
+  checkOut: `${form.checkOut} ${getLocalTimeString().split(" ")[1]}`,
+  createdAt: getLocalTimeString(),
     };
     if (editingId) {
       await api.put(`/bookings/${editingId}`, payload);
@@ -393,8 +425,9 @@ const [trialSignup, setTrialSignup] = useState({
         ? `<tr><th>Self Cooking Price</th><td>${b.selfCooking ?? '-'}</td></tr>`
         : ''
       }
-          <tr><th>Check-In</th><td>${b.checkIn}</td></tr>
-          <tr><th>Check-Out</th><td>${b.checkOut}</td></tr>
+          <tr><th>Check-In</th><td>${formatLocalTime(b.checkIn)}</td></tr>
+<tr><th>Check-Out</th><td>${formatLocalTime(b.checkOut)}</td></tr>
+
           <tr><th>Nights</th><td>${nightsBetween(b.checkIn, b.checkOut)}</td></tr>
           <tr><th>Status</th><td>${b.bookingStatus}</td></tr>
           <tr><th>Remark</th><td>${b.remark ?? '-'}</td></tr>
@@ -524,17 +557,18 @@ const [trialSignup, setTrialSignup] = useState({
   // ---- Export Helpers ----
   function buildExcelRows() {
     return [
-      ['Agent', 'BookingNo', 'Branch', 'Rooms', 'Type', 'Price', 'Meal', 'Check-In', 'Check-Out', 'Nights', 'Status', 'Total'],
+      ['Agent','Agent Number', 'BookingNo', 'Branch', 'Rooms', 'Type', 'Price', 'Meal', 'Check-In', 'Check-Out', 'Nights', 'Status', 'Total'],
       ...filteredBookings.map(b => [
         b.agentName,
+        b.agentContact,
         b.bookingNo,
         b.branch,
         b.roomsCount,
         b.roomType,
         b.price ?? '-',
         b.mealPlan,
-        b.checkIn,
-        b.checkOut,
+        formatLocalTime(b.checkIn),   // ✅ Nepal local time
+        formatLocalTime(b.checkOut),  // ✅ Nepal local time
         nightsBetween(b.checkIn, b.checkOut),
         b.bookingStatus,
         b.total ?? 0,
@@ -667,55 +701,98 @@ const [trialSignup, setTrialSignup] = useState({
         )}
 
         {/* Room Capacity Management for Owner */}
-        {role === 'Owner' && (
-          <section className="bg-white shadow-md rounded-xl p-6 mb-6">
-            <h2 className="text-xl font-semibold mb-4 text-indigo-600">
-              Room Capacity Management
-            </h2>
-            <table className="min-w-full text-sm border-collapse">
-              <thead>
-                <tr className="border-b bg-indigo-50 text-indigo-900">
-                  <th className="py-2 px-4 text-left">Branch</th>
-                  <th className="py-2 px-4 text-center">Single Rooms</th>
-                  <th className="py-2 px-4 text-center">Double Rooms</th>
-                  <th className="py-2 px-4 text-center">Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {Object.keys(inventory).map((branch) => {
-                  let occupiedSingle = 0;
-                  let occupiedDouble = 0;
-                  const today = new Date();
+{role === 'Owner' && (
+  <section className="bg-white shadow-md rounded-xl p-4 sm:p-6 mb-6">
+    <h2 className="text-lg sm:text-xl font-semibold mb-4 text-indigo-600">
+      Room Capacity Management
+    </h2>
 
-                  for (const b of allBookings) {
-                    if (
-                      b.branch === branch &&
-                      (b.bookingStatus === 'Confirm' || b.bookingStatus === 'Confirmed') &&
-                      new Date(b.checkIn) <= today &&
-                      new Date(b.checkOut) > today
-                    ) {
-                      if (b.roomType === 'Single') occupiedSingle += b.roomsCount;
-                      else if (b.roomType === 'Double') occupiedDouble += b.roomsCount;
-                    }
-                  }
 
-                  const inv = inventory[branch] || { singleTotal: 0, doubleTotal: 0 };
-                  return (
-                    <BranchCapacityRow
-                      key={branch}
-                      branch={branch}
-                      inv={inv}
-                      occupiedSingle={occupiedSingle}
-                      occupiedDouble={occupiedDouble}
-                      onSave={saveCapacity}
-                    />
-                  );
-                })}
-              </tbody>
+    {/* Scrollable container for mobile */}
+<div className="overflow-x-auto">
+  <table className="w-full text-sm border-collapse min-w-[400px]">
+    <thead>
+      <tr className="border-b bg-indigo-50 text-indigo-900">
+        <th className="py-2 px-2 sm:px-4 text-left whitespace-nowrap">Branch</th>
+        <th className="py-2 px-2 sm:px-4 text-center whitespace-nowrap">Single Rooms</th>
+        <th className="py-2 px-2 sm:px-4 text-center whitespace-nowrap">Double Rooms</th>
+        <th className="py-2 px-2 sm:px-4 text-center whitespace-nowrap">Actions</th>
+      </tr>
+    </thead>
+    <tbody>
+      {Object.keys(inventory).map((branch) => {
+        let occupiedSingle = 0;
+        let occupiedDouble = 0;
+        const today = new Date();
 
-            </table>
-          </section>
-        )}
+        for (const b of allBookings) {
+          if (
+            b.branch === branch &&
+            (b.bookingStatus === "Confirm" || b.bookingStatus === "Confirmed") &&
+            new Date(b.checkIn) <= today &&
+            new Date(b.checkOut) > today
+          ) {
+            if (b.roomType === "Single") occupiedSingle += b.roomsCount;
+            else if (b.roomType === "Double") occupiedDouble += b.roomsCount;
+          }
+        }
+
+        const inv = inventory[branch] || { singleTotal: 0, doubleTotal: 0 };
+
+        return (
+          <tr key={branch} className="border-t hover:bg-gray-50">
+            {/* Branch Name */}
+            <td className="py-2 px-3 sm:px-4 text-left whitespace-nowrap">
+              {branch}
+            </td>
+
+            {/* Single Rooms */}
+            <td className="py-2 px-2 sm:px-4 text-center">
+              <div className="flex flex-col sm:flex-row items-center justify-center gap-1 sm:gap-2">
+                <span className="text-sm sm:text-base">{occupiedSingle} /</span>
+                <input
+                  type="number"
+                  min="0"
+                  className="w-16 sm:w-20 border rounded px-2 py-1 text-center focus:ring-2 focus:ring-indigo-400"
+                  value={inv.singleTotal}
+                  onChange={(e) => saveCapacity(branch, Number(e.target.value), inv.doubleTotal)}
+                />
+              </div>
+            </td>
+
+            {/* Double Rooms */}
+            <td className="py-2 px-2 sm:px-4 text-center">
+              <div className="flex flex-col sm:flex-row items-center justify-center gap-1 sm:gap-2">
+                <span className="text-sm sm:text-base">{occupiedDouble} /</span>
+                <input
+                  type="number"
+                  min="0"
+                  className="w-16 sm:w-20 border rounded px-2 py-1 text-center focus:ring-2 focus:ring-indigo-400"
+                  value={inv.doubleTotal}
+                  onChange={(e) => saveCapacity(branch, inv.singleTotal, Number(e.target.value))}
+                />
+              </div>
+            </td>
+
+            {/* Actions */}
+            <td className="py-2 px-2 sm:px-4 text-center">
+              <button
+                onClick={() => saveCapacity(branch, inv.singleTotal, inv.doubleTotal)}
+                className="px-3 py-1 bg-indigo-600 hover:bg-indigo-700 text-white rounded-md text-xs sm:text-sm"
+              >
+                Save
+              </button>
+            </td>
+          </tr>
+        );
+      })}
+    </tbody>
+  </table>
+</div>
+
+  </section>
+)}
+
 
         {/* Branch selector for Owner */}
         {role === 'Owner' && (
@@ -1437,6 +1514,7 @@ const [trialSignup, setTrialSignup] = useState({
                       doc.text(`Bookings — ${selectedDay}`, 14, 15);
                       const rows = dayBookings.map(b => [
                         b.agentName,
+                        b.agentContact,
                         b.bookingNo,
                         b.roomsCount,
                         b.roomType,
