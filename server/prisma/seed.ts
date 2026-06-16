@@ -1,4 +1,5 @@
 import { PrismaClient, Role, Branch } from '@prisma/client';
+// @ts-ignore
 import * as bcrypt from 'bcryptjs';
 
 const prisma = new PrismaClient();
@@ -12,7 +13,7 @@ async function main() {
       branches: [Branch.Kathmandu1, Branch.Kathmandu2, Branch.Pokhara, Branch.Bhairawaha], // all 4
     },
     {
-      username: 'manager1',
+      username: 'manager',
       password: 'manager123',
       role: Role.Manager,
       branches: [Branch.Kathmandu1],

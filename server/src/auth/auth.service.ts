@@ -2,7 +2,7 @@
 import { Injectable, UnauthorizedException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { UsersService } from '../users/users.service';
-import * as bcrypt from 'bcryptjs';
+const bcrypt: any = require('bcryptjs');
 import { AuditService } from '../../apps/api/src/audit/audit.service'; // 👈 import audit
 
 @Injectable()
