@@ -26,7 +26,8 @@ import { EmailService } from '../email/email.service';
 import * as pdf from 'html-pdf';
 
 @UseGuards(JwtAuthGuard)
-@Controller('api/bookings')
+@Controller('bookings') // ✅ FIXED: was 'api/bookings' — main.ts already adds the 'api' prefix globally,
+                         // so the old value produced /api/api/bookings instead of /api/bookings
 export class BookingsController {
   constructor(
     private readonly svc: BookingsService,
@@ -116,7 +117,7 @@ export class BookingsController {
   ) {
     try {
       const user = req.user;
-      
+
       console.log(`📝 Updating status for booking ${id} to ${body.bookingStatus}`);
 
       // ✅ Only allow status update
@@ -188,7 +189,7 @@ export class BookingsController {
       // ✅ Check if this is a status-only update (handled by PATCH)
       const keys = Object.keys(dto);
       const isOnlyStatusUpdate = keys.length === 1 && keys[0] === 'bookingStatus';
-      
+
       if (isOnlyStatusUpdate) {
         console.log('✅ Redirecting to status update');
         return this.updateStatus(req, id, { bookingStatus: dto.bookingStatus });
@@ -244,7 +245,7 @@ export class BookingsController {
   async findOne(@Param('id') id: string) {
     try {
       console.log('📤 Fetching booking:', id);
-      
+
       let booking = await this.svc.prisma.booking.findUnique({
         where: { id },
       });
@@ -363,7 +364,6 @@ export class BookingsController {
         }
       }
 
-      // ✅ FIX: Use 'as any' to bypass type checking for branch
       const bookings = await this.svc.prisma.booking.findMany({
         where: {
           branch: targetBranch as any,
@@ -417,12 +417,10 @@ export class BookingsController {
         }
       }
 
-      // Get summary data
       const startDate = new Date(month + '-01');
       const endDate = new Date(startDate);
       endDate.setMonth(endDate.getMonth() + 1);
 
-      // ✅ FIX: Use 'as any' to bypass type checking for branch
       const bookings = await this.svc.prisma.booking.findMany({
         where: {
           branch: targetBranch as any,
@@ -504,7 +502,7 @@ export class BookingsController {
   async getDashboardStats(@Req() req: any, @Query('branch') branch?: string) {
     try {
       const user = req.user;
-      
+
       // ✅ Determine target branch
       let targetBranch = branch;
       if (!targetBranch) {
@@ -516,10 +514,10 @@ export class BookingsController {
       }
 
       console.log('📊 Fetching dashboard stats for branch:', targetBranch);
-      
+
       // ✅ Get stats from service
       const stats = await this.svc.getDashboardStats(targetBranch);
-      
+
       return {
         stats: stats || {
           totalRooms: 50,
@@ -554,7 +552,7 @@ export class BookingsController {
   async getStats(@Req() req: any, @Query('branch') branch?: string) {
     try {
       const user = req.user;
-      
+
       let targetBranch = branch;
       if (!targetBranch) {
         if (user.role === 'OWNER') {
@@ -565,10 +563,10 @@ export class BookingsController {
       }
 
       console.log('📊 Fetching booking stats for branch:', targetBranch);
-      
+
       // ✅ Get stats from service
       const result = await this.svc.getBookingStats(targetBranch);
-      
+
       return result || {
         confirmed: 0,
         pending: 0,

@@ -1,6 +1,7 @@
+// server.js - Complete working version with PostgreSQL
 const express = require('express');
 const cors = require('cors');
-const mysql = require('mysql2/promise');
+const { Pool } = require('pg');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 require('dotenv').config();
@@ -10,20 +11,26 @@ const PORT = process.env.PORT || 4000;
 
 // Middleware
 app.use(cors({
-  origin: ['http://localhost:3000', 'http://localhost:3001'],
+  origin: ['http://localhost:3000', 'http://localhost:3001', 'http://localhost:3002'],
   credentials: true
 }));
 app.use(express.json());
 
-// Database connection
-const pool = mysql.createPool({
-  host: process.env.DB_HOST || 'localhost',
-  user: process.env.DB_USER || 'root',
-  password: process.env.DB_PASSWORD || '',
-  database: process.env.DB_NAME || 'hotel_management',
-  waitForConnections: true,
-  connectionLimit: 10,
-  queueLimit: 0
+// Database connection - PostgreSQL
+const pool = new Pool({
+  connectionString: process.env.DATABASE_URL,
+  ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false
+});
+
+// Test database connection
+pool.connect((err, client, release) => {
+  if (err) {
+    console.error('❌ Database connection error:', err.stack);
+    console.log('⚠️ Please make sure PostgreSQL is running and the database exists');
+    return;
+  }
+  console.log('✅ Database connected successfully');
+  release();
 });
 
 const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key-change-this';
@@ -46,34 +53,28 @@ const authenticate = async (req, res, next) => {
 
 // ==================== AUTH ENDPOINTS ====================
 
-// Get user info (for login page)
+// Get user info
 app.get('/api/auth/user-info/:username', async (req, res) => {
   try {
     const { username } = req.params;
     
-    console.log('🔍 Fetching user info for:', username);
-
-    const [users] = await pool.execute(
-      'SELECT id, username, role, canViewAllBranches, canCreateBookings FROM users WHERE username = ?',
+    const result = await pool.query(
+      'SELECT id, username, role, canViewAllBranches, canCreateBookings FROM users WHERE username = $1',
       [username]
     );
 
-    if (users.length === 0) {
-      console.log('❌ User not found:', username);
+    if (result.rows.length === 0) {
       return res.status(404).json({ message: 'User not found' });
     }
 
-    const user = users[0];
-    console.log('✅ User found:', user);
+    const user = result.rows[0];
     
-    // Get user branches
-    const [branches] = await pool.execute(
-      'SELECT branch_name FROM user_branches WHERE user_id = ?',
+    const branchesResult = await pool.query(
+      'SELECT branch_name FROM user_branches WHERE user_id = $1',
       [user.id]
     );
 
-    const userBranches = branches.map(b => b.branch_name);
-    console.log('📋 User branches:', userBranches);
+    const userBranches = branchesResult.rows.map(row => row.branch_name);
 
     res.json({
       ...user,
@@ -90,45 +91,35 @@ app.post('/api/auth/login', async (req, res) => {
   try {
     const { username, password, branch } = req.body;
 
-    console.log('🔐 Login attempt:', { username, branch });
-
-    // Get user from database
-    const [users] = await pool.execute(
-      'SELECT * FROM users WHERE username = ?',
+    const result = await pool.query(
+      'SELECT * FROM users WHERE username = $1',
       [username]
     );
 
-    if (users.length === 0) {
-      console.log('❌ User not found:', username);
+    if (result.rows.length === 0) {
       return res.status(401).json({ message: 'Invalid credentials' });
     }
 
-    const user = users[0];
+    const user = result.rows[0];
     const isValidPassword = await bcrypt.compare(password, user.password_hash);
     
     if (!isValidPassword) {
-      console.log('❌ Invalid password for:', username);
       return res.status(401).json({ message: 'Invalid credentials' });
     }
 
-    // Get user branches
-    const [branches] = await pool.execute(
-      'SELECT branch_name FROM user_branches WHERE user_id = ?',
+    const branchesResult = await pool.query(
+      'SELECT branch_name FROM user_branches WHERE user_id = $1',
       [user.id]
     );
 
-    const userBranches = branches.map(b => b.branch_name);
-    console.log('📋 User branches:', userBranches);
+    const userBranches = branchesResult.rows.map(row => row.branch_name);
 
-    // Verify selected branch is valid
     if (!userBranches.includes(branch)) {
-      console.log('❌ Invalid branch:', branch, 'Available:', userBranches);
       return res.status(400).json({ 
         message: `Branch "${branch}" is not assigned to this user. Available: ${userBranches.join(', ')}` 
       });
     }
 
-    // Generate JWT token with permissions
     const token = jwt.sign(
       { 
         id: user.id, 
@@ -136,8 +127,8 @@ app.post('/api/auth/login', async (req, res) => {
         role: user.role,
         branches: userBranches,
         selectedBranch: branch,
-        canViewAllBranches: user.canViewAllBranches === 1,
-        canCreateBookings: user.canCreateBookings === 1
+        canViewAllBranches: user.canviewallbranches === true,
+        canCreateBookings: user.cancreatebookings === true
       },
       JWT_SECRET,
       { expiresIn: '24h' }
@@ -149,11 +140,9 @@ app.post('/api/auth/login', async (req, res) => {
       role: user.role,
       branches: userBranches,
       selectedBranch: branch,
-      canViewAllBranches: user.canViewAllBranches === 1,
-      canCreateBookings: user.canCreateBookings === 1
+      canViewAllBranches: user.canviewallbranches === true,
+      canCreateBookings: user.cancreatebookings === true
     };
-
-    console.log('✅ Login successful for:', username);
 
     res.json({
       token,
@@ -165,72 +154,70 @@ app.post('/api/auth/login', async (req, res) => {
   }
 });
 
-// Logout
-app.post('/api/auth/logout', authenticate, (req, res) => {
-  res.json({ message: 'Logged out successfully' });
-});
-
 // ==================== BOOKINGS ENDPOINTS ====================
 
-// Get bookings based on user permissions
+// Get bookings with branch-wise filtering
 app.get('/api/bookings', authenticate, async (req, res) => {
   try {
     const user = req.user;
-    let query = 'SELECT * FROM bookings';
+    const selectedBranch = user.selectedBranch;
+    const canViewAllBranches = user.canViewAllBranches;
+    const userBranches = user.branches || [];
+
+    await updateBookingStatuses();
+
+    let query = 'SELECT * FROM bookings WHERE 1=1';
     const params = [];
+    let paramCount = 1;
 
-    console.log('📊 Fetching bookings for user:', user.username, 'Role:', user.role);
-    console.log('📋 User branches:', user.branches);
-    console.log('👁️ Can view all branches:', user.canViewAllBranches);
-
-    // Branch-based filtering
-    if (!user.canViewAllBranches) {
-      // User can only see their assigned branches
-      if (user.branches && user.branches.length > 0) {
-        const placeholders = user.branches.map(() => '?').join(',');
-        query += ` WHERE branch IN (${placeholders})`;
-        params.push(...user.branches);
+    if (canViewAllBranches && selectedBranch === 'all') {
+      // Owner can see all branches
+    } else if (canViewAllBranches && selectedBranch) {
+      query += ` AND branch = $${paramCount}`;
+      params.push(selectedBranch);
+      paramCount++;
+    } else {
+      if (selectedBranch) {
+        query += ` AND branch = $${paramCount}`;
+        params.push(selectedBranch);
+        paramCount++;
+      } else if (userBranches.length > 0) {
+        const placeholders = userBranches.map((_, i) => `$${paramCount + i}`).join(',');
+        query += ` AND branch IN (${placeholders})`;
+        params.push(...userBranches);
       } else {
-        // User has no branches assigned
         return res.json({ bookings: [], total: 0 });
       }
     }
 
-    // If user has selected a specific branch, filter by it
-    if (user.selectedBranch && !user.canViewAllBranches) {
-      if (params.length > 0) {
-        query += ` AND branch = ?`;
-      } else {
-        query += ` WHERE branch = ?`;
-      }
-      params.push(user.selectedBranch);
-    }
-
     query += ' ORDER BY created_at DESC';
 
-    console.log('📝 Query:', query);
-    console.log('📝 Params:', params);
+    const result = await pool.query(query, params);
 
-    const [bookings] = await pool.execute(query, params);
-    
-    // Filter by selected branch if owner selected a specific branch
-    let filteredBookings = bookings;
-    if (user.canViewAllBranches && user.selectedBranch) {
-      filteredBookings = bookings.filter(b => b.branch === user.selectedBranch);
+    // Get branch counts
+    const branchCounts = {};
+    for (const branch of userBranches) {
+      const countResult = await pool.query(
+        'SELECT COUNT(*) as count FROM bookings WHERE branch = $1',
+        [branch]
+      );
+      branchCounts[branch] = parseInt(countResult.rows[0].count);
     }
 
-    console.log(`✅ Found ${filteredBookings.length} bookings`);
+    const branchInfo = {
+      selectedBranch: selectedBranch || 'none',
+      availableBranches: userBranches,
+      canViewAllBranches: canViewAllBranches,
+      currentBranch: selectedBranch || (userBranches.length > 0 ? userBranches[0] : 'none')
+    };
 
     res.json({ 
       success: true, 
-      bookings: filteredBookings,
-      total: filteredBookings.length,
-      user: {
-        role: user.role,
-        branches: user.branches,
-        selectedBranch: user.selectedBranch,
-        canViewAllBranches: user.canViewAllBranches
-      }
+      bookings: result.rows,
+      total: result.rows.length,
+      branchInfo: branchInfo,
+      branchCounts: branchCounts,
+      lastUpdated: new Date().toISOString()
     });
   } catch (error) {
     console.error('Error fetching bookings:', error);
@@ -238,295 +225,866 @@ app.get('/api/bookings', authenticate, async (req, res) => {
   }
 });
 
-// Get single booking (with permission check)
-app.get('/api/bookings/:id', authenticate, async (req, res) => {
-  try {
-    const { id } = req.params;
-    const user = req.user;
-
-    const [bookings] = await pool.execute(
-      'SELECT * FROM bookings WHERE id = ?',
-      [id]
-    );
-
-    if (bookings.length === 0) {
-      return res.status(404).json({ message: 'Booking not found' });
-    }
-
-    const booking = bookings[0];
-
-    // Check permission
-    if (!user.canViewAllBranches) {
-      if (!user.branches.includes(booking.branch)) {
-        return res.status(403).json({ 
-          message: 'You do not have permission to view this booking' 
-        });
-      }
-    }
-
-    res.json(booking);
-  } catch (error) {
-    console.error('Error fetching booking:', error);
-    res.status(500).json({ message: 'Error fetching booking' });
-  }
-});
-
-// Create booking (with permission check)
+// Create booking with real-time branch updates
 app.post('/api/bookings', authenticate, async (req, res) => {
   try {
     const user = req.user;
     const {
       bookingNo,
       agentName,
+      agentContact,
+      email,
       branch,
+      roomType,
+      roomsCount,
+      mealPlan,
+      facility,
       checkIn,
       checkOut,
-      roomsCount,
-      totalCost,
+      bookingStatus,
       roomCharges,
-      price,
-      bookingStatus
+      extraPersonCharges,
+      totalCost,
+      currency,
+      heads,
+      remark
     } = req.body;
 
-    // Check permission to create booking
-    if (!user.canCreateBookings) {
-      return res.status(403).json({ 
-        message: 'You do not have permission to create bookings' 
-      });
-    }
-
-    // Check if user can create booking in this branch
-    if (!user.canViewAllBranches && !user.branches.includes(branch)) {
-      return res.status(403).json({ 
-        message: 'You do not have permission to create bookings in this branch' 
-      });
-    }
-
-    const [result] = await pool.execute(
-      `INSERT INTO bookings 
-      (bookingNo, agentName, branch, checkIn, checkOut, roomsCount, totalCost, roomCharges, price, bookingStatus, created_at, updated_at) 
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())`,
-      [bookingNo, agentName, branch, checkIn, checkOut, roomsCount, totalCost, roomCharges, price, bookingStatus || 'Pending']
-    );
-
-    const [newBooking] = await pool.execute(
-      'SELECT * FROM bookings WHERE id = ?',
-      [result.insertId]
-    );
-
-    res.status(201).json(newBooking[0]);
-  } catch (error) {
-    console.error('Error creating booking:', error);
-    res.status(500).json({ message: 'Error creating booking' });
-  }
-});
-
-// Update booking (with permission check)
-app.put('/api/bookings/:id', authenticate, async (req, res) => {
-  try {
-    const { id } = req.params;
-    const user = req.user;
-    const updates = req.body;
-
-    // Get existing booking
-    const [existing] = await pool.execute(
-      'SELECT * FROM bookings WHERE id = ?',
-      [id]
-    );
-
-    if (existing.length === 0) {
-      return res.status(404).json({ message: 'Booking not found' });
-    }
-
-    const booking = existing[0];
-
-    // Check permission
-    if (!user.canViewAllBranches) {
-      if (!user.branches.includes(booking.branch)) {
-        return res.status(403).json({ 
-          message: 'You do not have permission to update this booking' 
-        });
-      }
-    }
-
-    // Check if branch is being changed
-    if (updates.branch && !user.canViewAllBranches) {
-      if (!user.branches.includes(updates.branch)) {
-        return res.status(403).json({ 
-          message: 'You do not have permission to move bookings to this branch' 
-        });
-      }
-    }
-
-    const updateFields = [];
-    const updateValues = [];
-
-    Object.keys(updates).forEach(key => {
-      if (key !== 'id' && key !== 'created_at' && key !== 'createdAt') {
-        updateFields.push(`${key} = ?`);
-        updateValues.push(updates[key]);
-      }
+    console.log('📝 Creating booking:', {
+      agentName,
+      branch,
+      user: user.username,
+      role: user.role,
+      userBranches: user.branches
     });
 
-    updateValues.push(new Date());
-    updateValues.push(id);
-
-    await pool.execute(
-      `UPDATE bookings SET ${updateFields.join(', ')}, updated_at = ? WHERE id = ?`,
-      updateValues
-    );
-
-    const [updated] = await pool.execute(
-      'SELECT * FROM bookings WHERE id = ?',
-      [id]
-    );
-
-    res.json(updated[0]);
-  } catch (error) {
-    console.error('Error updating booking:', error);
-    res.status(500).json({ message: 'Error updating booking' });
-  }
-});
-
-// Delete booking (with permission check)
-app.delete('/api/bookings/:id', authenticate, async (req, res) => {
-  try {
-    const { id } = req.params;
-    const user = req.user;
-
-    // Get existing booking
-    const [existing] = await pool.execute(
-      'SELECT * FROM bookings WHERE id = ?',
-      [id]
-    );
-
-    if (existing.length === 0) {
-      return res.status(404).json({ message: 'Booking not found' });
-    }
-
-    const booking = existing[0];
-
-    // Check permission
+    // Validate branch permission
     if (!user.canViewAllBranches) {
-      if (!user.branches.includes(booking.branch)) {
+      if (!user.branches.includes(branch)) {
         return res.status(403).json({ 
-          message: 'You do not have permission to delete this booking' 
+          message: `You do not have permission to create bookings in branch: ${branch}` 
         });
       }
     }
 
-    await pool.execute(
-      'DELETE FROM bookings WHERE id = ?',
-      [id]
+    // Insert booking
+    const result = await pool.query(
+      `INSERT INTO bookings 
+      (bookingNo, agentName, agentContact, email, branch, roomType, roomsCount, 
+       mealPlan, facility, checkIn, checkOut, bookingStatus, roomCharges, 
+       extraPersonCharges, totalCost, currency, heads, remark, created_at, updated_at) 
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, NOW(), NOW())
+      RETURNING *`,
+      [bookingNo, agentName, agentContact, email, branch, roomType, roomsCount,
+       mealPlan, facility, checkIn, checkOut, bookingStatus || 'Confirm', roomCharges || 0,
+       extraPersonCharges || 0, totalCost || 0, currency || 'NPR', heads || 0, remark || '']
     );
 
-    res.json({ message: 'Booking deleted successfully' });
+    const newBooking = result.rows[0];
+
+    // Create notification for ALL users in this branch
+    const notificationTitle = `📋 New Booking in ${branch}`;
+    const notificationMessage = `New booking #${bookingNo} created for ${agentName} at ${branch} by ${user.username}`;
+    
+    await pool.query(
+      `INSERT INTO notifications 
+      (title, message, branch, bookingId, type, created_at) 
+      VALUES ($1, $2, $3, $4, $5, NOW())`,
+      [notificationTitle, notificationMessage, branch, newBooking.id, 'booking_created']
+    );
+
+    // Get notification ID
+    const notificationResult = await pool.query(
+      'SELECT id FROM notifications WHERE bookingId = $1 ORDER BY created_at DESC LIMIT 1',
+      [newBooking.id]
+    );
+    const notificationId = notificationResult.rows[0].id;
+
+    // Get all users for this branch
+    const branchUsersResult = await pool.query(
+      `SELECT u.id, u.username, u.role 
+       FROM users u 
+       JOIN user_branches ub ON u.id = ub.user_id 
+       WHERE ub.branch_name = $1`,
+      [branch]
+    );
+
+    // Create user notifications for ALL users in this branch
+    for (const branchUser of branchUsersResult.rows) {
+      await pool.query(
+        `INSERT INTO user_notifications (user_id, notification_id, isRead, created_at) 
+         VALUES ($1, $2, false, NOW())`,
+        [branchUser.id, notificationId]
+      );
+    }
+
+    // Update branch stats
+    await pool.query(
+      `INSERT INTO branch_stats (branch, totalBookings, lastBookingDate, lastUpdatedBy) 
+       VALUES ($1, 1, NOW(), $2) 
+       ON CONFLICT (branch) DO UPDATE SET 
+       totalBookings = branch_stats.totalBookings + 1, 
+       lastBookingDate = NOW(),
+       lastUpdatedBy = $2`,
+      [branch, user.username]
+    );
+
+    console.log(`✅ Booking created in branch: ${branch} by ${user.username}`);
+    console.log(`📢 Notified ${branchUsersResult.rows.length} users in branch: ${branch}`);
+
+    res.status(201).json({ 
+      success: true, 
+      data: newBooking,
+      message: `Booking created successfully in ${branch}`,
+      notifiedUsers: branchUsersResult.rows.length,
+      branch: branch,
+      bookingNo: bookingNo
+    });
   } catch (error) {
-    console.error('Error deleting booking:', error);
-    res.status(500).json({ message: 'Error deleting booking' });
+    console.error('❌ Error creating booking:', error);
+    res.status(500).json({ 
+      success: false, 
+      message: 'Error creating booking',
+      error: error.message 
+    });
   }
 });
 
-// ==================== DASHBOARD STATS ====================
+// Update booking statuses automatically
+async function updateBookingStatuses() {
+  try {
+    await pool.query(
+      `UPDATE bookings 
+       SET bookingStatus = 'CheckedIn', updated_at = NOW() 
+       WHERE bookingStatus IN ('Confirm', 'Confirmed', 'Pending') 
+       AND DATE(checkIn) <= CURRENT_DATE`
+    );
 
-// Get dashboard statistics based on permissions
-app.get('/api/dashboard/stats', authenticate, async (req, res) => {
+    await pool.query(
+      `UPDATE bookings 
+       SET bookingStatus = 'CheckedOut', updated_at = NOW() 
+       WHERE bookingStatus IN ('Confirm', 'Confirmed', 'CheckedIn') 
+       AND DATE(checkOut) < CURRENT_DATE`
+    );
+
+    const currentHour = new Date().getHours();
+    if (currentHour >= 12) {
+      await pool.query(
+        `UPDATE bookings 
+         SET bookingStatus = 'CheckedOut', updated_at = NOW() 
+         WHERE bookingStatus IN ('Confirm', 'Confirmed', 'CheckedIn') 
+         AND DATE(checkOut) = CURRENT_DATE`
+      );
+    }
+
+    console.log('✅ Booking statuses auto-updated');
+  } catch (error) {
+    console.error('Error updating booking statuses:', error);
+  }
+}
+
+// ==================== AUTOMATION ENDPOINTS ====================
+
+// ✅ AUTO CHECK-IN ENDPOINT
+app.post('/api/automation/checkin', authenticate, async (req, res) => {
+  console.log('🔄 Auto check-in API called');
+  
   try {
     const user = req.user;
-    let query = 'SELECT * FROM bookings';
-    const params = [];
+    const userBranches = user.branches || [];
+    const selectedBranch = user.selectedBranch;
+    const canViewAllBranches = user.canViewAllBranches;
+    
+    let targetBranches = [];
+    if (canViewAllBranches && selectedBranch === 'all') {
+      const allBranchesResult = await pool.query('SELECT DISTINCT branch FROM bookings');
+      targetBranches = allBranchesResult.rows.map(row => row.branch);
+    } else if (selectedBranch) {
+      targetBranches = [selectedBranch];
+    } else {
+      targetBranches = userBranches;
+    }
+    
+    console.log('📋 Processing check-in for branches:', targetBranches.join(', '));
 
-    // Branch-based filtering
-    if (!user.canViewAllBranches) {
-      if (user.branches && user.branches.length > 0) {
-        const placeholders = user.branches.map(() => '?').join(',');
-        query += ` WHERE branch IN (${placeholders})`;
-        params.push(...user.branches);
+    const bookingsResult = await pool.query(
+      `SELECT * FROM bookings 
+       WHERE branch = ANY($1::text[]) 
+       AND bookingStatus IN ($2, $3, $4) 
+       AND DATE(checkIn) <= CURRENT_DATE`,
+      [targetBranches, 'Confirm', 'Confirmed', 'Pending']
+    );
+
+    console.log(`📋 Found ${bookingsResult.rows.length} bookings to check-in`);
+
+    let checkedIn = 0;
+    const checkedInBookings = [];
+
+    for (const booking of bookingsResult.rows) {
+      try {
+        await pool.query(
+          'UPDATE bookings SET bookingStatus = $1, updated_at = NOW() WHERE id = $2',
+          ['CheckedIn', booking.id]
+        );
+        
+        await pool.query(
+          `INSERT INTO notifications (title, message, branch, bookingId, type, created_at) 
+           VALUES ($1, $2, $3, $4, $5, NOW())`,
+          ['🔄 Automated Check-in', 
+           `Guest ${booking.agentName} (${booking.bookingNo}) has been automatically checked in at ${booking.branch}.`,
+           booking.branch, booking.id, 'auto_checkin']
+        );
+        
+        checkedIn++;
+        checkedInBookings.push(booking);
+        console.log(`✅ Checked in: ${booking.agentName} (${booking.bookingNo}) at ${booking.branch}`);
+        
+      } catch (error) {
+        console.error(`Error checking in booking ${booking.id}:`, error);
       }
     }
 
-    // If user selected a specific branch
-    if (user.selectedBranch) {
-      if (params.length > 0) {
-        query += ` AND branch = ?`;
-      } else {
-        query += ` WHERE branch = ?`;
+    res.json({
+      success: true,
+      data: {
+        checkedIn: checkedIn,
+        bookings: checkedInBookings.map(b => ({
+          id: b.id,
+          agentName: b.agentName,
+          bookingNo: b.bookingNo,
+          branch: b.branch,
+          roomType: b.roomType
+        }))
+      },
+      message: `Successfully checked in ${checkedIn} guests`
+    });
+  } catch (error) {
+    console.error('Error in check-in automation:', error);
+    res.status(500).json({
+      success: false,
+      message: error.message || 'Failed to run check-in automation'
+    });
+  }
+});
+
+// ✅ AUTO CHECK-OUT ENDPOINT
+app.post('/api/automation/checkout', authenticate, async (req, res) => {
+  console.log('🔄 Auto checkout API called');
+  
+  try {
+    const user = req.user;
+    const userBranches = user.branches || [];
+    const selectedBranch = user.selectedBranch;
+    const canViewAllBranches = user.canViewAllBranches;
+    
+    let targetBranches = [];
+    if (canViewAllBranches && selectedBranch === 'all') {
+      const allBranchesResult = await pool.query('SELECT DISTINCT branch FROM bookings');
+      targetBranches = allBranchesResult.rows.map(row => row.branch);
+    } else if (selectedBranch) {
+      targetBranches = [selectedBranch];
+    } else {
+      targetBranches = userBranches;
+    }
+    
+    console.log('📋 Processing checkout for branches:', targetBranches.join(', '));
+
+    const bookingsResult = await pool.query(
+      `SELECT * FROM bookings 
+       WHERE branch = ANY($1::text[]) 
+       AND bookingStatus IN ($2, $3, $4) 
+       AND DATE(checkOut) <= CURRENT_DATE`,
+      [targetBranches, 'Confirm', 'Confirmed', 'CheckedIn']
+    );
+
+    console.log(`📋 Found ${bookingsResult.rows.length} bookings to check-out`);
+
+    let checkedOut = 0;
+    const checkedOutBookings = [];
+
+    for (const booking of bookingsResult.rows) {
+      try {
+        await pool.query(
+          'UPDATE bookings SET bookingStatus = $1, updated_at = NOW() WHERE id = $2',
+          ['CheckedOut', booking.id]
+        );
+        
+        await pool.query(
+          `INSERT INTO notifications (title, message, branch, bookingId, type, created_at) 
+           VALUES ($1, $2, $3, $4, $5, NOW())`,
+          ['📤 Automated Checkout', 
+           `Guest ${booking.agentName} (${booking.bookingNo}) has been automatically checked out from ${booking.branch}. Room is now vacant.`,
+           booking.branch, booking.id, 'auto_checkout']
+        );
+        
+        checkedOut++;
+        checkedOutBookings.push(booking);
+        console.log(`✅ Checked out: ${booking.agentName} (${booking.bookingNo}) from ${booking.branch}`);
+        
+      } catch (error) {
+        console.error(`Error checking out booking ${booking.id}:`, error);
       }
-      params.push(user.selectedBranch);
     }
 
-    const [bookings] = await pool.execute(query, params);
+    res.json({
+      success: true,
+      data: {
+        checkedOut: checkedOut,
+        bookings: checkedOutBookings.map(b => ({
+          id: b.id,
+          agentName: b.agentName,
+          bookingNo: b.bookingNo,
+          branch: b.branch,
+          roomType: b.roomType
+        }))
+      },
+      message: `Successfully checked out ${checkedOut} guests`
+    });
+  } catch (error) {
+    console.error('Error in checkout automation:', error);
+    res.status(500).json({
+      success: false,
+      message: error.message || 'Failed to run checkout automation'
+    });
+  }
+});
 
-    // Calculate stats
+// ✅ SEND REMINDERS ENDPOINT
+app.post('/api/automation/reminders', authenticate, async (req, res) => {
+  console.log('📧 Reminders API called');
+  
+  try {
+    const user = req.user;
+    const userBranches = user.branches || [];
+    const selectedBranch = user.selectedBranch;
+    const canViewAllBranches = user.canViewAllBranches;
+    
+    let targetBranches = [];
+    if (canViewAllBranches && selectedBranch === 'all') {
+      const allBranchesResult = await pool.query('SELECT DISTINCT branch FROM bookings');
+      targetBranches = allBranchesResult.rows.map(row => row.branch);
+    } else if (selectedBranch) {
+      targetBranches = [selectedBranch];
+    } else {
+      targetBranches = userBranches;
+    }
+    
+    console.log('📋 Sending reminders for branches:', targetBranches.join(', '));
+
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    
+    let checkoutReminders = 0;
+    let checkinReminders = 0;
+
+    // Checkout reminders (1-3 days)
+    const checkoutResult = await pool.query(
+      `SELECT * FROM bookings 
+       WHERE branch = ANY($1::text[]) 
+       AND bookingStatus IN ($2, $3, $4) 
+       AND DATE(checkOut) >= CURRENT_DATE
+       AND DATE(checkOut) <= CURRENT_DATE + INTERVAL '3 days'`,
+      [targetBranches, 'Confirm', 'Confirmed', 'CheckedIn']
+    );
+
+    for (const booking of checkoutResult.rows) {
+      const checkOutDate = new Date(booking.checkout);
+      checkOutDate.setHours(0, 0, 0, 0);
+      const daysUntilCheckout = Math.ceil((checkOutDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+      
+      if (daysUntilCheckout > 0 && daysUntilCheckout <= 3) {
+        await pool.query(
+          `INSERT INTO notifications (title, message, branch, bookingId, type, created_at) 
+           VALUES ($1, $2, $3, $4, $5, NOW())`,
+          [`📅 Checkout Reminder - ${daysUntilCheckout} day${daysUntilCheckout > 1 ? 's' : ''}`,
+           `Guest ${booking.agentName} (${booking.bookingNo}) has checkout in ${daysUntilCheckout} days at ${booking.branch}.`,
+           booking.branch, booking.id, 'checkout_reminder']
+        );
+        checkoutReminders++;
+      }
+    }
+
+    // Check-in reminders (tomorrow)
+    const checkinResult = await pool.query(
+      `SELECT * FROM bookings 
+       WHERE branch = ANY($1::text[]) 
+       AND bookingStatus IN ($2, $3, $4) 
+       AND DATE(checkIn) = CURRENT_DATE + INTERVAL '1 day'`,
+      [targetBranches, 'Confirm', 'Confirmed', 'Pending']
+    );
+
+    for (const booking of checkinResult.rows) {
+      await pool.query(
+        `INSERT INTO notifications (title, message, branch, bookingId, type, created_at) 
+         VALUES ($1, $2, $3, $4, $5, NOW())`,
+        ['📅 Check-in Tomorrow',
+         `Guest ${booking.agentName} (${booking.bookingNo}) is scheduled to check-in tomorrow at ${booking.branch}.`,
+         booking.branch, booking.id, 'checkin_reminder']
+      );
+      checkinReminders++;
+    }
+
+    res.json({
+      success: true,
+      data: {
+        checkoutReminders: checkoutReminders,
+        checkinReminders: checkinReminders
+      },
+      message: `Sent ${checkoutReminders} checkout reminders and ${checkinReminders} check-in reminders`
+    });
+  } catch (error) {
+    console.error('Error sending reminders:', error);
+    res.status(500).json({
+      success: false,
+      message: error.message || 'Failed to send reminders'
+    });
+  }
+});
+
+// ✅ FULL AUTOMATION ENDPOINT
+app.post('/api/automation/run', authenticate, async (req, res) => {
+  console.log('🚀 Full automation run API called');
+  
+  try {
+    const user = req.user;
+    const selectedBranch = user.selectedBranch;
+    const userBranches = user.branches || [];
+    const canViewAllBranches = user.canViewAllBranches;
+
+    let targetBranches = [];
+    if (canViewAllBranches && selectedBranch === 'all') {
+      const allBranchesResult = await pool.query('SELECT DISTINCT branch FROM bookings');
+      targetBranches = allBranchesResult.rows.map(row => row.branch);
+    } else if (selectedBranch) {
+      targetBranches = [selectedBranch];
+    } else {
+      targetBranches = userBranches;
+    }
+
+    console.log(`📋 Running full automation for branches: ${targetBranches.join(', ')}`);
+
     const today = new Date();
     today.setHours(0, 0, 0, 0);
 
-    const confirmed = bookings.filter((b: any) => 
-      b.bookingStatus === 'Confirm' || b.bookingStatus === 'Confirmed'
+    const results = {
+      checkins: { checkedIn: 0 },
+      checkouts: { checkedOut: 0 },
+      reminders: { checkoutReminders: 0, checkinReminders: 0 },
+      notifications: {
+        checkinToday: [],
+        checkinTomorrow: [],
+        checkoutToday: [],
+        checkoutTomorrow: [],
+        checkoutIn2Days: [],
+        checkoutIn3Days: []
+      },
+      timestamp: new Date().toISOString(),
+      branches: targetBranches
+    };
+
+    let checkedInCount = 0;
+    let checkedOutCount = 0;
+    let checkoutReminderCount = 0;
+    let checkinReminderCount = 0;
+
+    const bookingsResult = await pool.query(
+      `SELECT * FROM bookings 
+       WHERE branch = ANY($1::text[]) 
+       AND bookingStatus IN ($2, $3, $4, $5)`,
+      [targetBranches, 'Confirm', 'Confirmed', 'Pending', 'CheckedIn']
     );
-    const pending = bookings.filter((b: any) => 
-      b.bookingStatus === 'Pending'
-    );
 
-    let totalRevenue = 0;
-    confirmed.forEach((b: any) => {
-      totalRevenue += (b.totalCost || b.roomCharges || b.price || 0);
-    });
+    console.log(`📋 Found ${bookingsResult.rows.length} active bookings`);
 
-    const uniqueCustomers = new Set();
-    bookings.forEach((b: any) => {
-      if (b.agentName) uniqueCustomers.add(b.agentName);
-    });
-
-    const occupied = bookings.filter((b: any) => {
-      const checkIn = new Date(b.checkIn);
-      checkIn.setHours(0, 0, 0, 0);
-      const checkOut = new Date(b.checkOut);
-      checkOut.setHours(0, 0, 0, 0);
+    for (const booking of bookingsResult.rows) {
+      const checkInDate = new Date(booking.checkin);
+      checkInDate.setHours(0, 0, 0, 0);
       
-      return (b.bookingStatus === 'Confirm' || b.bookingStatus === 'Confirmed' || b.bookingStatus === 'CheckedIn') &&
-             checkIn <= today && 
-             checkOut > today;
-    });
+      const checkOutDate = new Date(booking.checkout);
+      checkOutDate.setHours(0, 0, 0, 0);
 
-    const occupiedRooms = occupied.reduce((sum: number, b: any) => sum + (b.roomsCount || 1), 0);
-    const TOTAL_ROOMS = 50;
-    const availableRooms = Math.max(0, TOTAL_ROOMS - occupiedRooms);
-    const occupancyRate = TOTAL_ROOMS > 0 ? Math.round((occupiedRooms / TOTAL_ROOMS) * 100) : 0;
+      const daysUntilCheckin = Math.ceil((checkInDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+      const daysUntilCheckout = Math.ceil((checkOutDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
 
-    const todayStr = today.toDateString();
-    const todayCheckIns = bookings.filter((b: any) => {
-      const checkIn = new Date(b.checkIn);
-      return checkIn.toDateString() === todayStr && 
-             (b.bookingStatus === 'Confirm' || b.bookingStatus === 'Confirmed' || b.bookingStatus === 'CheckedIn');
-    }).length;
+      // Check-in Today
+      if (daysUntilCheckin === 0 && booking.bookingstatus !== 'CheckedIn') {
+        console.log(`✅ Check-in TODAY: ${booking.agentname} (${booking.branch})`);
+        results.notifications.checkinToday.push(booking);
+        checkedInCount++;
+        
+        try {
+          await pool.query(
+            'UPDATE bookings SET bookingStatus = $1, updated_at = NOW() WHERE id = $2',
+            ['CheckedIn', booking.id]
+          );
+          
+          await pool.query(
+            `INSERT INTO notifications (title, message, branch, bookingId, type, created_at) 
+             VALUES ($1, $2, $3, $4, $5, NOW())`,
+            ['🔔 Check-in Today', 
+             `Guest ${booking.agentname} (${booking.bookingno}) is checking in TODAY at ${booking.branch}.`, 
+             booking.branch, booking.id, 'checkin_today']
+          );
+        } catch (error) {
+          console.error(`Error processing check-in for ${booking.agentname}:`, error);
+        }
+      }
 
-    const todayCheckOuts = bookings.filter((b: any) => {
-      const checkOut = new Date(b.checkOut);
-      return checkOut.toDateString() === todayStr && 
-             (b.bookingStatus === 'Confirm' || b.bookingStatus === 'Confirmed' || b.bookingStatus === 'CheckedIn' || b.bookingStatus === 'CheckedOut');
-    }).length;
+      // Check-in Tomorrow
+      if (daysUntilCheckin === 1) {
+        console.log(`📅 Check-in TOMORROW: ${booking.agentname} (${booking.branch})`);
+        results.notifications.checkinTomorrow.push(booking);
+        checkinReminderCount++;
+        
+        try {
+          await pool.query(
+            `INSERT INTO notifications (title, message, branch, bookingId, type, created_at) 
+             VALUES ($1, $2, $3, $4, $5, NOW())`,
+            ['📅 Check-in Tomorrow', 
+             `Guest ${booking.agentname} (${booking.bookingno}) is checking in TOMORROW at ${booking.branch}.`,
+             booking.branch, booking.id, 'checkin_tomorrow']
+          );
+        } catch (error) {
+          console.error(`Error creating check-in reminder:`, error);
+        }
+      }
+
+      // Checkout Today
+      if (daysUntilCheckout === 0 && booking.bookingstatus !== 'CheckedOut') {
+        console.log(`📤 Checkout TODAY: ${booking.agentname} (${booking.branch})`);
+        results.notifications.checkoutToday.push(booking);
+        
+        try {
+          const currentHour = new Date().getHours();
+          if (currentHour >= 12) {
+            await pool.query(
+              'UPDATE bookings SET bookingStatus = $1, updated_at = NOW() WHERE id = $2',
+              ['CheckedOut', booking.id]
+            );
+            checkedOutCount++;
+          }
+          
+          await pool.query(
+            `INSERT INTO notifications (title, message, branch, bookingId, type, created_at) 
+             VALUES ($1, $2, $3, $4, $5, NOW())`,
+            ['📤 Check-out Today', 
+             `Guest ${booking.agentname} (${booking.bookingno}) is checking out TODAY at ${booking.branch}.`,
+             booking.branch, booking.id, 'checkout_today']
+          );
+        } catch (error) {
+          console.error(`Error processing checkout for ${booking.agentname}:`, error);
+        }
+      }
+
+      // Checkout Tomorrow
+      if (daysUntilCheckout === 1) {
+        console.log(`📅 Checkout TOMORROW: ${booking.agentname} (${booking.branch})`);
+        results.notifications.checkoutTomorrow.push(booking);
+        checkoutReminderCount++;
+        
+        try {
+          await pool.query(
+            `INSERT INTO notifications (title, message, branch, bookingId, type, created_at) 
+             VALUES ($1, $2, $3, $4, $5, NOW())`,
+            ['📅 Check-out Tomorrow', 
+             `Guest ${booking.agentname} (${booking.bookingno}) is checking out TOMORROW at ${booking.branch}.`,
+             booking.branch, booking.id, 'checkout_tomorrow']
+          );
+        } catch (error) {
+          console.error(`Error creating checkout reminder:`, error);
+        }
+      }
+
+      // Checkout in 2 days
+      if (daysUntilCheckout === 2) {
+        console.log(`📅 Checkout in 2 days: ${booking.agentname} (${booking.branch})`);
+        results.notifications.checkoutIn2Days.push(booking);
+        checkoutReminderCount++;
+        
+        try {
+          await pool.query(
+            `INSERT INTO notifications (title, message, branch, bookingId, type, created_at) 
+             VALUES ($1, $2, $3, $4, $5, NOW())`,
+            ['📅 Check-out in 2 days', 
+             `Guest ${booking.agentname} (${booking.bookingno}) is checking out in 2 days at ${booking.branch}.`,
+             booking.branch, booking.id, 'checkout_2days']
+          );
+        } catch (error) {
+          console.error(`Error creating 2-day reminder:`, error);
+        }
+      }
+
+      // Checkout in 3 days
+      if (daysUntilCheckout === 3) {
+        console.log(`📅 Checkout in 3 days: ${booking.agentname} (${booking.branch})`);
+        results.notifications.checkoutIn3Days.push(booking);
+        checkoutReminderCount++;
+        
+        try {
+          await pool.query(
+            `INSERT INTO notifications (title, message, branch, bookingId, type, created_at) 
+             VALUES ($1, $2, $3, $4, $5, NOW())`,
+            ['📅 Check-out in 3 days', 
+             `Guest ${booking.agentname} (${booking.bookingno}) is checking out in 3 days at ${booking.branch}.`,
+             booking.branch, booking.id, 'checkout_3days']
+          );
+        } catch (error) {
+          console.error(`Error creating 3-day reminder:`, error);
+        }
+      }
+
+      // Overdue checkout
+      if (daysUntilCheckout < 0 && booking.bookingstatus !== 'CheckedOut') {
+        console.log(`⚠️ Overdue checkout: ${booking.agentname} (${booking.branch})`);
+        
+        try {
+          await pool.query(
+            'UPDATE bookings SET bookingStatus = $1, updated_at = NOW() WHERE id = $2',
+            ['CheckedOut', booking.id]
+          );
+          checkedOutCount++;
+          
+          await pool.query(
+            `INSERT INTO notifications (title, message, branch, bookingId, type, created_at) 
+             VALUES ($1, $2, $3, $4, $5, NOW())`,
+            ['🔄 Auto Checkout Completed', 
+             `Guest ${booking.agentname} (${booking.bookingno}) has been automatically checked out from ${booking.branch}.`,
+             booking.branch, booking.id, 'auto_checkout']
+          );
+        } catch (error) {
+          console.error(`Error processing overdue checkout:`, error);
+        }
+      }
+    }
+
+    results.checkins.checkedIn = checkedInCount;
+    results.checkouts.checkedOut = checkedOutCount;
+    results.reminders.checkoutReminders = checkoutReminderCount;
+    results.reminders.checkinReminders = checkinReminderCount;
+
+    console.log(`📊 Full Automation Summary for branches: ${targetBranches.join(', ')}`);
+    console.log(`   ✅ Checked in: ${checkedInCount}`);
+    console.log(`   📤 Checked out: ${checkedOutCount}`);
+    console.log(`   📧 Checkout reminders: ${checkoutReminderCount}`);
+    console.log(`   📧 Check-in reminders: ${checkinReminderCount}`);
 
     res.json({
-      totalCustomers: uniqueCustomers.size,
-      totalBookings: bookings.length,
-      availableRooms: availableRooms,
-      occupiedRooms: occupiedRooms,
-      totalRevenue: totalRevenue,
-      averageBookingValue: confirmed.length > 0 ? totalRevenue / confirmed.length : 0,
-      occupancyRate: occupancyRate,
-      todayCheckIns: todayCheckIns,
-      todayCheckOuts: todayCheckOuts,
-      activeBookings: occupied.length,
-      pendingBookings: pending.length,
-      confirmedBookings: confirmed.length,
-      branches: user.branches,
-      selectedBranch: user.selectedBranch,
-      canViewAllBranches: user.canViewAllBranches
+      success: true,
+      data: results,
+      message: `Automation completed for ${targetBranches.length} branch(es)`
+    });
+    
+  } catch (error) {
+    console.error('❌ Error running automation:', error);
+    res.status(500).json({
+      success: false,
+      message: error.message || 'Failed to run automation'
+    });
+  }
+});
+
+// ==================== NOTIFICATIONS ENDPOINTS ====================
+
+// Get user-specific notifications
+app.get('/api/notifications', authenticate, async (req, res) => {
+  try {
+    const user = req.user;
+    const selectedBranch = user.selectedBranch;
+    const canViewAllBranches = user.canViewAllBranches;
+    const userBranches = user.branches || [];
+
+    let query = `
+      SELECT n.*, un.isRead, un.createdAt as readAt 
+      FROM notifications n
+      JOIN user_notifications un ON n.id = un.notification_id
+      WHERE un.user_id = $1
+    `;
+    const params = [user.id];
+    let paramCount = 2;
+
+    if (!canViewAllBranches || selectedBranch !== 'all') {
+      const branchFilter = selectedBranch || (userBranches.length > 0 ? userBranches[0] : '');
+      if (branchFilter) {
+        query += ` AND n.branch = $${paramCount}`;
+        params.push(branchFilter);
+        paramCount++;
+      }
+    }
+
+    query += ' AND un.isRead = false ORDER BY n.created_at DESC LIMIT 20';
+
+    const result = await pool.query(query, params);
+
+    res.json({
+      success: true,
+      data: result.rows,
+      lastUpdated: new Date().toISOString()
     });
   } catch (error) {
-    console.error('Error fetching stats:', error);
-    res.status(500).json({ message: 'Error fetching statistics' });
+    console.error('Error fetching notifications:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch notifications'
+    });
+  }
+});
+
+// Mark notification as read
+app.patch('/api/notifications/:id/read', authenticate, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const user = req.user;
+    
+    await pool.query(
+      'UPDATE user_notifications SET isRead = true, readAt = NOW() WHERE notification_id = $1 AND user_id = $2',
+      [id, user.id]
+    );
+
+    res.json({
+      success: true,
+      message: 'Notification marked as read'
+    });
+  } catch (error) {
+    console.error('Error marking notification as read:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to mark notification as read'
+    });
+  }
+});
+
+// Mark all notifications as read
+app.post('/api/notifications/mark-all-read', authenticate, async (req, res) => {
+  try {
+    const user = req.user;
+    
+    await pool.query(
+      'UPDATE user_notifications SET isRead = true, readAt = NOW() WHERE user_id = $1 AND isRead = false',
+      [user.id]
+    );
+
+    res.json({
+      success: true,
+      message: 'All notifications marked as read'
+    });
+  } catch (error) {
+    console.error('Error marking all notifications as read:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to mark all notifications as read'
+    });
+  }
+});
+
+// ==================== ROOM PRICING ENDPOINTS ====================
+
+// Get room pricing for a branch
+app.get('/api/room-pricing/branch/:branch', authenticate, async (req, res) => {
+  try {
+    const { branch } = req.params;
+    
+    const result = await pool.query(
+      'SELECT * FROM room_pricing WHERE branch = $1',
+      [branch]
+    );
+
+    if (result.rows.length === 0) {
+      return res.json({
+        data: {
+          branch: branch,
+          singlePrice: 2000,
+          doublePrice: 3000,
+          triplePrice: 4000,
+          quardPrice: 5000,
+          extraPersonPrice: 500
+        }
+      });
+    }
+
+    res.json({ data: result.rows[0] });
+  } catch (error) {
+    console.error('Error fetching room pricing:', error);
+    res.status(500).json({ message: 'Error fetching room pricing' });
+  }
+});
+
+// ==================== OTHER ENDPOINTS ====================
+
+// Today's check-ins
+app.get('/api/checkin/today', authenticate, async (req, res) => {
+  try {
+    const user = req.user;
+    const selectedBranch = user.selectedBranch;
+    const canViewAllBranches = user.canViewAllBranches;
+    const userBranches = user.branches || [];
+
+    await updateBookingStatuses();
+
+    let query = 'SELECT * FROM bookings WHERE DATE(checkIn) = CURRENT_DATE AND bookingStatus IN ($1, $2, $3)';
+    const params = ['Confirm', 'Confirmed', 'Pending'];
+    let paramCount = 4;
+
+    if (!canViewAllBranches || selectedBranch !== 'all') {
+      const branchFilter = selectedBranch || (userBranches.length > 0 ? userBranches[0] : '');
+      if (branchFilter) {
+        query += ` AND branch = $${paramCount}`;
+        params.push(branchFilter);
+      }
+    }
+
+    const result = await pool.query(query, params);
+
+    res.json({
+      success: true,
+      data: result.rows,
+      lastUpdated: new Date().toISOString()
+    });
+  } catch (error) {
+    console.error('Error fetching today checkins:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch today checkins'
+    });
+  }
+});
+
+// Upcoming checkouts
+app.get('/api/checkout/upcoming', authenticate, async (req, res) => {
+  try {
+    const user = req.user;
+    const selectedBranch = user.selectedBranch;
+    const canViewAllBranches = user.canViewAllBranches;
+    const userBranches = user.branches || [];
+
+    await updateBookingStatuses();
+
+    let query = 'SELECT * FROM bookings WHERE checkOut >= CURRENT_DATE AND bookingStatus IN ($1, $2, $3)';
+    const params = ['Confirm', 'Confirmed', 'CheckedIn'];
+    let paramCount = 4;
+
+    if (!canViewAllBranches || selectedBranch !== 'all') {
+      const branchFilter = selectedBranch || (userBranches.length > 0 ? userBranches[0] : '');
+      if (branchFilter) {
+        query += ` AND branch = $${paramCount}`;
+        params.push(branchFilter);
+      }
+    }
+
+    query += ' ORDER BY checkOut ASC';
+
+    const result = await pool.query(query, params);
+
+    res.json({
+      success: true,
+      data: result.rows,
+      lastUpdated: new Date().toISOString()
+    });
+  } catch (error) {
+    console.error('Error fetching upcoming checkouts:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch upcoming checkouts'
+    });
   }
 });
 
@@ -540,8 +1098,12 @@ app.get('/api/health', (req, res) => {
 });
 
 // Start server
-app.listen(PORT, () => {
+app.listen(PORT, function() {
   console.log(`🚀 Server running on http://localhost:${PORT}`);
   console.log(`📊 API endpoints available at http://localhost:${PORT}/api`);
-  console.log(`📋 Check user info at http://localhost:${PORT}/api/auth/user-info/manager`);
+  console.log(`🤖 Automation endpoints:`);
+  console.log(`   - POST /api/automation/checkin`);
+  console.log(`   - POST /api/automation/checkout`);
+  console.log(`   - POST /api/automation/reminders`);
+  console.log(`   - POST /api/automation/run`);
 });

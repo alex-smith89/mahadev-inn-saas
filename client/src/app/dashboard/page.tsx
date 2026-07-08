@@ -11,7 +11,9 @@ import {
   FiCheckCircle, FiXCircle, FiFileText, FiPieChart, FiPlus,
   FiRefreshCw, FiUser, FiLogOut, FiTrendingUp, FiTrendingDown,
   FiEdit2, FiUserCheck, FiBarChart2, FiActivity, FiGrid,
-  FiInfo, FiBell, FiAlertCircle, FiCheck
+  FiInfo, FiBell, FiAlertCircle, FiCheck, FiCalendar, FiMail,
+  FiCpu, FiSettings, FiZap, FiBellOff, FiEye, FiEyeOff,
+  FiMapPin, FiBriefcase, FiRadio
 } from 'react-icons/fi';
 import {
   Chart as ChartJS,
@@ -27,6 +29,9 @@ import {
   Filler
 } from 'chart.js';
 import { Bar, Line } from 'react-chartjs-2';
+
+// ✅ Import Notification Toast
+import { NotificationToast } from '@/components/NotificationToast';
 
 ChartJS.register(
   CategoryScale,
@@ -52,6 +57,11 @@ export default function DashboardPage() {
   const [error, setError] = useState('');
   const [refreshing, setRefreshing] = useState(false);
   const [totalRooms, setTotalRooms] = useState(65);
+  const [lastRefresh, setLastRefresh] = useState(Date.now());
+  const [lastUpdate, setLastUpdate] = useState<string>('');
+  const [updateInterval, setUpdateInterval] = useState<NodeJS.Timeout | null>(null);
+  const [toastMessage, setToastMessage] = useState<string | null>(null);
+  const [toastType, setToastType] = useState<'success' | 'info' | 'warning'>('info');
   const [stats, setStats] = useState({
     totalCustomers: 0,
     totalBookings: 0,
@@ -79,11 +89,26 @@ export default function DashboardPage() {
   const [upcomingCheckouts, setUpcomingCheckouts] = useState<any[]>([]);
   const [isLocalMode, setIsLocalMode] = useState(false);
   const [allBookingsCache, setAllBookingsCache] = useState<any[]>([]);
+  const [automationRunning, setAutomationRunning] = useState(false);
+  const [showAutomationModal, setShowAutomationModal] = useState(false);
+  const [automationResults, setAutomationResults] = useState<any>(null);
+  const [notificationHistory, setNotificationHistory] = useState<any[]>([]);
+  const [showNotificationHistory, setShowNotificationHistory] = useState(false);
+  const [branchInfo, setBranchInfo] = useState<any>(null);
+  const [branchCounts, setBranchCounts] = useState<{[key: string]: number}>({});
+  const [branchStatusSummary, setBranchStatusSummary] = useState<{[key: string]: any}>({});
   
   // ✅ New state for checkout information
   const [checkedOutGuests, setCheckedOutGuests] = useState<any[]>([]);
   const [vacantRooms, setVacantRooms] = useState<number>(0);
   const [recentCheckouts, setRecentCheckouts] = useState<any[]>([]);
+  
+  // ✅ Real-time notification states
+  const [todayCheckins, setTodayCheckins] = useState<any[]>([]);
+  const [tomorrowCheckins, setTomorrowCheckins] = useState<any[]>([]);
+  const [todayCheckoutsList, setTodayCheckoutsList] = useState<any[]>([]);
+  const [tomorrowCheckoutsList, setTomorrowCheckoutsList] = useState<any[]>([]);
+  const [overdueCheckouts, setOverdueCheckouts] = useState<any[]>([]);
   
   const [monthlyData, setMonthlyData] = useState({
     labels: ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'],
@@ -98,6 +123,13 @@ export default function DashboardPage() {
     labels: ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun'],
     values: [0, 0, 0, 0, 0, 0],
   });
+
+  // ✅ Function to show notification toast
+  const showNotification = (message: string, type: 'success' | 'info' | 'warning' = 'info') => {
+    setToastMessage(message);
+    setToastType(type);
+    setTimeout(() => setToastMessage(null), 5000);
+  };
 
   // ✅ Normalize branch name function
   const normalizeBranchName = (branchName: string) => {
@@ -130,6 +162,26 @@ export default function DashboardPage() {
     }
   };
 
+  // ✅ Load Notification History
+  const loadNotificationHistory = async () => {
+    try {
+      const token = localStorage.getItem('token');
+      const response = await fetch(`${API_URL}/notifications/history`, {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+      });
+      
+      if (response.ok) {
+        const data = await response.json();
+        setNotificationHistory(data.data || []);
+      }
+    } catch (err) {
+      console.error('Error loading notification history:', err);
+    }
+  };
+
   // ✅ Load Upcoming Checkouts
   const loadUpcomingCheckouts = async () => {
     try {
@@ -144,15 +196,76 @@ export default function DashboardPage() {
       if (response.ok) {
         const data = await response.json();
         setUpcomingCheckouts(data.data || []);
+        
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        const tomorrow = new Date(today);
+        tomorrow.setDate(tomorrow.getDate() + 1);
+        
+        const checkouts = data.data || [];
+        setTodayCheckoutsList(checkouts.filter((b: any) => {
+          const checkOut = new Date(b.checkOut);
+          checkOut.setHours(0, 0, 0, 0);
+          return checkOut.getTime() === today.getTime();
+        }));
+        setTomorrowCheckoutsList(checkouts.filter((b: any) => {
+          const checkOut = new Date(b.checkOut);
+          checkOut.setHours(0, 0, 0, 0);
+          return checkOut.getTime() === tomorrow.getTime();
+        }));
+        setOverdueCheckouts(checkouts.filter((b: any) => {
+          const checkOut = new Date(b.checkOut);
+          checkOut.setHours(0, 0, 0, 0);
+          return checkOut.getTime() < today.getTime() && b.bookingStatus !== 'CheckedOut';
+        }));
       }
     } catch (err) {
       console.error('Error loading upcoming checkouts:', err);
     }
   };
 
+  // ✅ Load Today's Check-ins
+  const loadTodayCheckins = async () => {
+    try {
+      const token = localStorage.getItem('token');
+      const response = await fetch(`${API_URL}/checkin/today`, {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+      });
+      
+      if (response.ok) {
+        const data = await response.json();
+        setTodayCheckins(data.data || []);
+      }
+    } catch (err) {
+      console.error('Error loading today checkins:', err);
+    }
+  };
+
+  // ✅ Load Tomorrow's Check-ins
+  const loadTomorrowCheckins = async () => {
+    try {
+      const token = localStorage.getItem('token');
+      const response = await fetch(`${API_URL}/checkin/tomorrow`, {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+      });
+      
+      if (response.ok) {
+        const data = await response.json();
+        setTomorrowCheckins(data.data || []);
+      }
+    } catch (err) {
+      console.error('Error loading tomorrow checkins:', err);
+    }
+  };
+
   // ✅ Navigate to New Booking page
   const handleNewBooking = () => {
-    // Check if user has permission
     if (user?.role === 'VIEWER') {
       alert('You do not have permission to create bookings.');
       return;
@@ -160,18 +273,20 @@ export default function DashboardPage() {
     router.push('/bookings/new');
   };
 
-  // ✅ Run Auto Checkout - Properly updates status and creates notifications
-  const runAutoCheckout = async () => {
+  // ✅ RUN FULL AUTOMATION
+  const runFullAutomation = async () => {
     try {
-      const token = localStorage.getItem('token');
+      setAutomationRunning(true);
+      setError('');
       
+      const token = localStorage.getItem('token');
       if (!token) {
         alert('Please login first');
         return;
       }
 
-      // ✅ Get all bookings
-      const response = await fetch(`${API_URL}/bookings`, {
+      const response = await fetch(`${API_URL}/automation/run`, {
+        method: 'POST',
         headers: {
           'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json',
@@ -179,227 +294,242 @@ export default function DashboardPage() {
       });
 
       if (!response.ok) {
-        throw new Error('Failed to fetch bookings');
+        const errorData = await response.json();
+        throw new Error(errorData.message || 'Failed to run automation');
       }
 
       const data = await response.json();
-      const allBookings = data.bookings || data.data || [];
       
-      const today = new Date();
-      today.setHours(0, 0, 0, 0);
+      if (data.success) {
+        const results = data.data;
+        setAutomationResults(results);
+        setShowAutomationModal(true);
+        
+        // Show detailed summary
+        let summary = `🤖 Automation Complete!\n\n`;
+        
+        if (results.notifications?.checkinToday?.length > 0) {
+          summary += `✅ Check-in TODAY: ${results.notifications.checkinToday.map((b: any) => b.agentName).join(', ')}\n`;
+        }
+        if (results.notifications?.checkinTomorrow?.length > 0) {
+          summary += `📅 Check-in TOMORROW: ${results.notifications.checkinTomorrow.map((b: any) => b.agentName).join(', ')}\n`;
+        }
+        if (results.notifications?.checkoutToday?.length > 0) {
+          summary += `📤 Check-out TODAY: ${results.notifications.checkoutToday.map((b: any) => b.agentName).join(', ')}\n`;
+        }
+        if (results.notifications?.checkoutTomorrow?.length > 0) {
+          summary += `📅 Check-out TOMORROW: ${results.notifications.checkoutTomorrow.map((b: any) => b.agentName).join(', ')}\n`;
+        }
+        if (results.checkins?.checkedIn > 0) {
+          summary += `🔄 Auto Check-ins: ${results.checkins.checkedIn} processed\n`;
+        }
+        if (results.checkouts?.checkedOut > 0) {
+          summary += `🔄 Auto Checkouts: ${results.checkouts.checkedOut} processed\n`;
+        }
+        if (results.branches) {
+          summary += `📍 Branches: ${results.branches.join(', ')}\n`;
+        }
+        
+        summary += `\n🕐 Completed: ${new Date(results.timestamp).toLocaleTimeString()}`;
+        
+        alert(summary);
+        
+        // Refresh all data
+        await refreshAllData();
+        showNotification('✅ Full automation completed successfully', 'success');
+      } else {
+        throw new Error(data.message || 'Automation failed');
+      }
+    } catch (err: any) {
+      console.error('Error running automation:', err);
+      setError(`❌ Automation error: ${err.message}`);
+      showNotification(`❌ Automation failed: ${err.message}`, 'warning');
+    } finally {
+      setAutomationRunning(false);
+    }
+  };
+
+  // ✅ Run Auto Check-in Only - UPDATED
+  const runAutoCheckin = async () => {
+    try {
+      setAutomationRunning(true);
+      const token = localStorage.getItem('token');
       
-      // ✅ Get notified bookings from localStorage to prevent duplicate notifications
-      const notifiedBookings = JSON.parse(localStorage.getItem('notifiedCheckouts') || '{}');
-
-      let processed = 0;
-      let newNotifications = 0;
-      let skippedDuplicates = 0;
-      let errors = 0;
-
-      // ✅ Find bookings that need checkout (check-out date is today or in the past)
-      // Only process if status is Confirm, Confirmed, or CheckedIn
-      const bookingsToCheckout = allBookings.filter((b: any) => {
-        const checkOut = new Date(b.checkOut);
-        checkOut.setHours(0, 0, 0, 0);
-        
-        const isActive = b.bookingStatus === 'Confirm' || 
-                         b.bookingStatus === 'Confirmed' || 
-                         b.bookingStatus === 'CheckedIn';
-        
-        // Check if checkout date is today or in the past
-        const isCheckoutToday = checkOut.getTime() <= today.getTime();
-        
-        return isActive && isCheckoutToday;
-      });
-
-      console.log(`📋 Found ${bookingsToCheckout.length} bookings to process`);
-
-      if (bookingsToCheckout.length === 0) {
-        alert('✅ No bookings to checkout today.');
+      if (!token) {
+        alert('Please login first');
         return;
       }
 
-      // ✅ Process each booking
-      for (const booking of bookingsToCheckout) {
-        try {
-          const bookingId = booking.id;
-          const guestName = booking.agentName;
-          const branch = booking.branch || 'Unknown';
-          const roomType = booking.roomType || 'Unknown';
-          const bookingNo = booking.bookingNo;
-          const checkOutDate = new Date(booking.checkOut);
-          const daysUntilCheckout = Math.ceil((checkOutDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+      const response = await fetch(`${API_URL}/automation/checkin`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+      });
 
-          console.log(`📋 Processing booking: ${bookingNo} - ${guestName} (${daysUntilCheckout} days)`);
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.message || 'Failed to run check-in automation');
+      }
 
-          // ✅ Check if this booking has already been notified
-          const alreadyNotified = notifiedBookings[bookingId];
-
-          let notificationTitle = '';
-          let notificationMessage = '';
-          let shouldNotify = false;
-          let shouldUpdateStatus = false;
-
-          // ✅ Check if checkout is overdue (today or past)
-          if (daysUntilCheckout < 0) {
-            // ✅ Overdue checkout - Auto Checkout
-            notificationTitle = 'Automated Checkout Completed';
-            notificationMessage = `Guest ${guestName} has been automatically checked out from ${roomType} (${branch}). Room is now vacant and requires cleaning.`;
-            shouldNotify = true;
-            shouldUpdateStatus = true;
-            
-            // ✅ Update booking status to CheckedOut
-            const updateResponse = await fetch(`${API_URL}/bookings/${bookingId}`, {
-              method: 'PATCH',
-              headers: {
-                'Authorization': `Bearer ${token}`,
-                'Content-Type': 'application/json',
-              },
-              body: JSON.stringify({
-                bookingStatus: 'CheckedOut',
-              }),
-            });
-
-            if (updateResponse.ok) {
-              processed++;
-              console.log(`✅ Booking ${bookingNo} checked out successfully`);
-              
-              // ✅ Remove from notified list since it's now checked out
-              delete notifiedBookings[bookingId];
-            } else {
-              const errorData = await updateResponse.json();
-              console.error(`❌ Failed to update booking ${bookingNo}:`, errorData);
-              errors++;
-              continue;
-            }
-            
-          } else if (daysUntilCheckout === 0 && !alreadyNotified) {
-            // ✅ Checkout today - Send reminder
-            notificationTitle = 'Checkout Reminder - Today';
-            notificationMessage = `Guest ${guestName} (Booking #${bookingNo}) is checking out TODAY from ${roomType} (${branch}). Please prepare for checkout.`;
-            shouldNotify = true;
-            
-            // ✅ Mark as notified
-            notifiedBookings[bookingId] = {
-              notifiedAt: new Date().toISOString(),
-              notificationType: 'checkout_today',
-              daysUntil: 0,
-              guestName: guestName,
-              bookingNo: bookingNo,
-            };
-            
-          } else if (daysUntilCheckout === 1 && !alreadyNotified) {
-            // ✅ Checkout tomorrow
-            notificationTitle = 'Checkout Reminder - 1 day left';
-            notificationMessage = `Guest ${guestName} (Booking #${bookingNo}) has checkout in 1 day from ${roomType} (${branch}).`;
-            shouldNotify = true;
-            
-            // ✅ Mark as notified
-            notifiedBookings[bookingId] = {
-              notifiedAt: new Date().toISOString(),
-              notificationType: 'checkout_1day',
-              daysUntil: 1,
-              guestName: guestName,
-              bookingNo: bookingNo,
-            };
-            
-          } else if (daysUntilCheckout === 2 && !alreadyNotified) {
-            // ✅ Checkout in 2 days
-            notificationTitle = 'Checkout Reminder - 2 days left';
-            notificationMessage = `Guest ${guestName} (Booking #${bookingNo}) has checkout in 2 days from ${roomType} (${branch}).`;
-            shouldNotify = true;
-            
-            // ✅ Mark as notified
-            notifiedBookings[bookingId] = {
-              notifiedAt: new Date().toISOString(),
-              notificationType: 'checkout_2days',
-              daysUntil: 2,
-              guestName: guestName,
-              bookingNo: bookingNo,
-            };
-            
-          } else if (daysUntilCheckout === 3 && !alreadyNotified) {
-            // ✅ Checkout in 3 days
-            notificationTitle = 'Checkout Reminder - 3 days left';
-            notificationMessage = `Guest ${guestName} (Booking #${bookingNo}) has checkout in 3 days from ${roomType} (${branch}).`;
-            shouldNotify = true;
-            
-            // ✅ Mark as notified
-            notifiedBookings[bookingId] = {
-              notifiedAt: new Date().toISOString(),
-              notificationType: 'checkout_3days',
-              daysUntil: 3,
-              guestName: guestName,
-              bookingNo: bookingNo,
-            };
-            
-          } else if (alreadyNotified) {
-            // ✅ Already notified, skip
-            console.log(`⏭️ Skipping ${guestName} - Already notified for booking #${bookingNo}`);
-            skippedDuplicates++;
-            continue;
-          }
-
-          // ✅ Create notification if needed
-          if (shouldNotify) {
-            try {
-              const notificationResponse = await fetch(`${API_URL}/notifications`, {
-                method: 'POST',
-                headers: {
-                  'Authorization': `Bearer ${token}`,
-                  'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({
-                  title: notificationTitle,
-                  message: notificationMessage,
-                  branch: branch,
-                  bookingId: bookingId,
-                  type: daysUntilCheckout < 0 ? 'auto_checkout' : 'checkout_reminder',
-                }),
-              });
-
-              if (notificationResponse.ok) {
-                newNotifications++;
-                console.log(`✅ Notification created for ${guestName}`);
-              } else {
-                console.error(`❌ Failed to create notification for ${guestName}`);
-              }
-            } catch (err) {
-              console.error(`❌ Error creating notification for ${guestName}:`, err);
-            }
-          }
-        } catch (err) {
-          console.error('Error processing booking:', err);
-          errors++;
+      const data = await response.json();
+      
+      if (data.success) {
+        const checkedInCount = data.data?.checkedIn || 0;
+        const bookings = data.data?.bookings || [];
+        
+        let message = `✅ Auto Check-in Complete!\n\n`;
+        message += `Checked in: ${checkedInCount} guests\n`;
+        
+        if (bookings.length > 0) {
+          message += `\n📋 Checked-in guests:\n`;
+          bookings.forEach((b: any) => {
+            message += `  • ${b.agentName} (${b.bookingNo}) - ${b.branch}\n`;
+          });
         }
+        
+        alert(message);
+        
+        // Refresh all data
+        await refreshAllData();
+        
+        // Show notification toast
+        showNotification(`✅ ${checkedInCount} guest(s) checked in successfully`, 'success');
+      } else {
+        throw new Error(data.message || 'Check-in automation failed');
       }
-
-      // ✅ Save updated notified bookings to localStorage
-      localStorage.setItem('notifiedCheckouts', JSON.stringify(notifiedBookings));
-
-      // ✅ Also trigger storage event for cross-tab communication
-      localStorage.setItem('forceRefresh', Date.now().toString());
-
-      // ✅ Show summary
-      let summaryMessage = `✅ Auto Checkout Summary:\n`;
-      summaryMessage += `📋 Processed checkouts: ${processed}\n`;
-      summaryMessage += `📋 New notifications: ${newNotifications}\n`;
-      summaryMessage += `⏭️ Skipped duplicates: ${skippedDuplicates}`;
-      if (errors > 0) {
-        summaryMessage += `\n❌ Errors: ${errors}`;
-      }
-      
-      alert(summaryMessage);
-      
-      // ✅ Refresh all data
-      await loadDashboardData(true);
-      await loadNotifications();
-      await loadUpcomingCheckouts();
-      
-    } catch (err) {
-      console.error('Error running auto checkout:', err);
-      alert('❌ Error running auto checkout. Please check if the server is running.');
+    } catch (err: any) {
+      console.error('Error running check-in:', err);
+      alert(`❌ Error: ${err.message}`);
+      showNotification(`❌ Check-in failed: ${err.message}`, 'warning');
+    } finally {
+      setAutomationRunning(false);
     }
+  };
+
+  // ✅ Run Auto Check-out Only - UPDATED
+  const runAutoCheckout = async () => {
+    try {
+      setAutomationRunning(true);
+      const token = localStorage.getItem('token');
+      
+      if (!token) {
+        alert('Please login first');
+        return;
+      }
+
+      const response = await fetch(`${API_URL}/automation/checkout`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.message || 'Failed to run check-out automation');
+      }
+
+      const data = await response.json();
+      
+      if (data.success) {
+        const checkedOutCount = data.data?.checkedOut || 0;
+        const bookings = data.data?.bookings || [];
+        
+        let message = `✅ Auto Check-out Complete!\n\n`;
+        message += `Checked out: ${checkedOutCount} guests\n`;
+        
+        if (bookings.length > 0) {
+          message += `\n📋 Checked-out guests:\n`;
+          bookings.forEach((b: any) => {
+            message += `  • ${b.agentName} (${b.bookingNo}) - ${b.branch}\n`;
+          });
+        }
+        
+        alert(message);
+        
+        // Refresh all data
+        await refreshAllData();
+        
+        // Show notification toast
+        showNotification(`✅ ${checkedOutCount} guest(s) checked out successfully`, 'success');
+      } else {
+        throw new Error(data.message || 'Check-out automation failed');
+      }
+    } catch (err: any) {
+      console.error('Error running check-out:', err);
+      alert(`❌ Error: ${err.message}`);
+      showNotification(`❌ Check-out failed: ${err.message}`, 'warning');
+    } finally {
+      setAutomationRunning(false);
+    }
+  };
+
+  // ✅ Run Reminders Only - UPDATED
+  const runReminders = async () => {
+    try {
+      setAutomationRunning(true);
+      const token = localStorage.getItem('token');
+      
+      if (!token) {
+        alert('Please login first');
+        return;
+      }
+
+      const response = await fetch(`${API_URL}/automation/reminders`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.message || 'Failed to send reminders');
+      }
+
+      const data = await response.json();
+      
+      if (data.success) {
+        const checkoutReminders = data.data?.checkoutReminders || 0;
+        const checkinReminders = data.data?.checkinReminders || 0;
+        
+        let message = `📧 Reminders Sent!\n\n`;
+        message += `Checkout reminders: ${checkoutReminders}\n`;
+        message += `Check-in reminders: ${checkinReminders}\n`;
+        
+        alert(message);
+        
+        // Refresh all data
+        await refreshAllData();
+        
+        // Show notification toast
+        showNotification(`📧 ${checkoutReminders + checkinReminders} reminder(s) sent`, 'info');
+      } else {
+        throw new Error(data.message || 'Failed to send reminders');
+      }
+    } catch (err: any) {
+      console.error('Error sending reminders:', err);
+      alert(`❌ Error: ${err.message}`);
+      showNotification(`❌ Reminders failed: ${err.message}`, 'warning');
+    } finally {
+      setAutomationRunning(false);
+    }
+  };
+
+  // ✅ Refresh All Data
+  const refreshAllData = async () => {
+    await loadDashboardData(true);
+    await loadNotifications();
+    await loadUpcomingCheckouts();
+    await loadTodayCheckins();
+    await loadTomorrowCheckins();
+    await loadNotificationHistory();
+    setLastRefresh(Date.now());
+    setLastUpdate(new Date().toLocaleTimeString());
   };
 
   // ✅ Mark Notification as Read
@@ -415,6 +545,22 @@ export default function DashboardPage() {
       loadNotifications();
     } catch (err) {
       console.error('Error marking notification as read:', err);
+    }
+  };
+
+  // ✅ Mark All Notifications as Read
+  const markAllNotificationsRead = async () => {
+    try {
+      const token = localStorage.getItem('token');
+      await fetch(`${API_URL}/notifications/mark-all-read`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+        },
+      });
+      loadNotifications();
+    } catch (err) {
+      console.error('Error marking all notifications as read:', err);
     }
   };
 
@@ -438,7 +584,8 @@ export default function DashboardPage() {
       
       if (response.ok) {
         alert('✅ Booking deleted successfully!');
-        loadDashboardData(true);
+        await refreshAllData();
+        showNotification('✅ Booking deleted successfully', 'success');
       } else {
         alert('❌ Error deleting booking');
       }
@@ -448,6 +595,78 @@ export default function DashboardPage() {
     }
   };
 
+  // ✅ Check for new data every 15 seconds (Real-time updates)
+  useEffect(() => {
+    if (!selectedBranch || !user) return;
+
+    // Initial load
+    refreshAllData();
+    setLastUpdate(new Date().toLocaleTimeString());
+
+    // Set up polling for real-time updates
+    const interval = setInterval(() => {
+      console.log(`🔄 Checking for updates in branch: ${selectedBranch}`);
+      refreshAllData();
+      setLastUpdate(new Date().toLocaleTimeString());
+    }, 15000); // Check every 15 seconds
+
+    setUpdateInterval(interval);
+
+    return () => {
+      if (interval) clearInterval(interval);
+    };
+  }, [selectedBranch, user]);
+
+  // ✅ Listen for real-time events from bookings
+  useEffect(() => {
+    const handleBookingCreated = (event: CustomEvent) => {
+      const detail = event.detail;
+      console.log('📢 Real-time booking event received:', detail);
+      
+      // Check if the booking is for the current branch
+      if (detail && detail.branch) {
+        const currentBranch = selectedBranch || user?.branches?.[0] || '';
+        if (detail.branch === currentBranch || selectedBranch === 'all') {
+          console.log(`🔄 New booking in ${detail.branch}, refreshing data...`);
+          // Refresh data immediately
+          refreshAllData();
+          // Show notification
+          setLastUpdate(new Date().toLocaleTimeString());
+          // Show success toast or notification
+          showNotification(`📋 New booking #${detail.bookingNo} created for ${detail.agentName}`, 'success');
+        }
+      }
+    };
+
+    // Listen for storage events (cross-tab)
+    const handleStorageChange = (e: StorageEvent) => {
+      if (e.key === 'bookingUpdated') {
+        try {
+          const data = JSON.parse(e.newValue || '{}');
+          console.log('📦 Cross-tab booking update:', data);
+          
+          const currentBranch = selectedBranch || user?.branches?.[0] || '';
+          if (data.branch === currentBranch || selectedBranch === 'all') {
+            refreshAllData();
+            setLastUpdate(new Date().toLocaleTimeString());
+            showNotification(`📋 New booking #${data.bookingNo} created in ${data.branch}`, 'success');
+          }
+        } catch (err) {
+          console.error('Error parsing booking update:', err);
+        }
+      }
+    };
+
+    window.addEventListener('bookingCreated', handleBookingCreated as EventListener);
+    window.addEventListener('storage', handleStorageChange);
+
+    return () => {
+      window.removeEventListener('bookingCreated', handleBookingCreated as EventListener);
+      window.removeEventListener('storage', handleStorageChange);
+    };
+  }, [selectedBranch, user]);
+
+  // ✅ Initialize user data
   useEffect(() => {
     const token = localStorage.getItem('token');
     const userStr = localStorage.getItem('user');
@@ -510,7 +729,7 @@ export default function DashboardPage() {
         
         console.log('✅ User loaded:', userData);
         console.log('📋 Available branches:', userBranches);
-        console.log('📋 Selected branch:', selectedBranch || 'none');
+        console.log('📋 Selected branch:', savedBranch || 'none');
       } catch (e) {
         console.error('Error parsing user:', e);
         localStorage.removeItem('user');
@@ -531,7 +750,7 @@ export default function DashboardPage() {
       console.log('🔄 Refresh triggered from query param');
       window.history.replaceState({}, '', '/dashboard');
       setTimeout(() => {
-        loadDashboardData(true);
+        refreshAllData();
       }, 500);
     }
   }, [selectedBranch, user]);
@@ -539,13 +758,13 @@ export default function DashboardPage() {
   // ✅ Listen for storage changes (cross-tab communication)
   useEffect(() => {
     const handleStorageChange = (e: StorageEvent) => {
-      if (e.key === 'forceRefresh' || e.key === 'bookings' || e.key === 'allBookingsCache') {
+      if (e.key === 'forceRefresh' || e.key === 'bookings' || e.key === 'allBookingsCache' || e.key === 'selectedBranch') {
         console.log('📦 Storage changed, refreshing data...');
         if (selectedBranch && user) {
           localStorage.removeItem('bookings');
           localStorage.removeItem('allBookingsCache');
           setTimeout(() => {
-            loadDashboardData(true);
+            refreshAllData();
           }, 300);
         }
       }
@@ -553,14 +772,13 @@ export default function DashboardPage() {
     
     window.addEventListener('storage', handleStorageChange);
 
-    // ✅ Also listen for custom event from same window
     const handleBookingCreated = () => {
       console.log('📢 Booking created event received!');
       if (selectedBranch && user) {
         localStorage.removeItem('bookings');
         localStorage.removeItem('allBookingsCache');
         setTimeout(() => {
-          loadDashboardData(true);
+          refreshAllData();
         }, 300);
       }
     };
@@ -573,22 +791,21 @@ export default function DashboardPage() {
     };
   }, [selectedBranch, user]);
 
+  // ✅ Load data when branch or user changes
   useEffect(() => {
     if (!loading && selectedBranch && user) {
       console.log('🔄 Loading dashboard data for branch:', selectedBranch);
-      loadDashboardData(false);
-      loadNotifications();
-      loadUpcomingCheckouts();
+      refreshAllData();
     }
   }, [selectedBranch, loading]);
 
+  // ✅ Auto-refresh when page becomes visible
   useEffect(() => {
     const handleVisibilityChange = () => {
       if (document.visibilityState === 'visible' && selectedBranch && user) {
         console.log('👁️ Page became visible, auto-refreshing data...');
-        loadDashboardData(true);
-        loadNotifications();
-        loadUpcomingCheckouts();
+        refreshAllData();
+        setLastUpdate(new Date().toLocaleTimeString());
       }
     };
 
@@ -598,13 +815,13 @@ export default function DashboardPage() {
     };
   }, [selectedBranch, user]);
 
+  // ✅ Auto-refresh when window gets focus
   useEffect(() => {
     const handleFocus = () => {
       if (selectedBranch && user) {
         console.log('🔲 Window focused, auto-refreshing data...');
-        loadDashboardData(true);
-        loadNotifications();
-        loadUpcomingCheckouts();
+        refreshAllData();
+        setLastUpdate(new Date().toLocaleTimeString());
       }
     };
 
@@ -612,19 +829,6 @@ export default function DashboardPage() {
     return () => {
       window.removeEventListener('focus', handleFocus);
     };
-  }, [selectedBranch, user]);
-
-  useEffect(() => {
-    if (!selectedBranch || !user) return;
-
-    const interval = setInterval(() => {
-      console.log('⏰ Auto-refresh timer triggered for dashboard...');
-      loadDashboardData(true);
-      loadNotifications();
-      loadUpcomingCheckouts();
-    }, 30000);
-
-    return () => clearInterval(interval);
   }, [selectedBranch, user]);
 
   // ✅ loadDashboardData - Fetches and filters bookings with force refresh
@@ -653,6 +857,7 @@ export default function DashboardPage() {
       console.log('📍 API URL:', API_URL);
 
       let bookings: any[] = [];
+      let branchInfoData = null;
 
       try {
         const url = `${API_URL}/bookings`;
@@ -671,6 +876,22 @@ export default function DashboardPage() {
         if (allBookingsResponse.ok) {
           const data = await allBookingsResponse.json();
           console.log('📥 Full API response received');
+          
+          if (data.branchInfo) {
+            branchInfoData = data.branchInfo;
+            setBranchInfo(branchInfoData);
+            console.log('📍 Branch info:', branchInfoData);
+          }
+          
+          if (data.branchCounts) {
+            setBranchCounts(data.branchCounts);
+            console.log('📊 Branch counts:', data.branchCounts);
+          }
+          
+          if (data.branchStatusSummary) {
+            setBranchStatusSummary(data.branchStatusSummary);
+            console.log('📊 Branch status summary:', data.branchStatusSummary);
+          }
           
           let allBookings = data.bookings || data.data || [];
           console.log(`📋 Raw bookings from API:`, allBookings.length);
@@ -691,12 +912,12 @@ export default function DashboardPage() {
           setAllBookingsCache(allBookings);
           localStorage.setItem('allBookingsCache', JSON.stringify(allBookings));
           
-          const branchCounts: {[key: string]: number} = {};
+          const branchCountsData: {[key: string]: number} = {};
           allBookings.forEach((b: any) => {
             const br = b.branch || b.branchName || 'Unknown';
-            branchCounts[br] = (branchCounts[br] || 0) + 1;
+            branchCountsData[br] = (branchCountsData[br] || 0) + 1;
           });
-          console.log('📊 Bookings per branch after normalization:', branchCounts);
+          console.log('📊 Bookings per branch after normalization:', branchCountsData);
           
           if (user?.role === 'OWNER') {
             if (branch === 'all') {
@@ -1083,7 +1304,7 @@ export default function DashboardPage() {
       setUser(updatedUser);
     }
     setTimeout(() => {
-      loadDashboardData(true);
+      refreshAllData();
     }, 300);
   };
 
@@ -1152,6 +1373,33 @@ export default function DashboardPage() {
       case 'MANAGER': return '📋';
       case 'VIEWER': return '👁️';
       default: return '👤';
+    }
+  };
+
+  const getNotificationIcon = (type: string) => {
+    switch (type) {
+      case 'checkin_today': return '🔔';
+      case 'checkin_tomorrow': return '📅';
+      case 'checkout_today': return '📤';
+      case 'checkout_tomorrow': return '📅';
+      case 'checkout_2days': return '📅';
+      case 'checkout_3days': return '📅';
+      case 'auto_checkin': return '🔄';
+      case 'auto_checkout': return '🔄';
+      case 'booking_created': return '📋';
+      default: return '📌';
+    }
+  };
+
+  const getNotificationColor = (type: string) => {
+    switch (type) {
+      case 'checkin_today': return 'border-green-500 bg-green-50';
+      case 'checkin_tomorrow': return 'border-blue-500 bg-blue-50';
+      case 'checkout_today': return 'border-red-500 bg-red-50';
+      case 'checkout_tomorrow': return 'border-orange-500 bg-orange-50';
+      case 'auto_checkin': return 'border-purple-500 bg-purple-50';
+      case 'auto_checkout': return 'border-pink-500 bg-pink-50';
+      default: return 'border-gray-300 bg-gray-50';
     }
   };
 
@@ -1421,6 +1669,17 @@ export default function DashboardPage() {
               <FiPieChart className="w-4 h-4 sm:w-5 sm:h-5 flex-shrink-0" />
               <span className="truncate">Reports</span>
             </Link>
+
+            {(isOwner || isManager) && (
+              <button
+                onClick={() => setShowAutomationModal(true)}
+                className="flex items-center space-x-3 px-3 sm:px-4 py-2.5 sm:py-3 w-full rounded-lg hover:bg-indigo-700 transition-colors text-sm sm:text-base"
+              >
+                <FiCpu className="w-4 h-4 sm:w-5 sm:h-5 flex-shrink-0" />
+                <span className="truncate">Automation</span>
+                <span className="ml-auto text-[10px] bg-green-500/30 px-2 py-0.5 rounded-full">AI</span>
+              </button>
+            )}
           </nav>
 
           <div className="p-3 sm:p-4 border-t border-indigo-700">
@@ -1454,16 +1713,29 @@ export default function DashboardPage() {
               </button>
               <div className="min-w-0">
                 <h2 className="text-base sm:text-xl font-semibold text-gray-800 truncate">Dashboard</h2>
-                <p className="text-xs sm:text-sm text-gray-500 truncate">Welcome back, {user?.username || 'User'}!</p>
+                <p className="text-xs sm:text-sm text-gray-500 truncate">
+                  Welcome back, {user?.username || 'User'}!
+                  {branchInfo && (
+                    <span className="ml-2 text-indigo-600">
+                      <FiMapPin className="inline w-3 h-3" /> {branchInfo.currentBranch || displayBranchName}
+                    </span>
+                  )}
+                </p>
                 {isLocalMode && (
                   <span className="ml-2 text-xs bg-yellow-100 text-yellow-800 px-2 py-1 rounded-full">
                     📝 Offline Mode
                   </span>
                 )}
+                {/* ✅ Real-time update status */}
+                <div className="text-xs text-gray-400 mt-1 flex items-center gap-2">
+                  <FiRadio className="w-3 h-3 text-green-500 animate-pulse" />
+                  <span>Real-time updates: {lastUpdate || 'Waiting...'}</span>
+                  <span className="w-2 h-2 bg-green-500 rounded-full inline-block animate-pulse"></span>
+                </div>
               </div>
             </div>
             <div className="flex items-center space-x-1 sm:space-x-4 flex-shrink-0">
-              {/* Branch Dropdown */}
+              {/* ✅ Branch Dropdown with counts */}
               <div className="relative">
                 <select
                   value={selectedBranch || (branches.length > 0 ? branches[0] : '')}
@@ -1477,6 +1749,9 @@ export default function DashboardPage() {
                   {branches.map((branch) => (
                     <option key={branch} value={branch} className="py-1">
                       🏨 {branch}
+                      {branchCounts[branch] !== undefined && (
+                        <span className="text-xs text-gray-400 ml-1">({branchCounts[branch]})</span>
+                      )}
                     </option>
                   ))}
                 </select>
@@ -1505,37 +1780,77 @@ export default function DashboardPage() {
                   <div className="absolute right-0 mt-2 w-80 bg-white rounded-xl shadow-lg border border-gray-200 z-50 max-h-96 overflow-y-auto">
                     <div className="p-3 border-b bg-gray-50 flex justify-between items-center">
                       <span className="font-semibold text-sm">Notifications</span>
-                      {unreadCount > 0 && (
-                        <button 
-                          onClick={() => {
-                            notifications.forEach(n => !n.isRead && markNotificationRead(n.id));
-                          }}
+                      <div className="flex gap-2">
+                        {unreadCount > 0 && (
+                          <button 
+                            onClick={markAllNotificationsRead}
+                            className="text-xs text-indigo-600 hover:text-indigo-800"
+                          >
+                            Mark all read
+                          </button>
+                        )}
+                        <button
+                          onClick={() => setShowNotificationHistory(!showNotificationHistory)}
+                          className="text-xs text-purple-600 hover:text-purple-800"
+                        >
+                          {showNotificationHistory ? 'Hide History' : 'Show History'}
+                        </button>
+                      </div>
+                    </div>
+                    
+                    {showNotificationHistory ? (
+                      notificationHistory.length === 0 ? (
+                        <div className="p-4 text-center text-gray-500 text-sm">No notification history</div>
+                      ) : (
+                        notificationHistory.slice(0, 10).map((n) => (
+                          <div key={n.id} className={`p-3 border-b border-gray-100 ${getNotificationColor(n.type)}`}>
+                            <div className="flex items-start gap-2">
+                              <span className="text-lg">{getNotificationIcon(n.type)}</span>
+                              <div className="flex-1">
+                                <p className="text-sm font-medium text-gray-800">{n.title}</p>
+                                <p className="text-xs text-gray-600 mt-0.5">{n.message}</p>
+                                <p className="text-[10px] text-gray-400 mt-1">
+                                  {n.branch} • {new Date(n.createdAt).toLocaleString()}
+                                </p>
+                              </div>
+                            </div>
+                          </div>
+                        ))
+                      )
+                    ) : (
+                      notifications.length === 0 ? (
+                        <div className="p-4 text-center text-gray-500 text-sm">No new notifications</div>
+                      ) : (
+                        notifications.slice(0, 5).map((n) => (
+                          <div 
+                            key={n.id} 
+                            className={`p-3 border-b hover:bg-gray-50 transition-colors cursor-pointer ${!n.isRead ? 'bg-blue-50' : ''} ${getNotificationColor(n.type)}`}
+                            onClick={() => markNotificationRead(n.id)}
+                          >
+                            <div className="flex items-start gap-2">
+                              <span className="text-lg">{getNotificationIcon(n.type)}</span>
+                              <div className="flex-1">
+                                <p className="text-sm font-medium text-gray-800">{n.title}</p>
+                                <p className="text-xs text-gray-600 mt-0.5">{n.message}</p>
+                                <p className="text-[10px] text-gray-400 mt-1">{n.branch} • {new Date(n.createdAt).toLocaleTimeString()}</p>
+                              </div>
+                              {!n.isRead && (
+                                <span className="w-2 h-2 bg-blue-500 rounded-full flex-shrink-0 mt-1"></span>
+                              )}
+                            </div>
+                          </div>
+                        ))
+                      )
+                    )}
+                    
+                    {notifications.length > 5 && !showNotificationHistory && (
+                      <div className="p-2 text-center border-t">
+                        <button
+                          onClick={() => setShowNotificationHistory(true)}
                           className="text-xs text-indigo-600 hover:text-indigo-800"
                         >
-                          Mark all read
-                        </button>
-                      )}
-                    </div>
-                    {notifications.length === 0 ? (
-                      <div className="p-4 text-center text-gray-500 text-sm">No notifications</div>
-                    ) : (
-                      notifications.slice(0, 5).map((n) => (
-                        <div 
-                          key={n.id} 
-                          className={`p-3 border-b hover:bg-gray-50 transition-colors cursor-pointer ${!n.isRead ? 'bg-blue-50' : ''}`}
-                          onClick={() => markNotificationRead(n.id)}
-                        >
-                          <p className="text-sm font-medium text-gray-800">{n.title}</p>
-                          <p className="text-xs text-gray-600 mt-0.5">{n.message}</p>
-                          <p className="text-[10px] text-gray-400 mt-1">{n.branch} • {new Date(n.createdAt).toLocaleTimeString()}</p>
-                        </div>
-                      ))
-                    )}
-                    {notifications.length > 5 && (
-                      <div className="p-2 text-center border-t">
-                        <Link href="/dashboard/reports" className="text-xs text-indigo-600 hover:text-indigo-800">
                           View all notifications →
-                        </Link>
+                        </button>
                       </div>
                     )}
                   </div>
@@ -1546,7 +1861,7 @@ export default function DashboardPage() {
                 onClick={() => {
                   localStorage.removeItem('bookings');
                   localStorage.removeItem('allBookingsCache');
-                  loadDashboardData(true);
+                  refreshAllData();
                 }}
                 disabled={refreshing}
                 className="bg-indigo-100 text-indigo-700 px-2 sm:px-3 py-1.5 sm:py-2 rounded-lg hover:bg-indigo-200 transition-colors flex items-center space-x-1 disabled:opacity-50"
@@ -1564,11 +1879,25 @@ export default function DashboardPage() {
 
               {(isOwner || isManager) && (
                 <button
-                  onClick={runAutoCheckout}
-                  className="bg-green-100 text-green-700 px-2 sm:px-3 py-1.5 sm:py-2 rounded-lg hover:bg-green-200 transition-colors flex items-center space-x-1 text-sm"
+                  onClick={runFullAutomation}
+                  disabled={automationRunning}
+                  className={`px-2 sm:px-3 py-1.5 sm:py-2 rounded-lg transition-colors flex items-center space-x-1 text-sm ${
+                    automationRunning 
+                      ? 'bg-gray-300 text-gray-500 cursor-not-allowed' 
+                      : 'bg-gradient-to-r from-purple-500 to-pink-500 text-white hover:from-purple-600 hover:to-pink-600'
+                  }`}
                 >
-                  <FiCheckCircle className="w-3 h-3 sm:w-4 sm:h-4" />
-                  <span className="text-[10px] sm:text-sm hidden xs:inline">Auto Checkout</span>
+                  {automationRunning ? (
+                    <>
+                      <span className="animate-spin rounded-full h-3 w-3 border-b-2 border-white"></span>
+                      <span className="text-[10px] sm:text-sm hidden xs:inline">Running...</span>
+                    </>
+                  ) : (
+                    <>
+                      <FiZap className="w-3 h-3 sm:w-4 sm:h-4" />
+                      <span className="text-[10px] sm:text-sm hidden xs:inline">Auto</span>
+                    </>
+                  )}
                 </button>
               )}
             </div>
@@ -1577,18 +1906,78 @@ export default function DashboardPage() {
 
         {/* Dashboard Content */}
         <div className="flex-1 overflow-y-auto p-2 sm:p-4 md:p-6">
-          {/* Upcoming Checkouts Alert */}
-          {upcomingCheckouts.length > 0 && (
-            <div className="bg-yellow-50 border border-yellow-300 rounded-lg p-3 mb-3">
+          {/* ✅ Real-time Notification Alerts */}
+          {todayCheckins.length > 0 && (
+            <div className="bg-green-50 border border-green-300 rounded-lg p-3 mb-3">
               <div className="flex items-start gap-2">
-                <FiAlertCircle className="w-5 h-5 text-yellow-600 flex-shrink-0 mt-0.5" />
+                <FiCheckCircle className="w-5 h-5 text-green-600 flex-shrink-0 mt-0.5" />
                 <div className="flex-1">
-                  <p className="text-sm font-medium text-yellow-800">
-                    📋 {upcomingCheckouts.length} guest(s) checking out in 24-48 hours
+                  <p className="text-sm font-medium text-green-800">
+                    🔔 {todayCheckins.length} guest(s) checking in TODAY
                   </p>
-                  <p className="text-xs text-yellow-700 mt-0.5">
-                    {upcomingCheckouts.map((b: any) => (
-                      <span key={b.id} className="inline-block mr-2">
+                  <p className="text-xs text-green-700 mt-0.5">
+                    {todayCheckins.map((b: any) => (
+                      <span key={b.id} className="inline-block bg-green-100 px-2 py-0.5 rounded mr-1 mb-1">
+                        {b.agentName} ({b.roomType})
+                      </span>
+                    ))}
+                  </p>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {tomorrowCheckins.length > 0 && (
+            <div className="bg-blue-50 border border-blue-300 rounded-lg p-3 mb-3">
+              <div className="flex items-start gap-2">
+                <FiCalendar className="w-5 h-5 text-blue-600 flex-shrink-0 mt-0.5" />
+                <div className="flex-1">
+                  <p className="text-sm font-medium text-blue-800">
+                    📅 {tomorrowCheckins.length} guest(s) checking in TOMORROW
+                  </p>
+                  <p className="text-xs text-blue-700 mt-0.5">
+                    {tomorrowCheckins.map((b: any) => (
+                      <span key={b.id} className="inline-block bg-blue-100 px-2 py-0.5 rounded mr-1 mb-1">
+                        {b.agentName} ({b.roomType})
+                      </span>
+                    ))}
+                  </p>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {todayCheckoutsList.length > 0 && (
+            <div className="bg-red-50 border border-red-300 rounded-lg p-3 mb-3">
+              <div className="flex items-start gap-2">
+                <FiAlertCircle className="w-5 h-5 text-red-600 flex-shrink-0 mt-0.5" />
+                <div className="flex-1">
+                  <p className="text-sm font-medium text-red-800">
+                    📤 {todayCheckoutsList.length} guest(s) checking out TODAY
+                  </p>
+                  <p className="text-xs text-red-700 mt-0.5">
+                    {todayCheckoutsList.map((b: any) => (
+                      <span key={b.id} className="inline-block bg-red-100 px-2 py-0.5 rounded mr-1 mb-1">
+                        {b.agentName} ({b.roomType})
+                      </span>
+                    ))}
+                  </p>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {overdueCheckouts.length > 0 && (
+            <div className="bg-red-100 border border-red-400 rounded-lg p-3 mb-3">
+              <div className="flex items-start gap-2">
+                <FiXCircle className="w-5 h-5 text-red-700 flex-shrink-0 mt-0.5" />
+                <div className="flex-1">
+                  <p className="text-sm font-medium text-red-900">
+                    ⚠️ {overdueCheckouts.length} guest(s) have OVERDUE checkout!
+                  </p>
+                  <p className="text-xs text-red-800 mt-0.5">
+                    {overdueCheckouts.map((b: any) => (
+                      <span key={b.id} className="inline-block bg-red-200 px-2 py-0.5 rounded mr-1 mb-1">
                         {b.agentName} ({new Date(b.checkOut).toLocaleDateString()})
                       </span>
                     ))}
@@ -1658,6 +2047,9 @@ export default function DashboardPage() {
                   <span className="w-1.5 h-1.5 sm:w-2 sm:h-2 bg-green-400 rounded-full mr-1"></span>
                   Active
                 </span>
+                <span className="text-[10px] sm:text-sm text-indigo-200">
+                  🔄 Auto-refresh every 15s
+                </span>
               </div>
               <button
                 onClick={() => setShowProfileModal(true)}
@@ -1670,7 +2062,7 @@ export default function DashboardPage() {
           </div>
 
           {/* ✅ Checkout Information Section */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
             {/* Available Rooms Card */}
             <div className="bg-white rounded-xl shadow-sm p-4 border-l-4 border-green-500">
               <div className="flex items-center justify-between">
@@ -1716,7 +2108,56 @@ export default function DashboardPage() {
                 </div>
               )}
             </div>
+
+            {/* ✅ Automation Status Card */}
+            <div className="bg-gradient-to-r from-purple-50 to-pink-50 rounded-xl shadow-sm p-4 border-l-4 border-purple-500">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm text-gray-500">Automation Status</p>
+                  <p className="text-2xl font-bold text-purple-600 flex items-center gap-2">
+                    <FiCpu className="w-5 h-5" />
+                    Active
+                  </p>
+                  <p className="text-xs text-gray-400">Auto check-in/out enabled</p>
+                </div>
+                <button
+                  onClick={runFullAutomation}
+                  disabled={automationRunning}
+                  className="w-12 h-12 bg-purple-100 rounded-lg flex items-center justify-center hover:bg-purple-200 transition-colors disabled:opacity-50"
+                >
+                  {automationRunning ? (
+                    <span className="animate-spin rounded-full h-6 w-6 border-b-2 border-purple-600"></span>
+                  ) : (
+                    <FiZap className="w-6 h-6 text-purple-600" />
+                  )}
+                </button>
+              </div>
+            </div>
           </div>
+
+          {/* ✅ Branch Status Summary */}
+          {branchStatusSummary && Object.keys(branchStatusSummary).length > 0 && (
+            <div className="bg-white rounded-xl shadow-sm p-4 mb-4 border border-gray-200">
+              <h3 className="text-sm font-semibold text-gray-800 mb-3 flex items-center">
+                <FiBarChart2 className="w-4 h-4 mr-2 text-indigo-500" />
+                Branch Status Summary
+              </h3>
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+                {Object.entries(branchStatusSummary).map(([branch, statuses]: [string, any]) => (
+                  <div key={branch} className="p-3 bg-gray-50 rounded-lg">
+                    <p className="text-xs font-semibold text-gray-700">{branch}</p>
+                    <div className="flex flex-wrap gap-1 mt-1">
+                      {statuses.map((s: any) => (
+                        <span key={s.bookingStatus} className="text-xs px-2 py-0.5 rounded-full bg-indigo-100 text-indigo-700">
+                          {s.bookingStatus}: {s.count}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
 
           {/* ✅ Recent Checkouts List */}
           {recentCheckouts.length > 0 && (
@@ -1918,7 +2359,7 @@ export default function DashboardPage() {
             </div>
           </div>
 
-          {/* Recent Bookings - Show all bookings including CheckedOut */}
+          {/* Recent Bookings */}
           {recentBookings.length > 0 && (
             <div className="bg-white rounded-xl shadow-sm p-3 sm:p-6 mb-4 sm:mb-6">
               <h3 className="text-sm sm:text-lg font-semibold text-gray-800 mb-3 sm:mb-4">📋 Recent Bookings</h3>
@@ -1992,11 +2433,10 @@ export default function DashboardPage() {
             </div>
           )}
 
-          {/* ✅ Quick Actions - Updated for Viewer */}
-          <div className="grid grid-cols-2 xs:grid-cols-4 gap-2 sm:gap-4">
+          {/* ✅ Quick Actions */}
+          <div className="grid grid-cols-2 xs:grid-cols-4 sm:grid-cols-5 gap-2 sm:gap-4">
             {isOwner || isManager ? (
               <>
-                {/* ✅ Fixed New Booking button with onClick handler */}
                 <button
                   onClick={handleNewBooking}
                   className="bg-indigo-600 text-white rounded-xl shadow-sm p-2 sm:p-4 hover:bg-indigo-700 transition-colors text-center"
@@ -2004,22 +2444,55 @@ export default function DashboardPage() {
                   <FiPlus className="w-4 h-4 sm:w-6 sm:h-6 mx-auto mb-1 sm:mb-2" />
                   <p className="text-[10px] sm:text-sm font-medium">New Booking</p>
                 </button>
-                <Link href="/dashboard/check-in" className="bg-green-600 text-white rounded-xl shadow-sm p-2 sm:p-4 hover:bg-green-700 transition-colors text-center">
+                
+                <button
+                  onClick={runAutoCheckin}
+                  disabled={automationRunning}
+                  className="bg-green-600 text-white rounded-xl shadow-sm p-2 sm:p-4 hover:bg-green-700 transition-colors text-center disabled:opacity-50"
+                >
                   <FiCheckCircle className="w-4 h-4 sm:w-6 sm:h-6 mx-auto mb-1 sm:mb-2" />
-                  <p className="text-[10px] sm:text-sm font-medium">Check In</p>
-                </Link>
+                  <p className="text-[10px] sm:text-sm font-medium">Auto Check-in</p>
+                  <p className="text-[8px] opacity-75">Process check-ins</p>
+                </button>
+                
                 <button
                   onClick={runAutoCheckout}
-                  className="bg-blue-600 text-white rounded-xl shadow-sm p-2 sm:p-4 hover:bg-blue-700 transition-colors text-center"
+                  disabled={automationRunning}
+                  className="bg-blue-600 text-white rounded-xl shadow-sm p-2 sm:p-4 hover:bg-blue-700 transition-colors text-center disabled:opacity-50"
                 >
                   <FiClock className="w-4 h-4 sm:w-6 sm:h-6 mx-auto mb-1 sm:mb-2" />
                   <p className="text-[10px] sm:text-sm font-medium">Auto Checkout</p>
                   <p className="text-[8px] opacity-75">Process checkouts</p>
                 </button>
-                <Link href="/dashboard/reports" className="bg-purple-600 text-white rounded-xl shadow-sm p-2 sm:p-4 hover:bg-purple-700 transition-colors text-center">
-                  <FiFileText className="w-4 h-4 sm:w-6 sm:h-6 mx-auto mb-1 sm:mb-2" />
-                  <p className="text-[10px] sm:text-sm font-medium">Reports</p>
-                </Link>
+                
+                <button
+                  onClick={runReminders}
+                  disabled={automationRunning}
+                  className="bg-yellow-600 text-white rounded-xl shadow-sm p-2 sm:p-4 hover:bg-yellow-700 transition-colors text-center disabled:opacity-50"
+                >
+                  <FiMail className="w-4 h-4 sm:w-6 sm:h-6 mx-auto mb-1 sm:mb-2" />
+                  <p className="text-[10px] sm:text-sm font-medium">Send Reminders</p>
+                  <p className="text-[8px] opacity-75">Email notifications</p>
+                </button>
+
+                <button
+                  onClick={runFullAutomation}
+                  disabled={automationRunning}
+                  className="bg-gradient-to-r from-purple-600 to-pink-600 text-white rounded-xl shadow-sm p-2 sm:p-4 hover:from-purple-700 hover:to-pink-700 transition-colors text-center disabled:opacity-50"
+                >
+                  {automationRunning ? (
+                    <>
+                      <span className="animate-spin rounded-full h-4 w-4 sm:h-6 sm:w-6 border-b-2 border-white mx-auto mb-1 sm:mb-2"></span>
+                      <p className="text-[10px] sm:text-sm font-medium">Running...</p>
+                    </>
+                  ) : (
+                    <>
+                      <FiZap className="w-4 h-4 sm:w-6 sm:h-6 mx-auto mb-1 sm:mb-2" />
+                      <p className="text-[10px] sm:text-sm font-medium">Full Auto</p>
+                      <p className="text-[8px] opacity-75">Run all automation</p>
+                    </>
+                  )}
+                </button>
               </>
             ) : (
               <Link href="/dashboard/reports" className="bg-purple-600 text-white rounded-xl shadow-sm p-2 sm:p-4 hover:bg-purple-700 transition-colors text-center col-span-4">
@@ -2030,6 +2503,118 @@ export default function DashboardPage() {
           </div>
         </div>
       </div>
+
+      {/* ✅ Automation Results Modal */}
+      {showAutomationModal && automationResults && (
+        <div className="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full z-50 flex items-center justify-center p-4">
+          <div className="relative bg-white rounded-xl shadow-lg max-w-md w-full mx-4 p-4 sm:p-6">
+            <div className="flex justify-between items-start mb-4">
+              <div className="flex items-center space-x-3">
+                <div className="w-10 h-10 rounded-full bg-purple-100 flex items-center justify-center text-xl">
+                  🤖
+                </div>
+                <div>
+                  <h3 className="text-lg font-bold text-gray-800">Automation Complete</h3>
+                  <p className="text-xs text-gray-500">{new Date(automationResults.timestamp).toLocaleString()}</p>
+                </div>
+              </div>
+              <button
+                onClick={() => setShowAutomationModal(false)}
+                className="text-gray-400 hover:text-gray-600"
+              >
+                <FiX className="w-6 h-6" />
+              </button>
+            </div>
+
+            <div className="space-y-3">
+              <div className="grid grid-cols-2 gap-3">
+                <div className="bg-green-50 p-3 rounded-lg">
+                  <p className="text-xs text-gray-500">Check-ins</p>
+                  <p className="text-2xl font-bold text-green-600">{automationResults.checkins?.checkedIn || 0}</p>
+                  <p className="text-xs text-gray-400">Processed</p>
+                </div>
+                <div className="bg-blue-50 p-3 rounded-lg">
+                  <p className="text-xs text-gray-500">Checkouts</p>
+                  <p className="text-2xl font-bold text-blue-600">{automationResults.checkouts?.checkedOut || 0}</p>
+                  <p className="text-xs text-gray-400">Processed</p>
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="bg-yellow-50 p-3 rounded-lg">
+                  <p className="text-xs text-gray-500">Reminders</p>
+                  <p className="text-2xl font-bold text-yellow-600">{automationResults.reminders?.reminders || 0}</p>
+                  <p className="text-xs text-gray-400">Sent</p>
+                </div>
+                <div className="bg-purple-50 p-3 rounded-lg">
+                  <p className="text-xs text-gray-500">Check-in Reminders</p>
+                  <p className="text-2xl font-bold text-purple-600">{automationResults.checkinReminders?.reminders || 0}</p>
+                  <p className="text-xs text-gray-400">Sent</p>
+                </div>
+              </div>
+
+              {automationResults.branches && (
+                <div className="mt-2 p-3 bg-gray-50 rounded-lg">
+                  <p className="text-xs font-semibold text-gray-700">📍 Branches Processed:</p>
+                  <div className="flex flex-wrap gap-1 mt-1">
+                    {automationResults.branches.map((branch: string) => (
+                      <span key={branch} className="text-xs bg-indigo-100 text-indigo-700 px-2 py-0.5 rounded">
+                        {branch}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {automationResults.notifications && (
+                <div className="mt-2 p-3 bg-gray-50 rounded-lg">
+                  <p className="text-xs font-semibold text-gray-700">📋 Notification Details:</p>
+                  <div className="grid grid-cols-2 gap-1 mt-1">
+                    {automationResults.notifications.checkinToday?.length > 0 && (
+                      <span className="text-xs text-green-600">✅ Check-in Today: {automationResults.notifications.checkinToday.length}</span>
+                    )}
+                    {automationResults.notifications.checkinTomorrow?.length > 0 && (
+                      <span className="text-xs text-blue-600">📅 Check-in Tomorrow: {automationResults.notifications.checkinTomorrow.length}</span>
+                    )}
+                    {automationResults.notifications.checkoutToday?.length > 0 && (
+                      <span className="text-xs text-red-600">📤 Checkout Today: {automationResults.notifications.checkoutToday.length}</span>
+                    )}
+                    {automationResults.notifications.checkoutTomorrow?.length > 0 && (
+                      <span className="text-xs text-orange-600">📅 Checkout Tomorrow: {automationResults.notifications.checkoutTomorrow.length}</span>
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+
+            <div className="mt-4 flex gap-2">
+              <button
+                onClick={() => setShowAutomationModal(false)}
+                className="flex-1 bg-gray-200 text-gray-700 px-4 py-2 rounded-lg hover:bg-gray-300 transition-colors"
+              >
+                Close
+              </button>
+              <button
+                onClick={() => {
+                  setShowAutomationModal(false);
+                  refreshAllData();
+                }}
+                className="flex-1 bg-indigo-600 text-white px-4 py-2 rounded-lg hover:bg-indigo-700 transition-colors"
+              >
+                Refresh Data
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ✅ Notification Toast */}
+      {toastMessage && (
+        <NotificationToast 
+          message={toastMessage} 
+          type={toastType}
+          onClose={() => setToastMessage(null)}
+        />
+      )}
 
       {/* Profile Modal */}
       {showProfileModal && (
