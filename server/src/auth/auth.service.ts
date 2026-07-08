@@ -1,106 +1,81 @@
-// auth/auth.service.ts
-import { Injectable, UnauthorizedException } from '@nestjs/common';
+import { Injectable, UnauthorizedException, BadRequestException } from '@nestjs/common';
+import { PrismaService } from '../prisma/prisma.service';
 import { JwtService } from '@nestjs/jwt';
-import { UsersService } from '../users/users.service';
-const bcrypt: any = require('bcryptjs');
-import { AuditService } from '../../apps/api/src/audit/audit.service'; // 👈 import audit
+import * as bcrypt from 'bcryptjs';
 
 @Injectable()
 export class AuthService {
   constructor(
-    private users: UsersService,
-    private jwt: JwtService,
-    private audit: AuditService, // 👈 inject audit
+    private prisma: PrismaService,
+    private jwtService: JwtService,
   ) {}
 
-  // 🔐 Validate user + audit login attempts
-  async validateUser(username: string, password: string, req: any) {
-    const user = await this.users.findByUsername(username);
+  async login(req: any, body: any) {
+    const { username, password, branch } = body;
 
-    // ❌ Failed login
-    if (!user) {
-      await this.audit.log({
-        action: 'LOGIN_FAILED',
-        entity: 'User',
-        entityId: username,
-        details: { reason: 'User not found' },
-        branch: null,
-        username,
-        ip: req.ip || req.context?.ip || null,
-        userAgent: req.headers?.['user-agent'] || req.context?.userAgent || null,
-      });
-      return null;
-    }
+    console.log('🔐 Login attempt:', { username, branch });
 
-    const isPasswordValid = await bcrypt.compare(password, user.password);
-
-    if (!isPasswordValid) {
-      await this.audit.log({
-        action: 'LOGIN_FAILED',
-        entity: 'User',
-        entityId: username,
-        details: { reason: 'Invalid credentials' },
-        branch: null,
-        username,
-        ip: req.ip || req.context?.ip || null,
-        userAgent: req.headers?.['user-agent'] || req.context?.userAgent || null,
-      });
-      return null;
-    }
-
-    // ✅ Successful login → log it
-    await this.audit.log({
-      action: 'LOGIN',
-      entity: 'User',
-      entityId: user.id,
-      details: {},
-      branch: user.branches?.[0] || null,
-      username: user.username,
-      ip: req.ip || req.context?.ip || null,
-      userAgent: req.headers?.['user-agent'] || req.context?.userAgent || null,
+    const user = await this.prisma.user.findUnique({
+      where: { username },
     });
 
-    return user;
-  }
-
-  // 🔑 Login: returns JWT token
-  async login(username: string, password: string, req: any) {
-    const user = await this.validateUser(username, password, req);
     if (!user) {
+      console.log('❌ User not found:', username);
       throw new UnauthorizedException('Invalid credentials');
     }
 
+    const isValid = await bcrypt.compare(password, user.password_hash);
+    if (!isValid) {
+      console.log('❌ Invalid password for:', username);
+      throw new UnauthorizedException('Invalid credentials');
+    }
+
+    // Get user branches from UserBranch table
+    const userBranches = await this.prisma.userBranch.findMany({
+      where: { user_id: user.id },
+      select: { branch_name: true },
+    });
+
+    const branches = userBranches.map(ub => ub.branch_name);
+    console.log('📋 User branches:', branches);
+
+    // Check if user has the selected branch
+    if (!branches.includes(branch)) {
+      throw new BadRequestException(
+        `Branch "${branch}" is not assigned to this user. Available: ${branches.join(', ')}`
+      );
+    }
+
+    // Create payload for JWT
     const payload = {
-      sub: user.id,
-      role: user.role,
-      branches: user.branches,
+      id: user.id,
       username: user.username,
+      role: user.role,
+      branches: branches,
+      selectedBranch: branch,
+      canViewAllBranches: user.canViewAllBranches,
+      canCreateBookings: user.canCreateBookings,
     };
 
-    const token = await this.jwt.signAsync(payload);
+    console.log('✅ Login successful for:', username);
+    console.log('📦 Payload:', payload);
+
+    const token = this.jwtService.sign(payload);
+
+    // Return user data matching what frontend expects
+    const userData = {
+      id: user.id,
+      username: user.username,
+      role: user.role,
+      branches: branches,
+      selectedBranch: branch,
+      canViewAllBranches: user.canViewAllBranches,
+      canCreateBookings: user.canCreateBookings,
+    };
 
     return {
       token,
-      user: {
-        id: user.id,
-        role: user.role,
-        branches: user.branches,
-        username: user.username,
-      },
+      user: userData,
     };
-  }
-
-  // 🚪 Logout: just audit (token is stateless, so no server-side session to destroy)
-  async logout(user: any, req: any) {
-    await this.audit.log({
-      action: 'LOGOUT',
-      entity: 'User',
-      entityId:  user.userId, // ✅ CORRECT — matches JWT payload
-      details: {},
-      branch: user.branches?.[0] || null,
-      username: user.username,
-      ip: req.ip || req.context?.ip || null,
-      userAgent: req.headers?.['user-agent'] || req.context?.userAgent || null,
-    });
   }
 }

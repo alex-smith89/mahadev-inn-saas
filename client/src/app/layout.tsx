@@ -1,50 +1,23 @@
-'use client';
-import '../../styles/globals.css';
-import { AuthProvider, useAuth } from '../../lib/auth';
-import api from '../../lib/api';
+import type { Metadata } from 'next';
+import { Inter } from 'next/font/google';
+import './globals.css';
 
-function Header() {
-  const { user, setUser } = useAuth();
+const inter = Inter({ subsets: ['latin'] });
 
-  function logout() {
-  // Call backend logout to trigger audit log
-  api.post('/auth/logout')
-    .catch(err => {
-      console.warn('Logout audit failed:', err);
-      // Still proceed to clear session — don't block UX
-    })
-    .finally(() => {
-      // Clear frontend session
-      localStorage.removeItem('token');
-      localStorage.removeItem('user');
-      setUser(null);
-      window.location.href = '/login';
-    });
-}
+export const metadata: Metadata = {
+  title: 'Mahadev Inn - Hotel Management System',
+  description: 'Mahadev Inn Hotel Management System',
+};
 
-  return (
-    <header className="flex justify-between items-center p-4 bg-indigo-700 text-white">
-      <h1 className="font-bold">Mahadev Inn SaaS</h1>
-      {user && (
-        <button
-          onClick={logout}
-          className="bg-red-500 px-3 py-1 rounded hover:bg-red-600"
-        >
-          Logout
-        </button>
-      )}
-    </header>
-  );
-}
-
-export default function RootLayout({ children }: { children: React.ReactNode }) {
+export default function RootLayout({
+  children,
+}: {
+  children: React.ReactNode;
+}) {
   return (
     <html lang="en">
-      <body className="min-h-screen">
-        <AuthProvider>
-          <Header />
-          {children}
-        </AuthProvider>
+      <body className={inter.className}>
+        {children}
       </body>
     </html>
   );

@@ -1,27 +1,17 @@
-// auth/auth.controller.ts
-import { Controller, Post, Body, Req, UseGuards } from '@nestjs/common';
+import { Controller, Post, Body, Request } from '@nestjs/common';
 import { AuthService } from './auth.service';
-import { JwtAuthGuard } from '../auth/jwt-auth.guard'; // 👈 adjust path as needed
 
 @Controller('auth')
 export class AuthController {
-  constructor(private auth: AuthService) {}
+  constructor(private authService: AuthService) {}
 
   @Post('login')
-  async login(
-    @Req() req: any,
-    @Body() body: { username: string; password: string }
-  ) {
-    // ✅ Pass req so AuthService can log IP, UA, etc.
-    return this.auth.login(body.username, body.password, req);
+  async login(@Request() req, @Body() body: any) {
+    return this.authService.login(req, body);
   }
 
- 
   @Post('logout')
-  @UseGuards(JwtAuthGuard) // 👈 required so req.user is available
-  async logout(@Req() req: any) {
-    // ✅ req.user is set by JwtAuthGuard
-    await this.auth.logout(req.user, req);
-    return { success: true };
+  async logout() {
+    return { message: 'Logged out successfully' };
   }
 }

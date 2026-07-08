@@ -1,20 +1,27 @@
-import { Controller, Get, Put, Param, Body } from '@nestjs/common';
+import { Controller, Get, Put, Body, Param, UseGuards, Req } from '@nestjs/common';
 import { BranchCapacityService } from './branch-capacity.service';
+import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 
 @Controller('branch-capacity')
+@UseGuards(JwtAuthGuard)
 export class BranchCapacityController {
-  constructor(private readonly branchCapacityService: BranchCapacityService) {}
+  constructor(private branchCapacityService: BranchCapacityService) {}
 
   @Get()
-  async getAll() {
-    return this.branchCapacityService.getAll();
+  async findAll() {
+    return this.branchCapacityService.findAll();  // FIXED: Use findAll
+  }
+
+  @Get(':branch')
+  async findByBranch(@Param('branch') branch: string) {
+    return this.branchCapacityService.findByBranch(branch);
   }
 
   @Put(':branch')
-  async update(
+  async updateOrCreate(
     @Param('branch') branch: string,
-    @Body() data: { singleCap: number; doubleCap: number },
+    @Body() data: any,
   ) {
-    return this.branchCapacityService.updateOrCreate(branch, data);
+    return this.branchCapacityService.upsert(branch, data);  // FIXED: Use upsert
   }
 }

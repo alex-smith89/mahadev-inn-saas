@@ -1,27 +1,19 @@
-import { Controller, Post, Body } from '@nestjs/common';
-import { PrismaService } from '../prisma/prisma.service';
+import { Controller, Post, Body, Get, UseGuards } from '@nestjs/common';
+import { TrialSignupService } from './trial-signup.service';
+import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 
 @Controller('trial-signup')
 export class TrialSignupController {
-  constructor(private prisma: PrismaService) {}
+  constructor(private trialSignupService: TrialSignupService) {}
 
   @Post()
   async create(@Body() data: any) {
-    const branches = Array.isArray(data.branches)
-      ? data.branches
-      : String(data.branches || '')
-          .split(',')
-          .map((b) => b.trim())
-          .filter(Boolean);
+    return this.trialSignupService.create(data);
+  }
 
-    return this.prisma.trialSignup.create({
-      data: {
-        username: data.username,
-        email: data.email,
-        phoneNumber: data.phoneNumber,
-        companyName: data.companyName,
-        branches,
-      },
-    });
+  @Get()
+  @UseGuards(JwtAuthGuard)
+  async findAll() {
+    return this.trialSignupService.findAll();
   }
 }

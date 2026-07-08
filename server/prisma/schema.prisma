@@ -7,112 +7,341 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-enum RoomType {
-  Single
-  Double
-  Triple
-  Quard
-}
-
-enum MealPlan {
-  BB
-  MAP
-  AP
-  EP
-  EPKitchen
-}
-
-enum Facility {
-  AC
-  NonAC
-}
-
+// ===== ENUMS =====
 enum Role {
-  Owner
-  Manager
-  Viewer
+  OWNER
+  MANAGER
+  VIEWER
+  ADMIN
 }
 
 enum Branch {
+  Pokhara
+  Kathmandu
+  Bhairawaha
   Kathmandu1
   Kathmandu2
-  Pokhara
-  Bhairawaha
 }
 
+enum BookingStatus {
+  Confirm
+  Confirmed
+  Pending
+  Cancelled
+  CheckedIn
+  CheckedOut
+}
+
+// Renamed from RoomType to RoomTypeEnum to avoid conflict
+enum RoomTypeEnum {
+  Single
+  Double
+  Suite
+  Deluxe
+  Premium
+}
+
+enum MealPlan {
+  EP
+  CP
+  MAP
+  AP
+  EPKitchen
+}
+
+// ===== MODELS =====
+
+// User Model with permissions
 model User {
-  id        String   @id @default(uuid())
-  username  String   @unique
-  password  String
-  role      Role
-  branches  Branch[] // ✅ allow multiple branches
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id                  Int      @id @default(autoincrement())
+  username            String   @unique @db.VarChar(50)
+  password_hash       String   @db.VarChar(255)
+  role                Role     @default(VIEWER)
+  canViewAllBranches  Boolean  @default(false)
+  canCreateBookings   Boolean  @default(true)
+  email               String?  @db.VarChar(100)
+  phone               String?  @db.VarChar(20)
+  created_at          DateTime @default(now())
+  updated_at          DateTime @updatedAt
+  
+  branches            UserBranch[]
+  bookings            Booking[]
+  notifications       Notification[]
+  
+  @@index([username])
 }
 
+// User Branches (Many-to-Many)
+model UserBranch {
+  id          Int      @id @default(autoincrement())
+  user_id     Int
+  branch_name String   @db.VarChar(100)
+  
+  user        User     @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  
+  @@unique([user_id, branch_name])
+  @@index([branch_name])
+}
+
+// Booking Model with all fields
 model Booking {
-  id            String   @id @default(uuid())
-  bookingNo     String   @unique
-  agentName     String
-  agentContact  String
-  roomsCount    Int
-  roomType      RoomType
-  facility      Facility
-  price         Int?
-  mealPlan      MealPlan
-  selfCooking   Int?
-  checkIn       DateTime
-  checkOut      DateTime
-  nights        Int
-  remark        String?
-  branch        Branch
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
-  bookingStatus String   @default("Confirmed")
+  id                  String          @id @default(cuid())
+  bookingNo           String          @unique
+  agentName           String          @db.VarChar(100)
+  agentContact        String          @db.VarChar(20)
+  email               String?         @db.VarChar(100)
+  roomsCount          Int             @default(1)
+  roomType            RoomTypeEnum
+  facility            String?         @db.VarChar(100)
+  price               Float?          @default(0)
+  mealPlan            MealPlan        @default(EP)
+  selfCooking         Boolean?        @default(false)
+  checkIn             DateTime
+  checkOut            DateTime
+  nights              Int
+  remark              String?         @db.Text
+  branch              Branch
+  bookingStatus       BookingStatus   @default(Confirm)
+  createdAt           DateTime        @default(now())
+  updatedAt           DateTime        @updatedAt
 
-  @@index([branch, checkIn, checkOut])
+  // Pricing fields
+  roomCharges         Float           @default(0)
+  kitchenCharges      Float           @default(0)
+  diningCharges       Float           @default(0)
+  currency            String          @default("NPR") @db.VarChar(10)
+  heads               Int             @default(1)
+  extraPersonCharges  Float           @default(0)
+  childrenCount       Int             @default(0)
+  childrenBelow10     Int             @default(0)
+  totalCost           Float           @default(0)
+
+  //  NEW FIELDS for better tracking and filtering
+  branchName          String?         @db.VarChar(100)   // Additional branch field for filtering
+  createdBy           String?         @db.VarChar(50)    // User who created the booking
+  userRole            String?         @db.VarChar(20)    // Role of the user who created
+  createdByUsername   String?         @db.VarChar(50)    // Username of creator
+  creatorRole         String?         @db.VarChar(20)    // Role of creator
+
+  // Timestamps
+  created_at          DateTime        @default(now())
+  updated_at          DateTime        @updatedAt
+
+  // Relations
+  feedback            Feedback?
+  user                User?           @relation(fields: [userId], references: [id])
+  userId              Int?            @map("user_id")
+  notifications       Notification[]
+  
+  @@index([branch])
+  @@index([branchName])
+  @@index([checkIn])
+  @@index([checkOut])
+  @@index([bookingStatus])
+  @@index([bookingNo])
+  @@index([created_at])
+  @@index([userId])
+  @@index([createdBy])
+  @@index([userRole])
 }
 
-model AuditLog {
-  id        String   @id @default(cuid())
-  timestamp DateTime @default(now())
-  username  String? // ✅ Optional — allow NULL
-  branch    String?
-  action    String
-  entity    String?
-  entityId  String?
-  details   Json? // ✅ Optional — allow NULL
-  ip        String?
-  userAgent String?
-}
-
-model Inventory {
-  id          String   @id @default(cuid())
-  branch      String   @unique
-  singleTotal Int      @default(10)
-  doubleTotal Int      @default(10)
-  tripleTotal Int      @default(10)
-  quardTotal  Int      @default(10)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-}
-
+// Branch Capacity
 model BranchCapacity {
-  id         Int      @id @default(autoincrement())
-  branch     String   @unique
-  singleCap  Int      @default(10)
-  doubleCap  Int      @default(10)
+  id         String   @id @default(cuid())
+  branch     Branch   @unique
+  singleCap  Int      @default(0)
+  doubleCap  Int      @default(0)
+  tripleCap  Int      @default(0)
+  quardCap   Int      @default(0)
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
+  
+  @@index([branch])
 }
+
+// ===== ROOM PRICING MODELS =====
+
+// Room Types (Model - renamed from RoomType to RoomTypeModel)
+model RoomTypeModel {
+  id              Int      @id @default(autoincrement())
+  name            String   @unique @db.VarChar(50)
+  description     String?  @db.Text
+  maxOccupancy    Int      @default(1)
+  basePrice       Float    @default(0)
+  isActive        Boolean  @default(true)
+  created_at      DateTime @default(now())
+  updated_at      DateTime @updatedAt
+  
+  pricing         RoomPricing[]
+  
+  @@index([name])
+  @@index([isActive])
+}
+
+// Room Pricing
+model RoomPricing {
+  id              Int      @id @default(autoincrement())
+  branch          Branch
+  roomType        String   @db.VarChar(50)  // Single, Double, Triple, Suite, etc.
+  season          String   @db.VarChar(50)  // Peak, Off-Peak, Festival, Weekend, etc.
+  basePrice       Float    @default(0)
+  currentPrice    Float    @default(0)
+  startDate       DateTime?
+  endDate         DateTime?
+  isActive        Boolean  @default(true)
+  createdBy       String   @db.VarChar(50)
+  created_at      DateTime @default(now())
+  updated_at      DateTime @updatedAt
+  
+  // Relations
+  roomTypeRef     RoomTypeModel @relation(fields: [roomType], references: [name])
+  
+  @@unique([branch, roomType, season, startDate, endDate])
+  @@index([branch, roomType])
+  @@index([isActive])
+  @@index([season])
+}
+
+// Pricing History
+model PricingHistory {
+  id              Int      @id @default(autoincrement())
+  branch          Branch
+  roomType        String   @db.VarChar(50)
+  season          String   @db.VarChar(50)
+  oldPrice        Float
+  newPrice        Float
+  changedBy       String   @db.VarChar(50)
+  reason          String?  @db.Text
+  created_at      DateTime @default(now())
+  
+  @@index([branch, roomType])
+  @@index([created_at])
+  @@index([season])
+}
+
+// ===== FEEDBACK MODELS =====
+
+// Feedback
+model Feedback {
+  id          String   @id @default(cuid())
+  bookingId   String   @unique
+  bookingNo   String   @db.VarChar(50)
+  guestName   String   @db.VarChar(100)
+  guestEmail  String   @db.VarChar(100)
+  rating      Int      // 1-5 stars
+  review      String?  @db.Text
+  stayDate    DateTime
+  submittedAt DateTime @default(now())
+  status      String   @default("pending") @db.VarChar(20) // pending, reviewed, archived
+  branch      Branch
+  
+  // Relations
+  booking     Booking  @relation(fields: [bookingId], references: [id])
+  
+  @@index([bookingId])
+  @@index([guestEmail])
+  @@index([submittedAt])
+  @@index([branch])
+  @@index([status])
+}
+
+// ===== AUDIT & TRIAL MODELS =====
+
+// Audit Log
+model AuditLog {
+  id         String   @id @default(cuid())
+  username   String   @db.VarChar(50)
+  branch     Branch?
+  action     String   @db.VarChar(50)
+  entity     String   @db.VarChar(50)
+  entityId   String?  @db.VarChar(50)
+  details    Json?
+  ip         String?  @db.VarChar(50)
+  userAgent  String?  @db.Text
+  createdAt  DateTime @default(now())
+  
+  @@index([username])
+  @@index([branch])
+  @@index([action])
+  @@index([createdAt])
+  @@index([entity, entityId])
+}
+
+// Trial Signup
 model TrialSignup {
-  id           String    @id @default(uuid())
-  username     String
-  email        String    @unique
-  phoneNumber  String
-  companyName  String
-  branches     String[]  // ✅ multiple branches allowed
-  createdAt    DateTime  @default(now())
+  id         String   @id @default(cuid())
+  email      String   @unique @db.VarChar(100)
+  name       String   @db.VarChar(100)
+  phone      String?  @db.VarChar(20)
+  company    String?  @db.VarChar(100)
+  password   String   @db.VarChar(255)
+  branch     Branch   @default(Pokhara)
+  status     String   @default("PENDING") @db.VarChar(20)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+  
+  @@index([email])
+  @@index([status])
 }
 
+// ===== SEASONAL PRICING SUGGESTIONS =====
 
+// Seasonal Pricing Rules
+model SeasonalPricingRule {
+  id              Int      @id @default(autoincrement())
+  name            String   @db.VarChar(100)
+  description     String?  @db.Text
+  season          String   @db.VarChar(50)  // Peak, Off-Peak, Festival, Weekend
+  multiplier      Float    @default(1.0)
+  startMonth      Int      // 1-12
+  endMonth        Int      // 1-12
+  isActive        Boolean  @default(true)
+  created_at      DateTime @default(now())
+  updated_at      DateTime @updatedAt
+  
+  @@unique([season])
+  @@index([season, isActive])
+}
+
+// Room Type Capacity
+model RoomTypeCapacity {
+  id              Int      @id @default(autoincrement())
+  branch          Branch
+  roomType        String   @db.VarChar(50)
+  totalRooms      Int      @default(0)
+  occupiedRooms   Int      @default(0)
+  availableRooms  Int      @default(0)
+  updated_at      DateTime @updatedAt
+  
+  @@unique([branch, roomType])
+  @@index([branch, roomType])
+}
+
+// ===== NOTIFICATION MODEL =====
+
+// Notification Model
+model Notification {
+  id          String   @id @default(cuid())
+  type        String   // ROOM_VACANT, CHECKOUT_COMPLETED, ROOM_CLEANED, CHECKOUT_REMINDER
+  title       String
+  message     String
+  branch      String
+  roomId      String?  @map("room_id")
+  bookingId   String?  @map("booking_id")
+  isRead      Boolean  @default(false) @map("is_read")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  booking     Booking? @relation(fields: [bookingId], references: [id])
+  user        User?    @relation(fields: [userId], references: [id])
+  userId      Int?     @map("user_id")
+
+  @@map("notifications")
+  @@index([branch])
+  @@index([isRead])
+  @@index([createdAt])
+  @@index([type])
+  @@index([bookingId])
+  @@index([userId])
+}

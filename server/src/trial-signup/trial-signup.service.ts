@@ -1,30 +1,34 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+const bcrypt = require('bcryptjs');
 
 @Injectable()
 export class TrialSignupService {
   constructor(private prisma: PrismaService) {}
 
   async create(data: any) {
-  const branches = Array.isArray(data.branches)
-    ? data.branches
-    : String(data.branches || '')
-        .split(',')
-        .map((b) => b.trim())
-        .filter(Boolean);
-
-  return this.prisma.trialSignup.create({
-    data: {
-      username: data.username,
+    let hashedPassword = null;
+    if (data.password) {
+      hashedPassword = await bcrypt.hash(data.password, 10);
+    }
+    const createData: any = {
       email: data.email,
-      phoneNumber: data.phoneNumber,
-      companyName: data.companyName,
-      branches, // ✅ now an array
-    },
-  });
-}
+      company: data.company || null,
+      password: hashedPassword,
+      branch: data.branch || 'Pokhara',
+      status: 'PENDING',
+    };
+
+    if (data.phone) {
+      createData.phone = data.phone;
+    }
+
+    return this.prisma.trialSignup.create({ data: createData });
+  }
 
   async findAll() {
-    return this.prisma.trialSignup.findMany({ orderBy: { createdAt: 'desc' } });
+    return this.prisma.trialSignup.findMany({
+      orderBy: { createdAt: 'desc' },
+    });
   }
 }

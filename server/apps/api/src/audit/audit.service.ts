@@ -1,152 +1,122 @@
-// audit/audit.service.ts
 import { Injectable } from '@nestjs/common';
-import { PrismaService } from '../../../../src/prisma/prisma.service';
-import { RequestContext } from '../common/context/request-context';
+import { PrismaClient } from '@prisma/client';
+import { Branch } from '@prisma/client';
 
 @Injectable()
 export class AuditService {
-  constructor(private prisma: PrismaService) {} // ⚠️ Remove self-injection!
+  private prisma: PrismaClient;
 
-  // ✅ NEW: Explicit log method (preferred)
-  async log(entry: {
+  constructor() {
+    this.prisma = new PrismaClient();
+  }
+
+  async log(data: {
+    username: string;
+    branch?: string | Branch | null;
     action: string;
     entity: string;
-    entityId?: string | null;
+    entityId?: string | number | null;
     details?: any;
-    branch?: string | null;
-    username: string;
     ip?: string | null;
     userAgent?: string | null;
   }) {
+    // Convert branch to enum if string
+    let branchEnum: Branch | null = null;
+    if (data.branch) {
+      const branchStr = typeof data.branch === 'string' ? data.branch : data.branch;
+      if (Object.values(Branch).includes(branchStr as Branch)) {
+        branchEnum = branchStr as Branch;
+      }
+    }
+
     return this.prisma.auditLog.create({
       data: {
-        action: entry.action,
-        entity: entry.entity,
-        entityId: entry.entityId ?? null,
-        details:  entry.details ?? {}, // ⚠️ Prisma may require string
-        branch: entry.branch ?? null,
-        username: entry.username,
-        ip: entry.ip ?? null,
-        userAgent: entry.userAgent ?? null,
+        username: data.username,
+        branch: branchEnum,
+        action: data.action,
+        entity: data.entity,
+        entityId: data.entityId ? String(data.entityId) : null,
+        details: data.details || {},
+        ip: data.ip || null,
+        userAgent: data.userAgent || null,
       },
     });
   }
 
-  // 🔄 DEPRECATED (or legacy): Log via RequestContext
-  // You can keep this temporarily for backward compatibility
-  async logFromContext(
-    ctx: RequestContext,
-    action: string,
-    entity?: string,
-    entityId?: string,
-    details?: any,
-  ) {
-    return this.log({
-      username: ctx.username ?? 'system', // ensure non-null if required
-      branch: ctx.branch ?? null,
-      action,
-      entity: entity ?? 'unknown',
-      entityId: entityId ?? null,
-      details,
-      ip: ctx.ip ?? null,
-      userAgent: ctx.userAgent ?? null,
-    });
-  }
-
-  // ✅ Keep your existing getLogs, findAll, count methods as-is
-  async getLogs({
-    page = 1,
-    limit = 20,
-    username,
-    action,
-    entity,
-  }: {
-    page?: number;
-    limit?: number;
-    username?: string;
-    action?: string;
-    entity?: string;
-  }) {
-    const take = Math.min(Math.max(limit, 1), 100);
-    const skip = (page - 1) * take;
-
-    const where: any = {};
-    if (username) where.username = username;
-    if (action) where.action = action;
-    if (entity) where.entity = entity;
-
-    const [logs, total] = await Promise.all([
-      this.prisma.auditLog.findMany({
-        where,
-        skip,
-        take,
-        orderBy: { timestamp: 'desc' },
-      }),
-      this.prisma.auditLog.count({ where }),
-    ]);
-
-    return {
-      page,
-      limit: take,
-      total,
-      logs,
-    };
-  }
-
-  async findAll(params: {
+  async findAll(filters: {
     user?: string;
-    branch?: string;
+    branch?: string | Branch;
     action?: string;
     from?: string;
     to?: string;
     skip?: number;
     take?: number;
   }) {
-    const { user, branch, action, from, to, skip = 0, take = 50 } = params;
+    const where: any = {};
+
+    if (filters.user) {
+      where.username = filters.user;
+    }
+
+    if (filters.branch) {
+      const branchStr = typeof filters.branch === 'string' ? filters.branch : filters.branch;
+      if (Object.values(Branch).includes(branchStr as Branch)) {
+        where.branch = branchStr as Branch;
+      }
+    }
+
+    if (filters.action) {
+      where.action = filters.action;
+    }
+
+    if (filters.from) {
+      where.createdAt = { gte: new Date(filters.from) };
+    }
+
+    if (filters.to) {
+      where.createdAt = { ...where.createdAt, lte: new Date(filters.to) };
+    }
 
     return this.prisma.auditLog.findMany({
-      where: {
-        ...(user ? { username: user } : {}),
-        ...(branch ? { branch } : {}),
-        ...(action ? { action } : {}),
-        ...(from || to
-          ? {
-              timestamp: {
-                ...(from ? { gte: new Date(from) } : {}),
-                ...(to ? { lte: new Date(to) } : {}),
-              },
-            }
-          : {}),
-      },
-      orderBy: { timestamp: 'desc' },
-      skip,
-      take,
+      where,
+      orderBy: { createdAt: 'desc' },
+      skip: filters.skip || 0,
+      take: filters.take || 50,
     });
   }
 
-  async count(params: {
+  async count(filters: {
     user?: string;
-    branch?: string;
+    branch?: string | Branch;
     action?: string;
     from?: string;
     to?: string;
   }) {
-    const { user, branch, action, from, to } = params;
+    const where: any = {};
 
-    return this.prisma.auditLog.count({
-      where: {
-        ...(user ? { username: user } : {}),
-        ...(branch ? { branch } : {}),
-        ...(action ? { action } : {}),
-        ...(from || to
-          ? {
-              timestamp: {
-                ...(from ? { gte: new Date(from) } : {}),
-                ...(to ? { lte: new Date(to) } : {}),
-              },
-            }
-          : {}),
-      },
-    });
+    if (filters.user) {
+      where.username = filters.user;
+    }
+
+    if (filters.branch) {
+      const branchStr = typeof filters.branch === 'string' ? filters.branch : filters.branch;
+      if (Object.values(Branch).includes(branchStr as Branch)) {
+        where.branch = branchStr as Branch;
+      }
+    }
+
+    if (filters.action) {
+      where.action = filters.action;
+    }
+
+    if (filters.from) {
+      where.createdAt = { gte: new Date(filters.from) };
+    }
+
+    if (filters.to) {
+      where.createdAt = { ...where.createdAt, lte: new Date(filters.to) };
+    }
+
+    return this.prisma.auditLog.count({ where });
   }
 }

@@ -1,21 +1,20 @@
-import { MiddlewareConsumer, Module, NestModule  } from '@nestjs/common';
-import { ContextMiddleware } from '../apps/api/src/common/middleware/context.middleware';
-import { PrismaService } from './prisma/prisma.service';
+// src/app.module.ts
+import { Module } from '@nestjs/common';
+import { PrismaModule } from './prisma/prisma.module';
 import { AuthModule } from './auth/auth.module';
-import { UsersModule } from './users/users.module';
 import { BookingsModule } from './bookings/bookings.module';
-import { AuditModule } from 'apps/api/src/audit/audit.module';
-import { BranchCapacityModule } from './branch-capacity/branch-capacity.module';
-import { TrialSignupModule } from './trial-signup/trial-signup.module';
+import { EmailModule } from './email/email.module';
+import { CheckoutModule } from './checkout/checkout.module';
+import { NotificationModule } from './notification/notification.module'; 
 
 @Module({
-  imports: [AuthModule, UsersModule, BookingsModule, AuditModule,
-    BranchCapacityModule,TrialSignupModule  // 👈 add this line
+  imports: [
+    PrismaModule,
+    AuthModule,
+    BookingsModule,
+    EmailModule,
+    CheckoutModule,
+    NotificationModule,  // ✅ ADD THIS
   ],
-  providers: [PrismaService],
 })
-export class AppModule implements NestModule {
-  configure(consumer: MiddlewareConsumer) {
-    consumer.apply(ContextMiddleware).forRoutes('*'); // 👈 apply globally
-  }
-}
+export class AppModule {}
