@@ -4,6 +4,7 @@
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
+import { FiEdit2, FiTrash2, FiEye } from 'react-icons/fi';
 
 const API_URL = 'http://localhost:4000/api';
 
@@ -19,6 +20,7 @@ export default function BookingsPage() {
   const [isManager, setIsManager] = useState(false);
   const [isViewer, setIsViewer] = useState(false);
   const [filterStatus, setFilterStatus] = useState('all');
+  const [deletingId, setDeletingId] = useState<string | null>(null);
 
   // Normalize branch name
   const normalizeBranchName = (branchName: string) => {
@@ -70,6 +72,8 @@ export default function BookingsPage() {
         }
         
         console.log('✅ User loaded:', userData);
+        console.log('👤 Role:', userData.role);
+        console.log('🔑 Is Owner:', userData.role === 'OWNER');
       } catch (e) {
         console.error('Error parsing user:', e);
         router.push('/login');
@@ -97,7 +101,7 @@ export default function BookingsPage() {
   // ✅ Listen for storage changes
   useEffect(() => {
     const handleStorageChange = (e: StorageEvent) => {
-      if (e.key === 'forceRefresh' || e.key === 'bookings') {
+      if (e.key === 'forceRefresh' || e.key === 'bookings' || e.key === 'bookingUpdated') {
         console.log('📦 Storage changed, refreshing bookings...');
         fetchBookings(true);
       }
@@ -192,6 +196,71 @@ export default function BookingsPage() {
     localStorage.setItem('selectedBranch', branch);
   };
 
+  // ✅ Edit Booking Handler - Navigate to edit page
+  const handleEditBooking = (booking: any) => {
+    if (isViewer) {
+      alert('You do not have permission to edit bookings.');
+      return;
+    }
+    router.push(`/bookings/edit/${booking.id}`);
+  };
+
+  // ✅ Delete Booking Handler with confirmation
+  const handleDeleteBooking = async (booking: any) => {
+    if (isViewer) {
+      alert('You do not have permission to delete bookings.');
+      return;
+    }
+
+    if (isManager) {
+      alert('Only owners can delete bookings.');
+      return;
+    }
+
+    // Confirm deletion
+    const confirmMessage = `Are you sure you want to delete booking #${booking.bookingNo} for "${booking.agentName}"?\n\nThis action cannot be undone.`;
+    if (!confirm(confirmMessage)) {
+      return;
+    }
+
+    try {
+      setDeletingId(booking.id);
+      const token = localStorage.getItem('token');
+      
+      const response = await fetch(`${API_URL}/bookings/${booking.id}`, {
+        method: 'DELETE',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+      });
+
+      if (response.ok) {
+        // Remove from local state
+        setBookings(prev => prev.filter(b => b.id !== booking.id));
+        
+        // Clear caches
+        localStorage.removeItem('bookings');
+        localStorage.removeItem('allBookingsCache');
+        localStorage.setItem('forceRefresh', Date.now().toString());
+        
+        // Show success message
+        alert(`✅ Booking #${booking.bookingNo} deleted successfully!`);
+        
+        // Refresh data
+        await fetchBookings(true);
+      } else {
+        const errorData = await response.json();
+        alert(`❌ Failed to delete booking: ${errorData.message || 'Unknown error'}`);
+      }
+    } catch (err: any) {
+      console.error('Error deleting booking:', err);
+      alert(`❌ Error deleting booking: ${err.message || 'Please try again'}`);
+    } finally {
+      setDeletingId(null);
+    }
+  };
+
   const getStatusColor = (status: string) => {
     switch (status) {
       case 'Confirmed':
@@ -228,9 +297,42 @@ export default function BookingsPage() {
     }
   };
 
+  // ✅ Format check-in date with time for today's bookings
+  const formatCheckInDisplay = (checkIn: string) => {
+    if (!checkIn) return 'N/A';
+    
+    const checkInDate = new Date(checkIn);
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    
+    const checkInDay = new Date(checkInDate);
+    checkInDay.setHours(0, 0, 0, 0);
+    
+    const isToday = checkInDay.getTime() === today.getTime();
+    const hasTime = checkInDate.getHours() !== 0 || checkInDate.getMinutes() !== 0 || checkInDate.getSeconds() !== 0;
+    
+    const dateStr = checkInDate.toLocaleDateString('en-US', {
+      month: 'short',
+      day: 'numeric',
+      year: 'numeric'
+    });
+    
+    const timeStr = hasTime ? checkInDate.toLocaleTimeString('en-US', {
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: true
+    }) : '';
+    
+    if (isToday && hasTime) {
+      return `Today ${timeStr}`;
+    }
+    
+    return hasTime ? `${dateStr} ${timeStr}` : dateStr;
+  };
+
   const filteredBookings = filterStatus === 'all' 
     ? bookings 
-    : bookings.filter(b => b.bookingStatus === filterStatus);
+    : bookings.filter(b => b.bookingStatus === filterStatus || (filterStatus === 'Confirm' && (b.bookingStatus === 'Confirm' || b.bookingStatus === 'Confirmed')));
 
   const displayBranchName = selectedBranch || 'All Branches';
 
@@ -381,6 +483,10 @@ export default function BookingsPage() {
                     <th className="px-3 sm:px-6 py-2 sm:py-3 text-left text-[10px] sm:text-xs font-medium text-gray-500 uppercase hidden md:table-cell">Check In</th>
                     <th className="px-3 sm:px-6 py-2 sm:py-3 text-left text-[10px] sm:text-xs font-medium text-gray-500 uppercase hidden md:table-cell">Check Out</th>
                     <th className="px-3 sm:px-6 py-2 sm:py-3 text-left text-[10px] sm:text-xs font-medium text-gray-500 uppercase">Status</th>
+                    {/* ✅ Actions column - Only show for Owner and Manager */}
+                    {(isOwner || isManager) && (
+                      <th className="px-3 sm:px-6 py-2 sm:py-3 text-left text-[10px] sm:text-xs font-medium text-gray-500 uppercase">Actions</th>
+                    )}
                   </tr>
                 </thead>
                 <tbody className="bg-white divide-y divide-gray-200">
@@ -394,13 +500,68 @@ export default function BookingsPage() {
                         </span>
                       </td>
                       <td className="px-3 sm:px-6 py-2 sm:py-4 text-[10px] sm:text-sm text-gray-500 hidden md:table-cell">{booking.roomType}</td>
-                      <td className="px-3 sm:px-6 py-2 sm:py-4 text-[10px] sm:text-sm text-gray-500 hidden md:table-cell">{new Date(booking.checkIn).toLocaleDateString()}</td>
-                      <td className="px-3 sm:px-6 py-2 sm:py-4 text-[10px] sm:text-sm text-gray-500 hidden md:table-cell">{new Date(booking.checkOut).toLocaleDateString()}</td>
+                      <td className="px-3 sm:px-6 py-2 sm:py-4 text-[10px] sm:text-sm text-gray-500 hidden md:table-cell">
+                        {formatCheckInDisplay(booking.checkIn)}
+                      </td>
+                      <td className="px-3 sm:px-6 py-2 sm:py-4 text-[10px] sm:text-sm text-gray-500 hidden md:table-cell">
+                        {new Date(booking.checkOut).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                      </td>
                       <td className="px-3 sm:px-6 py-2 sm:py-4">
                         <span className={`px-1.5 sm:px-2 py-0.5 sm:py-1 text-[8px] sm:text-xs rounded-full ${getStatusColor(booking.bookingStatus)} whitespace-nowrap`}>
                           {getStatusIcon(booking.bookingStatus)} {booking.bookingStatus}
                         </span>
                       </td>
+                      {/* ✅ Actions - Only visible to Owner and Manager */}
+                      {(isOwner || isManager) && (
+                        <td className="px-3 sm:px-6 py-2 sm:py-4">
+                          <div className="flex items-center gap-1 sm:gap-2">
+                            {/* Edit button - Owner only */}
+                            {isOwner && (
+                              <button
+                                onClick={() => handleEditBooking(booking)}
+                                className="p-1 sm:p-1.5 text-yellow-600 hover:text-yellow-800 hover:bg-yellow-50 rounded-lg transition-colors"
+                                title="Edit booking"
+                              >
+                                <FiEdit2 className="w-3 h-3 sm:w-4 sm:h-4" />
+                              </button>
+                            )}
+                            
+                            {/* Delete button - Owner only */}
+                            {isOwner && (
+                              <button
+                                onClick={() => handleDeleteBooking(booking)}
+                                disabled={deletingId === booking.id}
+                                className={`p-1 sm:p-1.5 text-red-600 hover:text-red-800 hover:bg-red-50 rounded-lg transition-colors ${
+                                  deletingId === booking.id ? 'opacity-50 cursor-not-allowed' : ''
+                                }`}
+                                title="Delete booking"
+                              >
+                                {deletingId === booking.id ? (
+                                  <span className="animate-spin rounded-full h-3 w-3 sm:h-4 sm:w-4 border-b-2 border-red-600 inline-block"></span>
+                                ) : (
+                                  <FiTrash2 className="w-3 h-3 sm:w-4 sm:h-4" />
+                                )}
+                              </button>
+                            )}
+                            
+                            {/* Manager - View only (no edit/delete) */}
+                            {isManager && !isOwner && (
+                              <span className="text-xs text-gray-400 flex items-center gap-1">
+                                <FiEye className="w-3 h-3" />
+                                View
+                              </span>
+                            )}
+                            
+                            {/* Viewer - View only */}
+                            {isViewer && (
+                              <span className="text-xs text-gray-400 flex items-center gap-1">
+                                <FiEye className="w-3 h-3" />
+                                View
+                              </span>
+                            )}
+                          </div>
+                        </td>
+                      )}
                     </tr>
                   ))}
                 </tbody>
@@ -414,6 +575,11 @@ export default function BookingsPage() {
           <span>
             Total: <span className="font-semibold">{filteredBookings.length}</span> bookings in {displayBranchName}
             {filterStatus !== 'all' && <span className="ml-2">(Filtered by: {filterStatus})</span>}
+          </span>
+          <span>
+            {isOwner && '👑 Owner - Full access'}
+            {isManager && '📋 Manager - View access'}
+            {isViewer && '🔍 Viewer - Read only'}
           </span>
         </div>
       </div>

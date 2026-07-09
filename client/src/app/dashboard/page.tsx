@@ -13,7 +13,7 @@ import {
   FiEdit2, FiUserCheck, FiBarChart2, FiActivity, FiGrid,
   FiInfo, FiBell, FiAlertCircle, FiCheck, FiCalendar, FiMail,
   FiCpu, FiSettings, FiZap, FiBellOff, FiEye, FiEyeOff,
-  FiMapPin, FiBriefcase, FiRadio
+  FiMapPin, FiBriefcase, FiRadio, FiWatch
 } from 'react-icons/fi';
 import {
   Chart as ChartJS,
@@ -131,6 +131,116 @@ export default function DashboardPage() {
     setTimeout(() => setToastMessage(null), 5000);
   };
 
+  // ✅ Format check-in display - Shows full date and time
+  const formatCheckInDisplay = (booking: any) => {
+    if (!booking || !booking.checkIn) return 'N/A';
+    
+    const checkInDate = new Date(booking.checkIn);
+    
+    // Check if check-in has time component (not midnight)
+    const hasTime = checkInDate.getHours() !== 0 || checkInDate.getMinutes() !== 0 || checkInDate.getSeconds() !== 0;
+    
+    // Format: "Jul 9, 2026 05:05 PM"
+    const dateStr = checkInDate.toLocaleDateString('en-US', {
+      month: 'short',
+      day: 'numeric',
+      year: 'numeric'
+    });
+    
+    const timeStr = hasTime ? checkInDate.toLocaleTimeString('en-US', {
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: true
+    }) : '';
+    
+    return hasTime ? `${dateStr} ${timeStr}` : dateStr;
+  };
+
+  // ✅ Get relative time string (e.g., "5m ago", "2h ago", "3d ago")
+  const getRelativeTime = (dateString: string) => {
+    if (!dateString) return '';
+    
+    const date = new Date(dateString);
+    if (isNaN(date.getTime())) return '';
+    
+    const now = new Date();
+    const diffMs = now.getTime() - date.getTime();
+    const diffMinutes = Math.floor(diffMs / (1000 * 60));
+    const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
+    const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+    
+    if (diffMinutes < 1) return 'Just now';
+    if (diffMinutes < 60) return `${diffMinutes}m ago`;
+    if (diffHours < 24) return `${diffHours}h ago`;
+    if (diffDays < 7) return `${diffDays}d ago`;
+    
+    return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  };
+
+  // ✅ Get check-in time color based on recency
+  const getCheckInTimeColor = (booking: any) => {
+    if (!booking || !booking.checkIn) return 'text-gray-400';
+    
+    const checkInDate = new Date(booking.checkIn);
+    if (isNaN(checkInDate.getTime())) return 'text-gray-400';
+    
+    const now = new Date();
+    const diffMs = now.getTime() - checkInDate.getTime();
+    const diffMinutes = diffMs / (1000 * 60);
+    const isToday = checkInDate.toDateString() === now.toDateString();
+    
+    if (diffMinutes < 60) return 'text-green-600 font-semibold';
+    if (isToday) return 'text-blue-600 font-medium';
+    
+    return 'text-gray-600';
+  };
+
+  // ✅ Check if booking is recent (within last hour)
+  const isRecentBooking = (dateString: string) => {
+    if (!dateString) return false;
+    const date = new Date(dateString);
+    if (isNaN(date.getTime())) return false;
+    const now = new Date();
+    const diffMs = now.getTime() - date.getTime();
+    return diffMs < (1000 * 60 * 60); // Less than 1 hour
+  };
+
+  // ✅ Check if booking is from today
+  const isTodayBooking = (dateString: string) => {
+    if (!dateString) return false;
+    const date = new Date(dateString);
+    if (isNaN(date.getTime())) return false;
+    const now = new Date();
+    return date.toDateString() === now.toDateString();
+  };
+
+  // ✅ Sort today's check-ins by time
+  const getSortedTodayCheckins = (bookings: any[]) => {
+    return [...bookings].sort((a, b) => {
+      const timeA = new Date(a.checkIn).getTime();
+      const timeB = new Date(b.checkIn).getTime();
+      return timeA - timeB;
+    });
+  };
+
+  // ✅ Get full date and time string
+  const getFullDateTime = (dateString: string) => {
+    if (!dateString) return 'N/A';
+    const date = new Date(dateString);
+    const hasTime = date.getHours() !== 0 || date.getMinutes() !== 0;
+    const dateStr = date.toLocaleDateString('en-US', {
+      month: 'short',
+      day: 'numeric',
+      year: 'numeric'
+    });
+    const timeStr = hasTime ? date.toLocaleTimeString('en-US', {
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: true
+    }) : '';
+    return hasTime ? `${dateStr} ${timeStr}` : dateStr;
+  };
+
   // ✅ Normalize branch name function
   const normalizeBranchName = (branchName: string) => {
     if (!branchName) return '';
@@ -224,7 +334,7 @@ export default function DashboardPage() {
     }
   };
 
-  // ✅ Load Today's Check-ins
+  // ✅ Load Today's Check-ins with time sorting
   const loadTodayCheckins = async () => {
     try {
       const token = localStorage.getItem('token');
@@ -237,7 +347,11 @@ export default function DashboardPage() {
       
       if (response.ok) {
         const data = await response.json();
-        setTodayCheckins(data.data || []);
+        // ✅ Sort by check-in time (earliest first)
+        const sorted = (data.data || []).sort((a: any, b: any) => {
+          return new Date(a.checkIn).getTime() - new Date(b.checkIn).getTime();
+        });
+        setTodayCheckins(sorted);
       }
     } catch (err) {
       console.error('Error loading today checkins:', err);
@@ -349,7 +463,7 @@ export default function DashboardPage() {
     }
   };
 
-  // ✅ Run Auto Check-in Only - UPDATED
+  // ✅ Run Auto Check-in Only
   const runAutoCheckin = async () => {
     try {
       setAutomationRunning(true);
@@ -385,7 +499,9 @@ export default function DashboardPage() {
         if (bookings.length > 0) {
           message += `\n📋 Checked-in guests:\n`;
           bookings.forEach((b: any) => {
-            message += `  • ${b.agentName} (${b.bookingNo}) - ${b.branch}\n`;
+            const checkInTime = new Date(b.checkIn).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true });
+            const checkInDate = new Date(b.checkIn).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+            message += `  • ${b.agentName} (${b.bookingNo}) - ${b.branch} on ${checkInDate} at ${checkInTime}\n`;
           });
         }
         
@@ -408,7 +524,7 @@ export default function DashboardPage() {
     }
   };
 
-  // ✅ Run Auto Check-out Only - UPDATED
+  // ✅ Run Auto Check-out Only
   const runAutoCheckout = async () => {
     try {
       setAutomationRunning(true);
@@ -467,7 +583,7 @@ export default function DashboardPage() {
     }
   };
 
-  // ✅ Run Reminders Only - UPDATED
+  // ✅ Run Reminders Only
   const runReminders = async () => {
     try {
       setAutomationRunning(true);
@@ -564,37 +680,6 @@ export default function DashboardPage() {
     }
   };
 
-  // ✅ Edit Booking Handler
-  const handleEditBooking = (booking: any) => {
-    router.push(`/bookings/edit/${booking.id}`);
-  };
-
-  // ✅ Delete Booking Handler
-  const handleDeleteBooking = async (id: string) => {
-    if (!confirm('Are you sure you want to delete this booking?')) return;
-    
-    try {
-      const token = localStorage.getItem('token');
-      const response = await fetch(`${API_URL}/bookings/${id}`, {
-        method: 'DELETE',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-        },
-      });
-      
-      if (response.ok) {
-        alert('✅ Booking deleted successfully!');
-        await refreshAllData();
-        showNotification('✅ Booking deleted successfully', 'success');
-      } else {
-        alert('❌ Error deleting booking');
-      }
-    } catch (err) {
-      console.error('Error deleting booking:', err);
-      alert('❌ Error deleting booking');
-    }
-  };
-
   // ✅ Check for new data every 15 seconds (Real-time updates)
   useEffect(() => {
     if (!selectedBranch || !user) return;
@@ -633,7 +718,8 @@ export default function DashboardPage() {
           // Show notification
           setLastUpdate(new Date().toLocaleTimeString());
           // Show success toast or notification
-          showNotification(`📋 New booking #${detail.bookingNo} created for ${detail.agentName}`, 'success');
+          const timeMsg = detail.checkInTime ? ` at ${getFullDateTime(detail.checkInTime)}` : '';
+          showNotification(`📋 New booking #${detail.bookingNo} created for ${detail.agentName}${timeMsg}`, 'success');
         }
       }
     };
@@ -649,7 +735,8 @@ export default function DashboardPage() {
           if (data.branch === currentBranch || selectedBranch === 'all') {
             refreshAllData();
             setLastUpdate(new Date().toLocaleTimeString());
-            showNotification(`📋 New booking #${data.bookingNo} created in ${data.branch}`, 'success');
+            const timeMsg = data.checkInTime ? ` at ${getFullDateTime(data.checkInTime)}` : '';
+            showNotification(`📋 New booking #${data.bookingNo} created in ${data.branch}${timeMsg}`, 'success');
           }
         } catch (err) {
           console.error('Error parsing booking update:', err);
@@ -1906,21 +1993,37 @@ export default function DashboardPage() {
 
         {/* Dashboard Content */}
         <div className="flex-1 overflow-y-auto p-2 sm:p-4 md:p-6">
-          {/* ✅ Real-time Notification Alerts */}
+          {/* ✅ Real-time Notification Alerts - Enhanced with full date and time */}
           {todayCheckins.length > 0 && (
             <div className="bg-green-50 border border-green-300 rounded-lg p-3 mb-3">
               <div className="flex items-start gap-2">
-                <FiCheckCircle className="w-5 h-5 text-green-600 flex-shrink-0 mt-0.5" />
+                <FiWatch className="w-5 h-5 text-green-600 flex-shrink-0 mt-0.5" />
                 <div className="flex-1">
                   <p className="text-sm font-medium text-green-800">
-                    🔔 {todayCheckins.length} guest(s) checking in TODAY
+                    🕐 {todayCheckins.length} guest(s) checking in TODAY
                   </p>
                   <p className="text-xs text-green-700 mt-0.5">
-                    {todayCheckins.map((b: any) => (
-                      <span key={b.id} className="inline-block bg-green-100 px-2 py-0.5 rounded mr-1 mb-1">
-                        {b.agentName} ({b.roomType})
-                      </span>
-                    ))}
+                    {getSortedTodayCheckins(todayCheckins).map((b: any) => {
+                      const checkInDate = new Date(b.checkIn);
+                      const hasTime = checkInDate.getHours() !== 0 || checkInDate.getMinutes() !== 0;
+                      const dateStr = checkInDate.toLocaleDateString('en-US', {
+                        month: 'short',
+                        day: 'numeric',
+                        year: 'numeric'
+                      });
+                      const timeStr = hasTime ? checkInDate.toLocaleTimeString('en-US', {
+                        hour: '2-digit',
+                        minute: '2-digit',
+                        hour12: true
+                      }) : '';
+                      return (
+                        <span key={b.id} className="inline-block bg-green-100 px-2 py-0.5 rounded mr-1 mb-1">
+                          {b.agentName} 
+                          {hasTime && ` 🕐 ${dateStr} ${timeStr}`}
+                          ({b.roomType})
+                        </span>
+                      );
+                    })}
                   </p>
                 </div>
               </div>
@@ -1936,11 +2039,19 @@ export default function DashboardPage() {
                     📅 {tomorrowCheckins.length} guest(s) checking in TOMORROW
                   </p>
                   <p className="text-xs text-blue-700 mt-0.5">
-                    {tomorrowCheckins.map((b: any) => (
-                      <span key={b.id} className="inline-block bg-blue-100 px-2 py-0.5 rounded mr-1 mb-1">
-                        {b.agentName} ({b.roomType})
-                      </span>
-                    ))}
+                    {tomorrowCheckins.map((b: any) => {
+                      const checkInDate = new Date(b.checkIn);
+                      const dateStr = checkInDate.toLocaleDateString('en-US', {
+                        month: 'short',
+                        day: 'numeric',
+                        year: 'numeric'
+                      });
+                      return (
+                        <span key={b.id} className="inline-block bg-blue-100 px-2 py-0.5 rounded mr-1 mb-1">
+                          {b.agentName} ({b.roomType}) - {dateStr}
+                        </span>
+                      );
+                    })}
                   </p>
                 </div>
               </div>
@@ -1978,7 +2089,7 @@ export default function DashboardPage() {
                   <p className="text-xs text-red-800 mt-0.5">
                     {overdueCheckouts.map((b: any) => (
                       <span key={b.id} className="inline-block bg-red-200 px-2 py-0.5 rounded mr-1 mb-1">
-                        {b.agentName} ({new Date(b.checkOut).toLocaleDateString()})
+                        {b.agentName} ({new Date(b.checkOut).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })})
                       </span>
                     ))}
                   </p>
@@ -2061,6 +2172,68 @@ export default function DashboardPage() {
             </div>
           </div>
 
+          {/* ✅ Enhanced Today's Check-ins with Full Date and Time */}
+          {todayCheckins.length > 0 && (
+            <div className="bg-white rounded-xl shadow-sm p-4 mb-4 border-l-4 border-green-500">
+              <h3 className="text-sm font-semibold text-gray-800 mb-3 flex items-center">
+                <FiWatch className="w-4 h-4 mr-2 text-green-500" />
+                Today's Check-ins ({todayCheckins.length}) 
+                <span className="ml-2 text-xs font-normal text-gray-400">
+                  Sorted by check-in time
+                </span>
+              </h3>
+              <div className="overflow-x-auto">
+                <table className="min-w-full divide-y divide-gray-200">
+                  <thead className="bg-gray-50">
+                    <tr>
+                      <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Guest Name</th>
+                      <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Check-in Date & Time</th>
+                      <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Room Type</th>
+                      <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
+                    </tr>
+                  </thead>
+                  <tbody className="bg-white divide-y divide-gray-200">
+                    {getSortedTodayCheckins(todayCheckins).map((booking) => {
+                      const checkInDate = new Date(booking.checkIn);
+                      const hasTime = checkInDate.getHours() !== 0 || checkInDate.getMinutes() !== 0;
+                      const dateStr = checkInDate.toLocaleDateString('en-US', {
+                        month: 'short',
+                        day: 'numeric',
+                        year: 'numeric'
+                      });
+                      const timeStr = hasTime ? checkInDate.toLocaleTimeString('en-US', {
+                        hour: '2-digit',
+                        minute: '2-digit',
+                        hour12: true
+                      }) : '';
+                      return (
+                        <tr key={booking.id} className="hover:bg-gray-50">
+                          <td className="px-3 py-2 text-sm text-gray-900 font-medium">{booking.agentName}</td>
+                          <td className={`px-3 py-2 text-sm ${getCheckInTimeColor(booking)}`}>
+                            {hasTime ? (
+                              <>
+                                <FiWatch className="inline w-3 h-3 mr-1" />
+                                {dateStr} {timeStr}
+                              </>
+                            ) : (
+                              <span className="text-gray-400">{dateStr} (Time not set)</span>
+                            )}
+                          </td>
+                          <td className="px-3 py-2 text-sm text-gray-500">{booking.roomType}</td>
+                          <td className="px-3 py-2">
+                            <span className={`px-2 py-1 text-xs rounded-full ${getStatusColor(booking.bookingStatus)}`}>
+                              {booking.bookingStatus === 'CheckedIn' ? '✅ Checked In' : '📋 Confirmed'}
+                            </span>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
           {/* ✅ Checkout Information Section */}
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
             {/* Available Rooms Card */}
@@ -2097,11 +2270,19 @@ export default function DashboardPage() {
               </div>
               {checkedOutGuests.length > 0 && (
                 <div className="mt-2 text-xs text-gray-600">
-                  {checkedOutGuests.slice(0, 3).map((guest, index) => (
-                    <span key={index} className="inline-block bg-blue-50 px-2 py-1 rounded mr-1 mb-1">
-                      {guest.agentName} ({guest.roomType})
-                    </span>
-                  ))}
+                  {checkedOutGuests.slice(0, 3).map((guest, index) => {
+                    const checkOutDate = new Date(guest.checkOut);
+                    const dateStr = checkOutDate.toLocaleDateString('en-US', {
+                      month: 'short',
+                      day: 'numeric',
+                      year: 'numeric'
+                    });
+                    return (
+                      <span key={index} className="inline-block bg-blue-50 px-2 py-1 rounded mr-1 mb-1">
+                        {guest.agentName} ({guest.roomType}) - {dateStr}
+                      </span>
+                    );
+                  })}
                   {checkedOutGuests.length > 3 && (
                     <span className="text-blue-500">+{checkedOutGuests.length - 3} more</span>
                   )}
@@ -2178,23 +2359,31 @@ export default function DashboardPage() {
                     </tr>
                   </thead>
                   <tbody className="bg-white divide-y divide-gray-200">
-                    {recentCheckouts.map((booking) => (
-                      <tr key={booking.id} className="hover:bg-gray-50">
-                        <td className="px-3 py-2 text-sm text-gray-900">{booking.agentName}</td>
-                        <td className="px-3 py-2 text-sm text-gray-500">{booking.roomType}</td>
-                        <td className="px-3 py-2 text-sm text-gray-500">
-                          <span className="px-2 py-1 text-xs bg-indigo-100 text-indigo-700 rounded-full">
-                            {booking.branch}
-                          </span>
-                        </td>
-                        <td className="px-3 py-2 text-sm text-gray-500">{new Date(booking.checkOut).toLocaleDateString()}</td>
-                        <td className="px-3 py-2">
-                          <span className={`px-2 py-1 text-xs rounded-full ${getStatusColor(booking.bookingStatus)}`}>
-                            {booking.bookingStatus}
-                          </span>
-                        </td>
-                      </tr>
-                    ))}
+                    {recentCheckouts.map((booking) => {
+                      const checkOutDate = new Date(booking.checkOut);
+                      const dateStr = checkOutDate.toLocaleDateString('en-US', {
+                        month: 'short',
+                        day: 'numeric',
+                        year: 'numeric'
+                      });
+                      return (
+                        <tr key={booking.id} className="hover:bg-gray-50">
+                          <td className="px-3 py-2 text-sm text-gray-900">{booking.agentName}</td>
+                          <td className="px-3 py-2 text-sm text-gray-500">{booking.roomType}</td>
+                          <td className="px-3 py-2 text-sm text-gray-500">
+                            <span className="px-2 py-1 text-xs bg-indigo-100 text-indigo-700 rounded-full">
+                              {booking.branch}
+                            </span>
+                          </td>
+                          <td className="px-3 py-2 text-sm text-gray-500">{dateStr}</td>
+                          <td className="px-3 py-2">
+                            <span className={`px-2 py-1 text-xs rounded-full ${getStatusColor(booking.bookingStatus)}`}>
+                              {booking.bookingStatus}
+                            </span>
+                          </td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>
@@ -2359,10 +2548,22 @@ export default function DashboardPage() {
             </div>
           </div>
 
-          {/* Recent Bookings */}
+          {/* ✅ Recent Bookings - With Time Display and Relative Time */}
           {recentBookings.length > 0 && (
             <div className="bg-white rounded-xl shadow-sm p-3 sm:p-6 mb-4 sm:mb-6">
-              <h3 className="text-sm sm:text-lg font-semibold text-gray-800 mb-3 sm:mb-4">📋 Recent Bookings</h3>
+              <div className="flex items-center justify-between mb-3 sm:mb-4 flex-wrap gap-2">
+                <h3 className="text-sm sm:text-lg font-semibold text-gray-800">📋 Recent Bookings</h3>
+                <div className="flex items-center gap-3 text-[10px] text-gray-400">
+                  <span className="flex items-center gap-1">
+                    <span className="w-2 h-2 bg-green-500 rounded-full inline-block animate-pulse"></span>
+                    Live: {lastUpdate || 'Waiting...'}
+                  </span>
+                  <span className="text-gray-300">|</span>
+                  <span className="text-green-600 font-medium">
+                    🕐 Latest: {recentBookings.length > 0 ? formatCheckInDisplay(recentBookings[0]) : 'No bookings'}
+                  </span>
+                </div>
+              </div>
               <div className="overflow-x-auto -mx-3 sm:mx-0">
                 <table className="min-w-full divide-y divide-gray-200">
                   <thead className="bg-gray-50">
@@ -2370,56 +2571,72 @@ export default function DashboardPage() {
                       <th className="px-2 sm:px-4 py-1.5 sm:py-2 text-left text-[8px] sm:text-xs font-medium text-gray-500 uppercase">Booking No</th>
                       <th className="px-2 sm:px-4 py-1.5 sm:py-2 text-left text-[8px] sm:text-xs font-medium text-gray-500 uppercase">Guest</th>
                       <th className="px-2 sm:px-4 py-1.5 sm:py-2 text-left text-[8px] sm:text-xs font-medium text-gray-500 uppercase hidden xs:table-cell">Branch</th>
-                      <th className="px-2 sm:px-4 py-1.5 sm:py-2 text-left text-[8px] sm:text-xs font-medium text-gray-500 uppercase hidden sm:table-cell">Check In</th>
+                      <th className="px-2 sm:px-4 py-1.5 sm:py-2 text-left text-[8px] sm:text-xs font-medium text-gray-500 uppercase hidden sm:table-cell">Check-in Date & Time</th>
                       <th className="px-2 sm:px-4 py-1.5 sm:py-2 text-left text-[8px] sm:text-xs font-medium text-gray-500 uppercase">Status</th>
-                      <th className="px-2 sm:px-4 py-1.5 sm:py-2 text-left text-[8px] sm:text-xs font-medium text-gray-500 uppercase">Actions</th>
+                      <th className="px-2 sm:px-4 py-1.5 sm:py-2 text-left text-[8px] sm:text-xs font-medium text-gray-500 uppercase hidden md:table-cell">Booked At</th>
                     </tr>
                   </thead>
                   <tbody className="bg-white divide-y divide-gray-200">
-                    {recentBookings.map((booking) => (
-                      <tr key={booking.id} className="hover:bg-gray-50 transition-colors">
-                        <td className="px-2 sm:px-4 py-1.5 sm:py-2 text-[8px] sm:text-sm font-medium text-indigo-600 truncate max-w-[60px] sm:max-w-none">{booking.bookingNo}</td>
-                        <td className="px-2 sm:px-4 py-1.5 sm:py-2 text-[8px] sm:text-sm text-gray-900 truncate max-w-[60px] sm:max-w-none">{booking.agentName}</td>
-                        <td className="px-2 sm:px-4 py-1.5 sm:py-2 text-[8px] sm:text-sm text-gray-500 hidden xs:table-cell truncate max-w-[60px]">{booking.branch || 'N/A'}</td>
-                        <td className="px-2 sm:px-4 py-1.5 sm:py-2 text-[8px] sm:text-sm text-gray-500 hidden sm:table-cell">{new Date(booking.checkIn).toLocaleDateString()}</td>
-                        <td className="px-2 sm:px-4 py-1.5 sm:py-2">
-                          <span className={`px-1 sm:px-2 py-0.5 sm:py-1 text-[7px] sm:text-xs rounded-full ${getStatusColor(booking.bookingStatus)} whitespace-nowrap`}>
-                            {booking.bookingStatus === 'CheckedOut' ? '📤 CheckedOut' : booking.bookingStatus}
-                          </span>
-                        </td>
-                        <td className="px-2 sm:px-4 py-1.5 sm:py-2">
-                          <div className="flex gap-1">
-                            {isOwner && (
-                              <>
-                                <button
-                                  onClick={() => handleEditBooking(booking)}
-                                  className="px-2 py-1 bg-yellow-500 text-white rounded text-[8px] sm:text-xs hover:bg-yellow-600 transition-colors"
-                                >
-                                  Edit
-                                </button>
-                                <button
-                                  onClick={() => handleDeleteBooking(booking.id)}
-                                  className="px-2 py-1 bg-red-500 text-white rounded text-[8px] sm:text-xs hover:bg-red-600 transition-colors"
-                                >
-                                  Delete
-                                </button>
-                              </>
-                            )}
-                            {isManager && (
-                              <button
-                                onClick={() => handleEditBooking(booking)}
-                                className="px-2 py-1 bg-yellow-500 text-white rounded text-[8px] sm:text-xs hover:bg-yellow-600 transition-colors"
-                              >
-                                Edit
-                              </button>
-                            )}
-                            {isViewer && (
-                              <span className="text-[8px] text-gray-400">View only</span>
-                            )}
-                          </div>
-                        </td>
-                      </tr>
-                    ))}
+                    {recentBookings.map((booking) => {
+                      const checkInDate = new Date(booking.checkIn);
+                      const now = new Date();
+                      const diffMs = now.getTime() - checkInDate.getTime();
+                      const diffMinutes = Math.floor(diffMs / (1000 * 60));
+                      const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
+                      const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+                      
+                      const isRecent = diffMinutes < 60;
+                      const isToday = checkInDate.toDateString() === now.toDateString();
+                      
+                      let relativeTime = '';
+                      if (diffMinutes < 1) relativeTime = 'Just now';
+                      else if (diffMinutes < 60) relativeTime = `${diffMinutes}m ago`;
+                      else if (diffHours < 24) relativeTime = `${diffHours}h ago`;
+                      else if (diffDays < 7) relativeTime = `${diffDays}d ago`;
+                      else relativeTime = checkInDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+                      
+                      const displayDate = checkInDate.toLocaleDateString('en-US', {
+                        month: 'short',
+                        day: 'numeric',
+                        year: 'numeric'
+                      });
+                      const displayTime = checkInDate.toLocaleTimeString('en-US', {
+                        hour: '2-digit',
+                        minute: '2-digit',
+                        hour12: true
+                      });
+                      
+                      return (
+                        <tr key={booking.id} className={`hover:bg-gray-50 transition-colors ${isRecent ? 'bg-green-50' : ''}`}>
+                          <td className="px-2 sm:px-4 py-1.5 sm:py-2 text-[8px] sm:text-sm font-medium text-indigo-600 truncate max-w-[60px] sm:max-w-none">{booking.bookingNo}</td>
+                          <td className="px-2 sm:px-4 py-1.5 sm:py-2 text-[8px] sm:text-sm text-gray-900 truncate max-w-[60px] sm:max-w-none">{booking.agentName}</td>
+                          <td className="px-2 sm:px-4 py-1.5 sm:py-2 text-[8px] sm:text-sm text-gray-500 hidden xs:table-cell truncate max-w-[60px]">{booking.branch || 'N/A'}</td>
+                          <td className="px-2 sm:px-4 py-1.5 sm:py-2 text-[8px] sm:text-sm hidden sm:table-cell">
+                            <span className={`${isRecent ? 'text-green-600 font-semibold' : isToday ? 'text-blue-600 font-medium' : 'text-gray-600'}`}>
+                              {displayDate} {displayTime}
+                              {isRecent && (
+                                <span className="ml-1 text-[8px] text-orange-500 bg-orange-100 px-1.5 py-0.5 rounded-full">🆕 New</span>
+                              )}
+                              {isToday && !isRecent && (
+                                <span className="ml-1 text-[8px] text-blue-500 bg-blue-100 px-1.5 py-0.5 rounded-full">📅 Today</span>
+                              )}
+                            </span>
+                          </td>
+                          <td className="px-2 sm:px-4 py-1.5 sm:py-2">
+                            <span className={`px-1 sm:px-2 py-0.5 sm:py-1 text-[7px] sm:text-xs rounded-full ${getStatusColor(booking.bookingStatus)} whitespace-nowrap`}>
+                              {booking.bookingStatus === 'CheckedOut' ? '📤 CheckedOut' : booking.bookingStatus}
+                            </span>
+                          </td>
+                          <td className="px-2 sm:px-4 py-1.5 sm:py-2 text-[8px] sm:text-xs text-gray-400 hidden md:table-cell">
+                            <span className="flex items-center gap-1">
+                              {relativeTime}
+                              {isRecent && <span className="text-green-500">🟢</span>}
+                              {isToday && !isRecent && <span className="text-blue-400">🔵</span>}
+                            </span>
+                          </td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>
