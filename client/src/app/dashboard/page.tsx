@@ -1422,13 +1422,14 @@ export default function DashboardPage() {
     }
   };
 
+  // ✅ Format currency with NO decimals
   const formatCurrency = (amount: number) => {
     if (!amount || amount === 0) return 'Rs. 0';
     if (amount >= 100000) {
-      return `Rs. ${(amount / 100000).toFixed(1)}L`;
+      return `Rs. ${(amount / 100000).toFixed(0)}L`;
     }
     if (amount >= 1000) {
-      return `Rs. ${(amount / 1000).toFixed(1)}K`;
+      return `Rs. ${(amount / 1000).toFixed(0)}K`;
     }
     return `Rs. ${amount.toFixed(0)}`;
   };
@@ -1660,6 +1661,56 @@ export default function DashboardPage() {
   const displayBranchName = selectedBranch === 'all' ? 'All Branches' : selectedBranch;
   const availableRoomsCount = stats.availableRooms || 0;
 
+  // ✅ Calculate branch-wise monthly revenue
+  const calculateBranchMonthlyRevenue = (branchName: string) => {
+    const currentMonth = new Date().getMonth();
+    const currentYear = new Date().getFullYear();
+    
+    let monthlyRevenue = 0;
+    allBookingsCache.forEach((b: any) => {
+      const date = new Date(b.checkIn);
+      const bookingBranch = b.branch || b.branchName || '';
+      
+      // ✅ Only count bookings for this specific branch
+      if (bookingBranch === branchName &&
+          date.getMonth() === currentMonth && 
+          date.getFullYear() === currentYear &&
+          (b.bookingStatus === 'Confirm' || b.bookingStatus === 'Confirmed' || 
+           b.bookingStatus === 'CheckedIn' || b.bookingStatus === 'CheckedOut')) {
+        monthlyRevenue += (Number(b.totalCost) || Number(b.roomCharges) || Number(b.price) || 0);
+      }
+    });
+    return monthlyRevenue;
+  };
+
+  // ✅ Calculate monthly revenue for the current selected branch
+  const monthlyRevenueDisplay = selectedBranch === 'all' 
+    ? allBookingsCache.reduce((total, b: any) => {
+        const date = new Date(b.checkIn);
+        const currentMonth = new Date().getMonth();
+        const currentYear = new Date().getFullYear();
+        if (date.getMonth() === currentMonth && 
+            date.getFullYear() === currentYear &&
+            (b.bookingStatus === 'Confirm' || b.bookingStatus === 'Confirmed' || 
+             b.bookingStatus === 'CheckedIn' || b.bookingStatus === 'CheckedOut')) {
+          return total + (Number(b.totalCost) || Number(b.roomCharges) || Number(b.price) || 0);
+        }
+        return total;
+      }, 0)
+    : calculateBranchMonthlyRevenue(selectedBranch);
+
+  // ✅ Format monthly revenue display
+  const formatMonthlyRevenue = (amount: number) => {
+    if (!amount || amount === 0) return 'Rs. 0';
+    if (amount >= 100000) {
+      return `Rs. ${(amount / 100000).toFixed(0)}L`;
+    }
+    if (amount >= 1000) {
+      return `Rs. ${(amount / 1000).toFixed(0)}K`;
+    }
+    return `Rs. ${amount.toFixed(0)}`;
+  };
+
   return (
     <div className="flex h-screen bg-gray-50 overflow-hidden">
       {/* Sidebar */}
@@ -1813,7 +1864,6 @@ export default function DashboardPage() {
                     📝 Offline Mode
                   </span>
                 )}
-                {/* ✅ Real-time update status */}
                 <div className="text-xs text-gray-400 mt-1 flex items-center gap-2">
                   <FiRadio className="w-3 h-3 text-green-500 animate-pulse" />
                   <span>Real-time updates: {lastUpdate || 'Waiting...'}</span>
@@ -1822,7 +1872,6 @@ export default function DashboardPage() {
               </div>
             </div>
             <div className="flex items-center space-x-1 sm:space-x-4 flex-shrink-0">
-              {/* ✅ Branch Dropdown with counts */}
               <div className="relative">
                 <select
                   value={selectedBranch || (branches.length > 0 ? branches[0] : '')}
@@ -1849,7 +1898,6 @@ export default function DashboardPage() {
                 </div>
               </div>
 
-              {/* Notification Bell */}
               <div className="relative">
                 <button
                   onClick={() => setShowNotifications(!showNotifications)}
@@ -1993,7 +2041,7 @@ export default function DashboardPage() {
 
         {/* Dashboard Content */}
         <div className="flex-1 overflow-y-auto p-2 sm:p-4 md:p-6">
-          {/* ✅ Real-time Notification Alerts - Enhanced with full date and time */}
+          {/* Real-time Notification Alerts */}
           {todayCheckins.length > 0 && (
             <div className="bg-green-50 border border-green-300 rounded-lg p-3 mb-3">
               <div className="flex items-start gap-2">
@@ -2236,7 +2284,6 @@ export default function DashboardPage() {
 
           {/* ✅ Checkout Information Section */}
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
-            {/* Available Rooms Card */}
             <div className="bg-white rounded-xl shadow-sm p-4 border-l-4 border-green-500">
               <div className="flex items-center justify-between">
                 <div>
@@ -2256,7 +2303,6 @@ export default function DashboardPage() {
               </div>
             </div>
 
-            {/* Today's Checkouts Card */}
             <div className="bg-white rounded-xl shadow-sm p-4 border-l-4 border-blue-500">
               <div className="flex items-center justify-between">
                 <div>
@@ -2290,7 +2336,6 @@ export default function DashboardPage() {
               )}
             </div>
 
-            {/* ✅ Automation Status Card */}
             <div className="bg-gradient-to-r from-purple-50 to-pink-50 rounded-xl shadow-sm p-4 border-l-4 border-purple-500">
               <div className="flex items-center justify-between">
                 <div>
@@ -2315,80 +2360,6 @@ export default function DashboardPage() {
               </div>
             </div>
           </div>
-
-          {/* ✅ Branch Status Summary */}
-          {branchStatusSummary && Object.keys(branchStatusSummary).length > 0 && (
-            <div className="bg-white rounded-xl shadow-sm p-4 mb-4 border border-gray-200">
-              <h3 className="text-sm font-semibold text-gray-800 mb-3 flex items-center">
-                <FiBarChart2 className="w-4 h-4 mr-2 text-indigo-500" />
-                Branch Status Summary
-              </h3>
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
-                {Object.entries(branchStatusSummary).map(([branch, statuses]: [string, any]) => (
-                  <div key={branch} className="p-3 bg-gray-50 rounded-lg">
-                    <p className="text-xs font-semibold text-gray-700">{branch}</p>
-                    <div className="flex flex-wrap gap-1 mt-1">
-                      {statuses.map((s: any) => (
-                        <span key={s.bookingStatus} className="text-xs px-2 py-0.5 rounded-full bg-indigo-100 text-indigo-700">
-                          {s.bookingStatus}: {s.count}
-                        </span>
-                      ))}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* ✅ Recent Checkouts List */}
-          {recentCheckouts.length > 0 && (
-            <div className="bg-white rounded-xl shadow-sm p-4 mb-4 border border-gray-200">
-              <h3 className="text-sm font-semibold text-gray-800 mb-3 flex items-center">
-                <FiClock className="w-4 h-4 mr-2 text-gray-500" />
-                Recent Checkouts (Last 7 Days)
-              </h3>
-              <div className="overflow-x-auto">
-                <table className="min-w-full divide-y divide-gray-200">
-                  <thead className="bg-gray-50">
-                    <tr>
-                      <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Guest Name</th>
-                      <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Room Type</th>
-                      <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Branch</th>
-                      <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Checkout Date</th>
-                      <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
-                    </tr>
-                  </thead>
-                  <tbody className="bg-white divide-y divide-gray-200">
-                    {recentCheckouts.map((booking) => {
-                      const checkOutDate = new Date(booking.checkOut);
-                      const dateStr = checkOutDate.toLocaleDateString('en-US', {
-                        month: 'short',
-                        day: 'numeric',
-                        year: 'numeric'
-                      });
-                      return (
-                        <tr key={booking.id} className="hover:bg-gray-50">
-                          <td className="px-3 py-2 text-sm text-gray-900">{booking.agentName}</td>
-                          <td className="px-3 py-2 text-sm text-gray-500">{booking.roomType}</td>
-                          <td className="px-3 py-2 text-sm text-gray-500">
-                            <span className="px-2 py-1 text-xs bg-indigo-100 text-indigo-700 rounded-full">
-                              {booking.branch}
-                            </span>
-                          </td>
-                          <td className="px-3 py-2 text-sm text-gray-500">{dateStr}</td>
-                          <td className="px-3 py-2">
-                            <span className={`px-2 py-1 text-xs rounded-full ${getStatusColor(booking.bookingStatus)}`}>
-                              {booking.bookingStatus}
-                            </span>
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          )}
 
           {/* Stats Cards */}
           <div className="grid grid-cols-1 xs:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-6 mb-4 sm:mb-6">
@@ -2445,18 +2416,26 @@ export default function DashboardPage() {
               </div>
             </div>
 
+            {/* ✅ Revenue Card - Shows BRANCH-WISE monthly revenue */}
             <div className="bg-white rounded-xl shadow-sm p-3 sm:p-6 border-l-4 border-purple-500 hover:shadow-md transition-shadow">
               <div className="flex items-center justify-between">
                 <div className="min-w-0">
-                  <p className="text-[10px] sm:text-sm text-gray-500 truncate">Revenue</p>
-                  <p className="text-lg sm:text-3xl font-bold text-gray-800 truncate">{formatCurrency(stats.totalRevenue)}</p>
+                  <p className="text-[10px] sm:text-sm text-gray-500 truncate">
+                    {selectedBranch === 'all' ? 'Total Monthly Revenue' : `${displayBranchName} Revenue`}
+                  </p>
+                  <p className="text-lg sm:text-3xl font-bold text-gray-800 truncate">
+                    {formatMonthlyRevenue(monthlyRevenueDisplay)}
+                  </p>
                 </div>
                 <div className="w-8 h-8 sm:w-12 sm:h-12 bg-purple-100 rounded-lg flex items-center justify-center flex-shrink-0">
                   <FiDollarSign className="w-4 h-4 sm:w-6 sm:h-6 text-purple-500" />
                 </div>
               </div>
               <div className="mt-1 sm:mt-2 text-[10px] sm:text-sm text-gray-500 truncate">
-                Avg: {formatCurrency(stats.averageBookingValue)}
+                {selectedBranch === 'all' ? 'All branches combined' : `${displayBranchName} branch only`}
+              </div>
+              <div className="mt-0.5 text-[8px] text-gray-400">
+                {new Date().toLocaleString('en-US', { month: 'long', year: 'numeric' })} revenue
               </div>
             </div>
           </div>
@@ -2500,34 +2479,40 @@ export default function DashboardPage() {
             <div className="bg-white rounded-xl shadow-sm p-3 sm:p-6 mb-4 sm:mb-6">
               <h3 className="text-sm sm:text-lg font-semibold text-gray-800 mb-3 sm:mb-4">🏪 Branch Performance</h3>
               <div className="grid grid-cols-1 xs:grid-cols-2 lg:grid-cols-4 gap-2 sm:gap-4">
-                {Object.entries(branchStats).map(([branch, data]) => (
-                  <div key={branch} className="p-3 sm:p-4 bg-gradient-to-r from-indigo-50 to-purple-50 rounded-lg border border-indigo-100 hover:shadow-md transition-shadow">
-                    <div className="flex justify-between items-start">
-                      <div className="min-w-0">
-                        <p className="text-xs sm:text-sm font-semibold text-gray-700 truncate">{branch}</p>
-                        <p className="text-[10px] sm:text-xs text-gray-500">{data.bookings} bookings</p>
+                {Object.entries(branchStats).map(([branch, data]) => {
+                  // ✅ Calculate branch-wise monthly revenue for display
+                  const branchMonthlyRevenue = calculateBranchMonthlyRevenue(branch);
+                  return (
+                    <div key={branch} className="p-3 sm:p-4 bg-gradient-to-r from-indigo-50 to-purple-50 rounded-lg border border-indigo-100 hover:shadow-md transition-shadow">
+                      <div className="flex justify-between items-start">
+                        <div className="min-w-0">
+                          <p className="text-xs sm:text-sm font-semibold text-gray-700 truncate">{branch}</p>
+                          <p className="text-[10px] sm:text-xs text-gray-500">{data.bookings} bookings</p>
+                        </div>
+                        <span className={`text-[8px] sm:text-xs px-1.5 sm:px-2 py-0.5 rounded-full flex-shrink-0 ${
+                          data.rooms > 0 ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-600'
+                        }`}>
+                          {data.rooms} rooms
+                        </span>
                       </div>
-                      <span className={`text-[8px] sm:text-xs px-1.5 sm:px-2 py-0.5 rounded-full flex-shrink-0 ${
-                        data.rooms > 0 ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-600'
-                      }`}>
-                        {data.rooms} rooms
-                      </span>
-                    </div>
-                    <div className="mt-1 sm:mt-2">
-                      <p className="text-base sm:text-xl font-bold text-indigo-600 truncate">{formatCurrency(data.revenue)}</p>
-                      <div className="flex justify-between text-[8px] sm:text-xs text-gray-500 mt-0.5 sm:mt-1">
-                        <span>Revenue</span>
-                        <span>{stats.totalRevenue > 0 ? Math.round((data.revenue / stats.totalRevenue) * 100) : 0}%</span>
+                      <div className="mt-1 sm:mt-2">
+                        <p className="text-base sm:text-xl font-bold text-indigo-600 truncate">
+                          {formatCurrency(branchMonthlyRevenue)}
+                        </p>
+                        <div className="flex justify-between text-[8px] sm:text-xs text-gray-500 mt-0.5 sm:mt-1">
+                          <span>Monthly Revenue</span>
+                          <span>{monthlyRevenueDisplay > 0 ? Math.round((branchMonthlyRevenue / monthlyRevenueDisplay) * 100) : 0}%</span>
+                        </div>
+                      </div>
+                      <div className="mt-1 sm:mt-2 w-full bg-gray-200 rounded-full h-1 sm:h-1.5">
+                        <div 
+                          className={`${data.rooms > 0 ? 'bg-indigo-500' : 'bg-gray-300'} h-1 sm:h-1.5 rounded-full transition-all duration-500`} 
+                          style={{ width: `${Math.min((data.rooms / totalRooms) * 100, 100)}%` }}
+                        />
                       </div>
                     </div>
-                    <div className="mt-1 sm:mt-2 w-full bg-gray-200 rounded-full h-1 sm:h-1.5">
-                      <div 
-                        className={`${data.rooms > 0 ? 'bg-indigo-500' : 'bg-gray-300'} h-1 sm:h-1.5 rounded-full transition-all duration-500`} 
-                        style={{ width: `${Math.min((data.rooms / totalRooms) * 100, 100)}%` }}
-                      />
-                    </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             </div>
           )}
@@ -2543,8 +2528,10 @@ export default function DashboardPage() {
               <p className="text-lg sm:text-2xl font-bold text-green-600">{stats.activeBookings}</p>
             </div>
             <div className="bg-white rounded-xl shadow-sm p-3 sm:p-4 border-l-4 border-purple-500">
-              <p className="text-[10px] sm:text-sm text-gray-500">Total Revenue</p>
-              <p className="text-lg sm:text-2xl font-bold text-purple-600">{formatCurrency(stats.totalRevenue)}</p>
+              <p className="text-[10px] sm:text-sm text-gray-500">Monthly Revenue</p>
+              <p className="text-lg sm:text-2xl font-bold text-purple-600">
+                {formatMonthlyRevenue(monthlyRevenueDisplay)}
+              </p>
             </div>
           </div>
 
@@ -2721,7 +2708,7 @@ export default function DashboardPage() {
         </div>
       </div>
 
-      {/* ✅ Automation Results Modal */}
+      {/* Automation Results Modal */}
       {showAutomationModal && automationResults && (
         <div className="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full z-50 flex items-center justify-center p-4">
           <div className="relative bg-white rounded-xl shadow-lg max-w-md w-full mx-4 p-4 sm:p-6">
@@ -2824,7 +2811,7 @@ export default function DashboardPage() {
         </div>
       )}
 
-      {/* ✅ Notification Toast */}
+      {/* Notification Toast */}
       {toastMessage && (
         <NotificationToast 
           message={toastMessage} 
