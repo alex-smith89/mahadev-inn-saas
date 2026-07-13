@@ -806,6 +806,7 @@ export default function DashboardPage() {
             localStorage.setItem('selectedBranch', 'all');
           }
         } else {
+          // ✅ For MANAGER and VIEWER, only allow branches they have access to
           if (savedBranch && userBranches.includes(savedBranch)) {
             setSelectedBranch(savedBranch);
           } else if (userBranches.length > 0) {
@@ -918,7 +919,7 @@ export default function DashboardPage() {
     };
   }, [selectedBranch, user]);
 
-  // ✅ loadDashboardData - Fetches and filters bookings with force refresh
+  // ✅ loadDashboardData - Updated with viewer filtering
   const loadDashboardData = async (forceRefresh = false) => {
     try {
       setRefreshing(true);
@@ -938,16 +939,46 @@ export default function DashboardPage() {
         return;
       }
 
-      const branch = selectedBranch || user?.branches?.[0] || '';
-      console.log('📊 Loading dashboard data for branch:', branch);
+      // ✅ Determine the branch to fetch
+      let branchToFetch = selectedBranch || user?.branches?.[0] || '';
+      
+      // ✅ For VIEWER, if they selected 'all' or no branch, use their first branch
+      if (isViewer) {
+        const userBranches = user?.branches || [];
+        if (userBranches.length === 0) {
+          setRecentBookings([]);
+          setStats({
+            totalCustomers: 0,
+            totalBookings: 0,
+            availableRooms: 65,
+            occupiedRooms: 0,
+            totalRevenue: 0,
+            averageBookingValue: 0,
+            occupancyRate: 0,
+            todayCheckIns: 0,
+            todayCheckOuts: 0,
+            activeBookings: 0,
+            pendingBookings: 0,
+            confirmedBookings: 0,
+          });
+          setRefreshing(false);
+          return;
+        }
+        if (branchToFetch === 'all' || !branchToFetch) {
+          branchToFetch = userBranches[0];
+        }
+      }
+
+      console.log('📊 Loading dashboard data for branch:', branchToFetch);
       console.log('👤 User role:', user?.role);
+      console.log('📍 User branches:', user?.branches);
       console.log('📍 API URL:', API_URL);
 
       let bookings: any[] = [];
       let branchInfoData = null;
 
       try {
-        const url = `${API_URL}/bookings`;
+        const url = `${API_URL}/bookings${branchToFetch ? `?branch=${branchToFetch}` : ''}`;
         console.log('📊 Fetching all bookings from:', url);
         
         const allBookingsResponse = await fetch(url, {
@@ -1006,31 +1037,67 @@ export default function DashboardPage() {
           });
           console.log('📊 Bookings per branch after normalization:', branchCountsData);
           
+          // ✅ Filter bookings based on user role and branch selection
           if (user?.role === 'OWNER') {
-            if (branch === 'all') {
+            if (selectedBranch === 'all') {
               bookings = allBookings;
               console.log(`📋 Owner: Showing ALL bookings: ${bookings.length}`);
             } else {
               bookings = allBookings.filter((b: any) => {
                 const bookingBranch = b.branch || b.branchName || '';
-                return bookingBranch === branch;
+                return bookingBranch === selectedBranch;
               });
-              console.log(`📋 Owner: Filtered bookings for ${branch}: ${bookings.length}`);
+              console.log(`📋 Owner: Filtered bookings for ${selectedBranch}: ${bookings.length}`);
+            }
+          } else if (user?.role === 'MANAGER') {
+            if (selectedBranch === 'all') {
+              bookings = allBookings;
+              console.log(`📋 Manager: Showing ALL bookings: ${bookings.length}`);
+            } else {
+              bookings = allBookings.filter((b: any) => {
+                const bookingBranch = b.branch || b.branchName || '';
+                return bookingBranch === selectedBranch;
+              });
+              console.log(`📋 Manager: Filtered bookings for ${selectedBranch}: ${bookings.length}`);
+            }
+          } else if (user?.role === 'VIEWER') {
+            // ✅ VIEWER: Only show bookings from their assigned branches
+            const userBranches = user?.branches || [];
+            
+            if (selectedBranch === 'all' || !selectedBranch) {
+              // Show all bookings from assigned branches
+              bookings = allBookings.filter((b: any) => {
+                const bookingBranch = b.branch || b.branchName || '';
+                return userBranches.includes(bookingBranch);
+              });
+              console.log(`📋 Viewer: Showing bookings from assigned branches: ${bookings.length}`);
+            } else {
+              // Show only the selected branch (must be in their assigned branches)
+              if (userBranches.includes(selectedBranch)) {
+                bookings = allBookings.filter((b: any) => {
+                  const bookingBranch = b.branch || b.branchName || '';
+                  return bookingBranch === selectedBranch;
+                });
+                console.log(`📋 Viewer: Filtered bookings for ${selectedBranch}: ${bookings.length}`);
+              } else {
+                // Fallback: show first assigned branch
+                const firstBranch = userBranches[0] || '';
+                bookings = allBookings.filter((b: any) => {
+                  const bookingBranch = b.branch || b.branchName || '';
+                  return bookingBranch === firstBranch;
+                });
+                console.log(`📋 Viewer: Fallback to first assigned branch ${firstBranch}: ${bookings.length}`);
+              }
             }
           } else {
-            if (branch) {
+            // Fallback for other roles
+            if (selectedBranch) {
               bookings = allBookings.filter((b: any) => {
                 const bookingBranch = b.branch || b.branchName || '';
-                return bookingBranch === branch;
+                return bookingBranch === selectedBranch;
               });
-              console.log(`📋 ${user?.role}: Filtered bookings for ${branch}: ${bookings.length}`);
             } else {
-              const firstBranch = user?.branches?.[0] || '';
-              bookings = allBookings.filter((b: any) => {
-                const bookingBranch = b.branch || b.branchName || '';
-                return bookingBranch === firstBranch;
-              });
-              console.log(`📋 ${user?.role}: Filtered bookings for ${firstBranch}: ${bookings.length}`);
+              bookings = allBookings;
             }
           }
           
@@ -1063,18 +1130,30 @@ export default function DashboardPage() {
             });
             
             let filteredLocal = [];
-            if (user?.role === 'OWNER' && branch === 'all') {
-              filteredLocal = normalizedLocal;
+            if (user?.role === 'VIEWER') {
+              const userBranches = user?.branches || [];
+              if (selectedBranch === 'all' || !selectedBranch) {
+                filteredLocal = normalizedLocal.filter((b: any) => {
+                  const bookingBranch = b.branch || b.branchName || '';
+                  return userBranches.includes(bookingBranch);
+                });
+              } else {
+                filteredLocal = normalizedLocal.filter((b: any) => {
+                  const bookingBranch = b.branch || b.branchName || '';
+                  return bookingBranch === selectedBranch;
+                });
+              }
             } else {
               filteredLocal = normalizedLocal.filter((b: any) => {
                 const bookingBranch = b.branch || b.branchName || '';
-                return bookingBranch === branch;
+                return bookingBranch === selectedBranch;
               });
             }
+            
             if (filteredLocal.length > 0) {
               bookings = filteredLocal;
               setIsLocalMode(true);
-              console.log(`📋 Using ${bookings.length} bookings from local storage for branch ${branch}`);
+              console.log(`📋 Using ${bookings.length} bookings from local storage for branch ${selectedBranch}`);
             }
           }
         } catch (e) {
@@ -1082,12 +1161,13 @@ export default function DashboardPage() {
         }
       }
 
-      console.log(`📋 Final bookings count for ${branch}: ${bookings.length}`);
+      console.log(`📋 Final bookings count for ${selectedBranch || 'all'}: ${bookings.length}`);
 
+      // ✅ Calculate capacity based on selected branch
       let capacityTotal = 65;
-      if (branch !== 'all') {
+      if (selectedBranch && selectedBranch !== 'all') {
         try {
-          const capacityRes = await fetch(`${API_URL}/room-capacity/branch/${branch}`, {
+          const capacityRes = await fetch(`${API_URL}/room-capacity/branch/${selectedBranch}`, {
             headers: {
               'Authorization': `Bearer ${token}`,
               'Content-Type': 'application/json',
@@ -1110,6 +1190,7 @@ export default function DashboardPage() {
           setTotalRooms(65);
         }
       } else {
+        // For 'all' branches, sum all capacities
         let totalCapacity = 0;
         const branchesToCheck = user?.branches || ['Pokhara', 'Kathmandu1', 'Kathmandu2', 'Bhairawaha'];
         for (const b of branchesToCheck) {
@@ -1711,6 +1792,14 @@ export default function DashboardPage() {
     return `Rs. ${amount.toFixed(0)}`;
   };
 
+  // ✅ Get filtered branches for viewer
+  const getAvailableBranches = () => {
+    if (isViewer) {
+      return user?.branches || [];
+    }
+    return branches;
+  };
+
   return (
     <div className="flex h-screen bg-gray-50 overflow-hidden">
       {/* Sidebar */}
@@ -1872,24 +1961,29 @@ export default function DashboardPage() {
               </div>
             </div>
             <div className="flex items-center space-x-1 sm:space-x-4 flex-shrink-0">
+              {/* ✅ Branch Dropdown with viewer filtering */}
               <div className="relative">
                 <select
-                  value={selectedBranch || (branches.length > 0 ? branches[0] : '')}
+                  value={selectedBranch || (getAvailableBranches().length > 0 ? getAvailableBranches()[0] : '')}
                   onChange={(e) => handleBranchChange(e.target.value)}
                   className="text-xs sm:text-sm border-2 border-indigo-300 rounded-lg px-3 sm:px-4 py-1.5 sm:py-2 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition bg-white min-w-[120px] sm:min-w-[160px] font-medium text-gray-700 hover:border-indigo-400 cursor-pointer shadow-sm"
                 >
-                  {isOwner && (
+                  {/* ✅ Owner and Manager can see "All Branches" option */}
+                  {(isOwner || isManager) && (
                     <option value="all" className="font-bold text-indigo-600">🌐 All Branches</option>
                   )}
                   
-                  {branches.map((branch) => (
-                    <option key={branch} value={branch} className="py-1">
-                      🏨 {branch}
-                      {branchCounts[branch] !== undefined && (
-                        <span className="text-xs text-gray-400 ml-1">({branchCounts[branch]})</span>
-                      )}
-                    </option>
-                  ))}
+                  {/* ✅ Branches - filtered for viewers */}
+                  {getAvailableBranches().map((branch) => {
+                    return (
+                      <option key={branch} value={branch} className="py-1">
+                        🏨 {branch}
+                        {branchCounts[branch] !== undefined && (
+                          <span className="text-xs text-gray-400 ml-1">({branchCounts[branch]})</span>
+                        )}
+                      </option>
+                    );
+                  })}
                 </select>
                 <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-2 text-gray-700">
                   <svg className="fill-current h-4 w-4" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20">
@@ -1898,6 +1992,7 @@ export default function DashboardPage() {
                 </div>
               </div>
 
+              {/* Notification Bell */}
               <div className="relative">
                 <button
                   onClick={() => setShowNotifications(!showNotifications)}

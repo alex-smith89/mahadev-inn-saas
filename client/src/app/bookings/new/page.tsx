@@ -155,16 +155,14 @@ export default function NewBookingPage() {
         // ✅ For MANAGER: Allow selecting any branch they have access to
         // ✅ For OWNER: Allow selecting any branch
         if (userData.role === 'OWNER' || userData.role === 'MANAGER') {
-          // If saved branch exists and is in the user's branches, use it
           if (savedBranch && savedBranch !== 'all' && userBranches.includes(savedBranch)) {
             setForm((prev) => ({ ...prev, branch: savedBranch }));
-            setBranchLocked(false); // ✅ Allow changing branch
+            setBranchLocked(false);
           } else if (userBranches.length > 0) {
             setForm((prev) => ({ ...prev, branch: userBranches[0] }));
             setBranchLocked(false);
           }
         } else {
-          // ✅ For other roles, branch is locked
           if (savedBranch && savedBranch !== 'all' && userBranches.includes(savedBranch)) {
             setForm((prev) => ({ ...prev, branch: savedBranch }));
             setBranchLocked(true);
@@ -615,6 +613,13 @@ export default function NewBookingPage() {
         return;
       }
 
+      // ✅ Check if user has permission to create bookings
+      if (isViewer) {
+        setError('❌ Viewers cannot create bookings. Please contact the owner for permission.');
+        setLoading(false);
+        return;
+      }
+
       const priceKey = ROOM_TYPE_PRICE_KEY[form.roomType] || 'singlePrice';
       const roomCharges = (pricing as any)[priceKey] || 0;
       const totalCostNPR = costBreakdown.totalNPR;
@@ -774,10 +779,20 @@ export default function NewBookingPage() {
         router.push('/login');
       } else {
         let errorMessage = 'Failed to create booking. Please try again.';
+        
         try {
           const errorData = await response.json();
           errorMessage = errorData.message || errorData.error || errorMessage;
           console.error('Server error details:', errorData);
+          
+          // ✅ Show specific error for permission issues
+          if (response.status === 403) {
+            if (errorData.userRole === 'VIEWER') {
+              errorMessage = 'Viewers cannot create bookings. Please contact the owner for permission.';
+            } else {
+              errorMessage = errorData.message || 'You do not have permission to create bookings.';
+            }
+          }
         } catch (parseError) {
           const text = await response.text();
           if (text) {

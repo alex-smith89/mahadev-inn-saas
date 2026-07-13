@@ -1,3 +1,5 @@
+// server/src/auth/jwt.strategy.ts
+
 import { Injectable } from '@nestjs/common';
 import { PassportStrategy } from '@nestjs/passport';
 import { ExtractJwt, Strategy } from 'passport-jwt';
@@ -13,15 +15,14 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
   }
 
   async validate(payload: any) {
-    console.log('🔑 JWT Payload:', payload);
     return {
       id: payload.id,
       username: payload.username,
       role: payload.role,
       branches: payload.branches || [],
       selectedBranch: payload.selectedBranch,
-      canViewAllBranches: payload.canViewAllBranches || false,
-      canCreateBookings: payload.canCreateBookings || false,
+      canViewAllBranches: payload.canViewAllBranches || payload.role === 'OWNER' || payload.role === 'MANAGER',
+      canCreateBookings: payload.canCreateBookings || payload.role === 'OWNER' || payload.role === 'MANAGER'
     };
   }
 }

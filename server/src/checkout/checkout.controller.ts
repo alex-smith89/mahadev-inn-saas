@@ -8,59 +8,62 @@ import {
   UseGuards,
   Req,
   BadRequestException,
+  Logger,
 } from '@nestjs/common';
 import { CheckoutService } from './checkout.service';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 
 @UseGuards(JwtAuthGuard)
-@Controller('api/checkout')
+@Controller('checkout')
 export class CheckoutController {
+  private readonly logger = new Logger(CheckoutController.name);
+
   constructor(private readonly checkoutService: CheckoutService) {}
 
-  @Post('run-auto-checkout')
+  // ✅ RUN AUTO CHECKOUT
+  @Post('auto')
   async runAutoCheckout(@Req() req: any) {
     try {
       const user = req.user;
-      console.log(`📋 Running auto checkout by: ${user.username} (${user.role})`);
+      this.logger.log(`📋 Running auto checkout by: ${user.username} (${user.role})`);
 
-      const result = await this.checkoutService.runAutoCheckout();
+      // ✅ Call the correct method name - autoCheckout
+      const result = await this.checkoutService.autoCheckout(user);
 
       return {
         success: true,
-        processed: result.processed || 0,
-        notifications: result.notifications || 0,
-        emails: result.emails || 0,
-        errors: result.errors || 0,
-        message: `Processed ${result.processed || 0} checkouts, created ${result.notifications || 0} notifications, sent ${result.emails || 0} emails`,
+        processed: result?.checkedOut || 0,
+        bookings: result?.bookings || [],
+        message: `Processed ${result?.checkedOut || 0} checkouts successfully`,
       };
     } catch (error) {
-      console.error('Error in runAutoCheckout:', error);
+      this.logger.error('Error in runAutoCheckout:', error);
       return {
         success: false,
         processed: 0,
-        notifications: 0,
-        emails: 0,
-        errors: 1,
+        bookings: [],
         message: error.message || 'Failed to run auto checkout',
       };
     }
   }
 
+  // ✅ GET TODAY'S CHECKOUTS
   @Get('today')
   async getTodayCheckouts(@Req() req: any) {
     try {
       const user = req.user;
-      console.log(`📋 Getting today's checkouts by: ${user.username}`);
+      this.logger.log(`📋 Getting today's checkouts by: ${user.username}`);
 
-      const checkouts = await this.checkoutService.getTodayCheckouts();
+      // ✅ Get today's checkouts from service
+      const checkouts = await this.checkoutService.getTodayCheckouts(user);
 
       return {
         success: true,
-        data: checkouts,
-        count: checkouts.length,
+        data: checkouts || [],
+        count: checkouts?.length || 0,
       };
     } catch (error) {
-      console.error('Error getting today checkouts:', error);
+      this.logger.error('Error getting today checkouts:', error);
       return {
         success: false,
         data: [],
@@ -70,6 +73,7 @@ export class CheckoutController {
     }
   }
 
+  // ✅ GET UPCOMING CHECKOUTS
   @Get('upcoming')
   async getUpcomingCheckouts(
     @Req() req: any,
@@ -80,23 +84,24 @@ export class CheckoutController {
       
       let targetBranch = branch;
       if (!targetBranch) {
-        if (user.role === 'OWNER') {
-          targetBranch = user.branches?.[0] || 'Pokhara';
+        if (user.role === 'OWNER' || user.role === 'MANAGER') {
+          targetBranch = branch || 'all';
         } else {
           targetBranch = user.branches?.[0] || 'Pokhara';
         }
       }
 
-      const checkouts = await this.checkoutService.getUpcomingCheckouts(targetBranch);
+      // ✅ Get upcoming checkouts from service
+      const checkouts = await this.checkoutService.getUpcomingCheckouts(user, targetBranch);
 
       return {
         success: true,
-        data: checkouts,
-        count: checkouts.length,
+        data: checkouts || [],
+        count: checkouts?.length || 0,
         branch: targetBranch,
       };
     } catch (error) {
-      console.error('Error getting upcoming checkouts:', error);
+      this.logger.error('Error getting upcoming checkouts:', error);
       return {
         success: false,
         data: [],
@@ -106,6 +111,7 @@ export class CheckoutController {
     }
   }
 
+  // ✅ GET VACANT ROOMS
   @Get('vacant-rooms')
   async getVacantRooms(
     @Req() req: any,
@@ -116,21 +122,27 @@ export class CheckoutController {
       
       let targetBranch = branch;
       if (!targetBranch) {
-        if (user.role === 'OWNER') {
-          targetBranch = user.branches?.[0] || 'Pokhara';
+        if (user.role === 'OWNER' || user.role === 'MANAGER') {
+          targetBranch = branch || 'all';
         } else {
           targetBranch = user.branches?.[0] || 'Pokhara';
         }
       }
 
-      const result = await this.checkoutService.getVacantRooms(targetBranch);
+      // ✅ Get vacant rooms from service
+      const result = await this.checkoutService.getVacantRooms(user, targetBranch);
 
       return {
         success: true,
-        ...result,
+        totalRooms: result?.totalRooms || 0,
+        occupiedRooms: result?.occupiedRooms || 0,
+        vacantRooms: result?.vacantRooms || 0,
+        occupancyRate: result?.occupancyRate || 0,
+        bookings: result?.bookings || [],
+        branch: targetBranch,
       };
     } catch (error) {
-      console.error('Error getting vacant rooms:', error);
+      this.logger.error('Error getting vacant rooms:', error);
       return {
         success: false,
         totalRooms: 0,
@@ -142,6 +154,7 @@ export class CheckoutController {
     }
   }
 
+  // ✅ MARK ROOM CLEANED
   @Post('mark-cleaned')
   async markRoomCleaned(
     @Req() req: any,
@@ -153,8 +166,9 @@ export class CheckoutController {
       }
 
       const user = req.user;
-      console.log(`🧹 Marking room cleaned by: ${user.username}`);
+      this.logger.log(`🧹 Marking room cleaned by: ${user.username}`);
 
+      // ✅ Mark room cleaned from service
       const result = await this.checkoutService.markRoomCleaned(
         body.bookingId,
         body.branch,
@@ -165,7 +179,7 @@ export class CheckoutController {
         ...result,
       };
     } catch (error) {
-      console.error('Error marking room cleaned:', error);
+      this.logger.error('Error marking room cleaned:', error);
       return {
         success: false,
         error: error.message,
@@ -173,26 +187,28 @@ export class CheckoutController {
     }
   }
 
+  // ✅ GET CHECKOUT STATS
   @Get('stats')
   async getCheckoutStats(@Req() req: any) {
     try {
       const user = req.user;
-      console.log(`📋 Getting checkout stats by: ${user.username}`);
+      this.logger.log(`📋 Getting checkout stats by: ${user.username}`);
 
-      const todayCheckouts = await this.checkoutService.getTodayCheckouts();
-      const upcomingCheckouts = await this.checkoutService.getUpcomingCheckouts();
-      const vacantRooms = await this.checkoutService.getVacantRooms();
+      // ✅ Get all stats from service
+      const todayCheckouts = await this.checkoutService.getTodayCheckouts(user);
+      const upcomingCheckouts = await this.checkoutService.getUpcomingCheckouts(user);
+      const vacantRooms = await this.checkoutService.getVacantRooms(user);
 
       return {
         success: true,
-        todayCheckouts: todayCheckouts.length,
-        upcomingCheckouts: upcomingCheckouts.length,
-        vacantRooms: vacantRooms.vacantRooms,
-        totalRooms: vacantRooms.totalRooms,
-        occupancyRate: vacantRooms.occupancyRate,
+        todayCheckouts: todayCheckouts?.length || 0,
+        upcomingCheckouts: upcomingCheckouts?.length || 0,
+        vacantRooms: vacantRooms?.vacantRooms || 0,
+        totalRooms: vacantRooms?.totalRooms || 0,
+        occupancyRate: vacantRooms?.occupancyRate || 0,
       };
     } catch (error) {
-      console.error('Error getting checkout stats:', error);
+      this.logger.error('Error getting checkout stats:', error);
       return {
         success: false,
         todayCheckouts: 0,
@@ -205,6 +221,7 @@ export class CheckoutController {
     }
   }
 
+  // ✅ TEST ENDPOINT
   @Get('test')
   async testCheckout() {
     return {

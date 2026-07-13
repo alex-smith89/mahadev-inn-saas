@@ -3,13 +3,17 @@ import { Module } from '@nestjs/common';
 import { BookingsController } from './bookings.controller';
 import { BookingsService } from './bookings.service';
 import { PrismaService } from '../prisma/prisma.service';
-import { AuditModule } from '../../apps/api/src/audit/audit.module';
-import { EmailModule } from '../email/email.module';
+import { EmailService } from '../email/email.service';
+import { AuditService } from '../../apps/api/src/audit/audit.service';
 
 @Module({
-  imports: [AuditModule, EmailModule],
   controllers: [BookingsController],
-  providers: [BookingsService, PrismaService],
+  providers: [
+    BookingsService,
+    PrismaService,
+    EmailService,
+    AuditService,
+  ],
   exports: [BookingsService],
 })
 export class BookingsModule {}

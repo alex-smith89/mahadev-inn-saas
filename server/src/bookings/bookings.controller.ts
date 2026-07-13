@@ -16,6 +16,7 @@ import {
   ForbiddenException,
   NotFoundException,
   InternalServerErrorException,
+  Logger,
 } from '@nestjs/common';
 import { Response } from 'express';
 import { BookingsService } from './bookings.service';
@@ -23,66 +24,90 @@ import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { Branch } from '@prisma/client';
 import { AuditService } from '../../apps/api/src/audit/audit.service';
 import { EmailService } from '../email/email.service';
-import * as pdf from 'html-pdf';
 
 @UseGuards(JwtAuthGuard)
-@Controller('bookings') // ✅ FIXED: was 'api/bookings' — main.ts already adds the 'api' prefix globally,
-                         // so the old value produced /api/api/bookings instead of /api/bookings
+@Controller('bookings')
 export class BookingsController {
+  private readonly logger = new Logger(BookingsController.name);
+
   constructor(
     private readonly svc: BookingsService,
     private readonly audit: AuditService,
     private readonly emailService: EmailService,
   ) {}
 
+  // ✅ CREATE BOOKING - With Email Notification
   @Post()
   async create(@Req() req: any, @Body() dto: any) {
     try {
       const user = req.user;
       let branch: Branch;
 
-      // ✅ Validate branch from request
       if (!dto.branch) {
         throw new BadRequestException('Branch is required');
       }
 
+      this.logger.log(`📝 Creating booking by ${user.role}: ${user.username} in branch: ${dto.branch}`);
+
+      // ✅ Allow OWNER and MANAGER to create in ANY branch
       if (user.role === 'OWNER') {
-        if (!user.branches || !user.branches.includes(dto.branch)) {
-          throw new ForbiddenException('Branch not allowed');
-        }
         branch = dto.branch;
-      } else {
-        // For Viewer and Manager, enforce their branch
+        this.logger.log(`✅ OWNER ${user.username} creating booking in branch: ${branch}`);
+      } else if (user.role === 'MANAGER') {
+        branch = dto.branch;
+        this.logger.log(`✅ MANAGER ${user.username} creating booking in branch: ${branch}`);
+      } else if (user.role === 'VIEWER') {
         const userBranch = user.branches?.[0];
         if (dto.branch && user.branches && !user.branches.includes(dto.branch)) {
           throw new ForbiddenException('You cannot create booking in this branch');
         }
         branch = dto.branch || userBranch;
+        if (!branch) {
+          throw new BadRequestException('No branch assigned to this user');
+        }
+      } else {
+        if (!user.canViewAllBranches && !user.branches?.includes(dto.branch)) {
+          throw new ForbiddenException(`You do not have permission to create bookings in branch: ${dto.branch}`);
+        }
+        branch = dto.branch;
       }
 
-      // ✅ Ensure branch is set
       if (!branch) {
         throw new BadRequestException('Branch is required');
       }
 
-      console.log(`📝 Creating booking for branch: ${branch} by user: ${user.username} (${user.role})`);
-
+      // ✅ Create the booking
       const booking = await this.svc.create({ ...dto, branch });
 
-      // ✅ Send email confirmation if email exists
+      this.logger.log(`✅ Booking created with ID: ${booking.id}, Booking No: ${booking.bookingNo}`);
+
+      // ✅ Send email confirmation to guest - FIXED duplicate condition
+      let emailSent = false;
+      let emailStatus = 'no_email';
+      
       if (booking && booking.email) {
         try {
+          // ✅ Check if booking status is Pending
           if (booking.bookingStatus === 'Pending') {
             await this.emailService.sendBookingRequest(booking.email, booking);
-            console.log('📧 Booking request email sent to:', booking.email);
+            emailSent = true;
+            emailStatus = 'request_sent';
+            this.logger.log(`📧 Booking request email sent to: ${booking.email}`);
           } else {
             await this.emailService.sendBookingConfirmation(booking.email, booking);
-            console.log('📧 Booking confirmation email sent to:', booking.email);
+            emailSent = true;
+            emailStatus = 'confirmation_sent';
+            this.logger.log(`📧 Booking confirmation email sent to: ${booking.email}`);
           }
         } catch (emailError) {
-          console.error('❌ Email service error:', emailError);
-          // Don't fail the booking creation if email fails
+          // ✅ Don't fail the booking creation if email fails
+          this.logger.error(`❌ Email sending failed: ${emailError.message}`);
+          emailStatus = 'email_failed';
+          // You can optionally store the error for retry
         }
+      } else {
+        this.logger.warn(`⚠️ No email provided for booking ${booking.bookingNo}, skipping email`);
+        emailStatus = 'no_email';
       }
 
       // ✅ Audit log
@@ -98,17 +123,27 @@ export class BookingsController {
           userAgent: req.context?.userAgent ?? req.headers['user-agent'] ?? null,
         });
       } catch (auditError) {
-        console.error('❌ Audit log error:', auditError);
+        this.logger.error('❌ Audit log error:', auditError);
       }
 
-      return booking;
+      // ✅ Return response with email status
+      return {
+        success: true,
+        data: booking,
+        message: `Booking created successfully in ${branch}`,
+        branch: branch,
+        bookingNo: booking.bookingNo,
+        emailSent: emailSent,
+        emailStatus: emailStatus,
+        email: booking.email || null,
+      };
     } catch (error) {
-      console.error('❌ Error creating booking:', error);
+      this.logger.error('❌ Error creating booking:', error);
       throw error;
     }
   }
 
-  // ✅ PATCH method for status-only updates
+  // ✅ UPDATE STATUS (PATCH) - With Email Notification
   @Patch(':id')
   async updateStatus(
     @Req() req: any,
@@ -118,14 +153,10 @@ export class BookingsController {
     try {
       const user = req.user;
 
-      console.log(`📝 Updating status for booking ${id} to ${body.bookingStatus}`);
-
-      // ✅ Only allow status update
       if (!body.bookingStatus) {
         throw new BadRequestException('bookingStatus is required');
       }
 
-      // ✅ Check if booking exists
       const existingBooking = await this.svc.prisma.booking.findUnique({
         where: { id },
       });
@@ -135,49 +166,44 @@ export class BookingsController {
       }
 
       // ✅ Check permission
-      if (user.role !== 'OWNER') {
+      if (user.role === 'VIEWER') {
         const userBranch = user.branches?.[0];
         if (existingBooking.branch !== userBranch) {
           throw new ForbiddenException('You cannot update booking in this branch');
         }
       }
 
-      // ✅ Update only the status
       const booking = await this.svc.update(id, { bookingStatus: body.bookingStatus });
 
-      // ✅ Audit log
-      try {
-        await this.audit.log({
-          username: user.username,
-          branch: booking.branch,
-          action: 'UPDATE_STATUS',
-          entity: 'Booking',
-          entityId: id,
-          details: { newStatus: body.bookingStatus },
-          ip: req.ip,
-          userAgent: req.headers['user-agent'],
-        });
-      } catch (auditError) {
-        console.error('❌ Audit log error:', auditError);
+      // ✅ Send email on status change to confirmed
+      if (booking && booking.email && (body.bookingStatus === 'Confirm' || body.bookingStatus === 'Confirmed')) {
+        try {
+          await this.emailService.sendBookingConfirmation(booking.email, booking);
+          this.logger.log(`📧 Status update confirmation email sent to: ${booking.email}`);
+        } catch (emailError) {
+          this.logger.error(`❌ Email sending failed for status update: ${emailError.message}`);
+        }
       }
 
-      return booking;
+      return {
+        success: true,
+        data: booking,
+        message: `Booking status updated to ${body.bookingStatus}`,
+        emailSent: booking.email ? true : false,
+      };
     } catch (error) {
-      console.error('❌ Error updating status:', error);
+      this.logger.error('❌ Error updating status:', error);
       throw error;
     }
   }
 
-  // ✅ PUT method for full updates
+  // ✅ UPDATE BOOKING (PUT) - With Email Notification
   @Put(':id')
   async update(@Req() req: any, @Param('id') id: string, @Body() dto: any) {
     try {
       const user = req.user;
       let branch: Branch;
 
-      console.log('📝 Full update for booking:', id, dto);
-
-      // ✅ Check if booking exists
       const existingBooking = await this.svc.prisma.booking.findUnique({
         where: { id },
       });
@@ -186,22 +212,20 @@ export class BookingsController {
         throw new NotFoundException('Booking not found');
       }
 
-      // ✅ Check if this is a status-only update (handled by PATCH)
+      // ✅ Check if only status update
       const keys = Object.keys(dto);
       const isOnlyStatusUpdate = keys.length === 1 && keys[0] === 'bookingStatus';
 
       if (isOnlyStatusUpdate) {
-        console.log('✅ Redirecting to status update');
         return this.updateStatus(req, id, { bookingStatus: dto.bookingStatus });
       }
 
-      // ✅ For full updates, validate branch
+      // ✅ Check permission for full update
       if (user.role === 'OWNER') {
-        if (dto.branch && !user.branches.includes(dto.branch)) {
-          throw new ForbiddenException('Branch not allowed');
-        }
         branch = dto.branch || existingBooking.branch;
-      } else {
+      } else if (user.role === 'MANAGER') {
+        branch = dto.branch || existingBooking.branch;
+      } else if (user.role === 'VIEWER') {
         const userBranch = user.branches?.[0];
         if (dto.branch && user.branches && !user.branches.includes(dto.branch)) {
           throw new ForbiddenException('You cannot update booking in this branch');
@@ -210,6 +234,8 @@ export class BookingsController {
           throw new ForbiddenException('You cannot update booking in this branch');
         }
         branch = dto.branch || userBranch || existingBooking.branch;
+      } else {
+        branch = dto.branch || existingBooking.branch;
       }
 
       if (!branch) {
@@ -218,34 +244,32 @@ export class BookingsController {
 
       const updated = await this.svc.update(id, { ...dto, branch });
 
-      // ✅ Audit log
-      try {
-        await this.audit.log({
-          username: req.context?.username ?? user.username ?? 'system',
-          branch: req.context?.branch ?? branch ?? null,
-          action: 'UPDATE',
-          entity: 'Booking',
-          entityId: id,
-          details: dto,
-          ip: req.context?.ip ?? req.ip ?? null,
-          userAgent: req.context?.userAgent ?? req.headers['user-agent'] ?? null,
-        });
-      } catch (auditError) {
-        console.error('❌ Audit log error:', auditError);
+      // ✅ Send email notification for updates
+      if (updated && updated.email) {
+        try {
+          await this.emailService.sendBookingConfirmation(updated.email, updated);
+          this.logger.log(`📧 Update confirmation email sent to: ${updated.email}`);
+        } catch (emailError) {
+          this.logger.error(`❌ Email sending failed for update: ${emailError.message}`);
+        }
       }
 
-      return updated;
+      return {
+        success: true,
+        data: updated,
+        message: 'Booking updated successfully',
+        emailSent: updated.email ? true : false,
+      };
     } catch (error) {
-      console.error('❌ Error updating booking:', error);
+      this.logger.error('❌ Error updating booking:', error);
       throw error;
     }
   }
 
+  // ✅ GET SINGLE BOOKING
   @Get(':id')
   async findOne(@Param('id') id: string) {
     try {
-      console.log('📤 Fetching booking:', id);
-
       let booking = await this.svc.prisma.booking.findUnique({
         where: { id },
       });
@@ -262,11 +286,12 @@ export class BookingsController {
 
       return booking;
     } catch (error) {
-      console.error('Error fetching booking:', error);
+      this.logger.error('Error fetching booking:', error);
       throw error;
     }
   }
 
+  // ✅ LIST BOOKINGS - WITH VIEWER SUPPORT
   @Get()
   async list(
     @Req() req: any,
@@ -286,20 +311,44 @@ export class BookingsController {
 
       const where: any = {};
 
+      this.logger.log(`📋 User ${user.username} (${user.role}) listing bookings`);
+      this.logger.log(`📋 User branches: ${user.branches?.join(', ') || 'none'}`);
+
       // ✅ Branch filtering based on user role
       if (user.role === 'OWNER') {
         if (branch) {
           where.branch = branch;
         }
-        // Owner can see all branches, so no filter if no branch specified
+      } else if (user.role === 'MANAGER') {
+        if (branch) {
+          where.branch = branch;
+        }
+      } else if (user.role === 'VIEWER') {
+        const userBranches = user.branches || [];
+        if (userBranches.length === 0) {
+          return {
+            page: parseInt(page),
+            limit: parseInt(limit),
+            total: 0,
+            totalPages: 0,
+            bookings: [],
+            data: [],
+          };
+        }
+        if (branch && userBranches.includes(branch)) {
+          where.branch = branch;
+        } else {
+          where.branch = { in: userBranches };
+        }
+        this.logger.log(`📋 Viewer viewing branches: ${userBranches.join(', ')}`);
       } else {
-        // Viewer and Manager: only see their assigned branch
-        const userBranch = branch || user.branches?.[0];
-        if (userBranch) {
-          where.branch = userBranch;
+        const userBranches = user.branches || [];
+        if (userBranches.length > 0) {
+          where.branch = { in: userBranches };
         }
       }
 
+      // ✅ Additional filters
       if (from && to) {
         where.checkIn = { gte: new Date(from) };
         where.checkOut = { lte: new Date(to) };
@@ -333,7 +382,7 @@ export class BookingsController {
         take,
       });
 
-      console.log(`📋 Found ${bookings.length} bookings for branch: ${where.branch || 'all'}`);
+      this.logger.log(`📋 Found ${bookings.length} bookings for user ${user.username}`);
 
       return {
         page: parseInt(page),
@@ -341,121 +390,18 @@ export class BookingsController {
         total,
         totalPages: Math.ceil(total / parseInt(limit)),
         bookings,
-        data: bookings, // For compatibility
+        data: bookings,
       };
     } catch (error) {
-      console.error('Error listing bookings:', error);
+      this.logger.error('Error listing bookings:', error);
       throw new InternalServerErrorException('Failed to fetch bookings');
     }
   }
 
-  @Get('by-date')
-  async byDate(@Req() req: any, @Query('date') date: string, @Query('branch') branch?: string) {
-    try {
-      if (!date) throw new BadRequestException('date required');
-      const user = req.user;
-
-      let targetBranch = branch;
-      if (!targetBranch) {
-        if (user.role === 'OWNER') {
-          targetBranch = user.branches?.[0] || 'Pokhara';
-        } else {
-          targetBranch = user.branches?.[0] || 'Pokhara';
-        }
-      }
-
-      const bookings = await this.svc.prisma.booking.findMany({
-        where: {
-          branch: targetBranch as any,
-          checkIn: {
-            lte: new Date(date),
-          },
-          checkOut: {
-            gte: new Date(date),
-          },
-        },
-      });
-
-      return {
-        date,
-        branch: targetBranch,
-        bookings,
-        count: bookings.length,
-      };
-    } catch (error) {
-      console.error('Error fetching by date:', error);
-      throw error;
-    }
-  }
-
-  @Get('summary')
-  async summary(
-    @Req() req: any,
-    @Query('month') month: string,
-    @Query('branch') branch?: string,
-    @Query('single') single = '10',
-    @Query('double') double = '10',
-    @Query('triple') triple = '10',
-    @Query('quard') quard = '10',
-  ) {
-    try {
-      if (!month) throw new BadRequestException('month required (YYYY-MM)');
-      const user = req.user;
-      const totals = {
-        single: Number(single),
-        double: Number(double),
-        triple: Number(triple),
-        quard: Number(quard),
-      };
-
-      let targetBranch = branch;
-      if (!targetBranch) {
-        if (user.role === 'OWNER') {
-          targetBranch = user.branches?.[0] || 'Pokhara';
-        } else {
-          targetBranch = user.branches?.[0] || 'Pokhara';
-        }
-      }
-
-      const startDate = new Date(month + '-01');
-      const endDate = new Date(startDate);
-      endDate.setMonth(endDate.getMonth() + 1);
-
-      const bookings = await this.svc.prisma.booking.findMany({
-        where: {
-          branch: targetBranch as any,
-          checkIn: {
-            gte: startDate,
-          },
-          checkOut: {
-            lte: endDate,
-          },
-        },
-      });
-
-      return {
-        month,
-        branch: targetBranch,
-        totals,
-        bookings,
-        count: bookings.length,
-        summary: {
-          confirmed: bookings.filter(b => b.bookingStatus === 'Confirm' || b.bookingStatus === 'Confirmed').length,
-          pending: bookings.filter(b => b.bookingStatus === 'Pending').length,
-          checkedIn: bookings.filter(b => b.bookingStatus === 'CheckedIn').length,
-          checkedOut: bookings.filter(b => b.bookingStatus === 'CheckedOut').length,
-        },
-      };
-    } catch (error) {
-      console.error('Error fetching summary:', error);
-      throw error;
-    }
-  }
-
+  // ✅ DELETE BOOKING
   @Delete(':id')
   async remove(@Req() req: any, @Param('id') id: string) {
     try {
-      // ✅ Check if booking exists
       const existingBooking = await this.svc.prisma.booking.findUnique({
         where: { id },
       });
@@ -464,62 +410,38 @@ export class BookingsController {
         throw new NotFoundException('Booking not found');
       }
 
-      // ✅ Check permission
       const user = req.user;
       if (user.role !== 'OWNER') {
-        const userBranch = user.branches?.[0];
-        if (existingBooking.branch !== userBranch) {
-          throw new ForbiddenException('You cannot delete booking in this branch');
-        }
+        throw new ForbiddenException('Only owners can delete bookings');
       }
 
       await this.svc.remove(id);
-
-      // ✅ Audit log
-      try {
-        await this.audit.log({
-          username: req.context?.username ?? req.user?.username ?? 'system',
-          branch: req.context?.branch ?? req.user?.branches?.[0] ?? null,
-          action: 'DELETE',
-          entity: 'Booking',
-          entityId: id,
-          details: null,
-          ip: req.context?.ip ?? req.ip ?? null,
-          userAgent: req.context?.userAgent ?? req.headers['user-agent'] ?? null,
-        });
-      } catch (auditError) {
-        console.error('❌ Audit log error:', auditError);
-      }
-
       return { success: true };
     } catch (error) {
-      console.error('Error deleting booking:', error);
+      this.logger.error('Error deleting booking:', error);
       throw error;
     }
   }
 
+  // ✅ DASHBOARD STATS - WITH VIEWER SUPPORT
   @Get('dashboard/stats')
   async getDashboardStats(@Req() req: any, @Query('branch') branch?: string) {
     try {
       const user = req.user;
 
-      // ✅ Determine target branch
       let targetBranch = branch;
       if (!targetBranch) {
-        if (user.role === 'OWNER') {
-          targetBranch = user.branches?.[0] || 'Pokhara';
+        if (user.role === 'OWNER' || user.role === 'MANAGER') {
+          targetBranch = branch || 'all';
         } else {
           targetBranch = user.branches?.[0] || 'Pokhara';
         }
       }
 
-      console.log('📊 Fetching dashboard stats for branch:', targetBranch);
-
-      // ✅ Get stats from service
-      const stats = await this.svc.getDashboardStats(targetBranch);
+      const stats = await this.svc.getDashboardStats(targetBranch, user);
 
       return {
-        stats: stats || {
+        stats: stats?.stats || {
           totalRooms: 50,
           occupiedRooms: 0,
           availableRooms: 50,
@@ -528,10 +450,10 @@ export class BookingsController {
           totalCustomers: 0,
           occupancyPercent: 0,
         },
-        branch: targetBranch,
+        branch: targetBranch || 'all',
       };
     } catch (error) {
-      console.error('Error fetching dashboard stats:', error);
+      this.logger.error('Error fetching dashboard stats:', error);
       return {
         stats: {
           totalRooms: 50,
@@ -548,6 +470,7 @@ export class BookingsController {
     }
   }
 
+  // ✅ BOOKING STATS - WITH VIEWER SUPPORT
   @Get('stats')
   async getStats(@Req() req: any, @Query('branch') branch?: string) {
     try {
@@ -555,17 +478,14 @@ export class BookingsController {
 
       let targetBranch = branch;
       if (!targetBranch) {
-        if (user.role === 'OWNER') {
-          targetBranch = user.branches?.[0] || 'Pokhara';
+        if (user.role === 'OWNER' || user.role === 'MANAGER') {
+          targetBranch = branch || 'all';
         } else {
           targetBranch = user.branches?.[0] || 'Pokhara';
         }
       }
 
-      console.log('📊 Fetching booking stats for branch:', targetBranch);
-
-      // ✅ Get stats from service
-      const result = await this.svc.getBookingStats(targetBranch);
+      const result = await this.svc.getBookingStats(targetBranch, user);
 
       return result || {
         confirmed: 0,
@@ -575,10 +495,10 @@ export class BookingsController {
         totalRevenue: 0,
         totalCustomers: 0,
         totalBookings: 0,
-        branch: targetBranch,
+        branch: targetBranch || 'all',
       };
     } catch (error) {
-      console.error('Error fetching booking stats:', error);
+      this.logger.error('Error fetching booking stats:', error);
       return {
         confirmed: 0,
         pending: 0,
@@ -590,6 +510,152 @@ export class BookingsController {
         branch: branch || 'all',
         error: error.message,
       };
+    }
+  }
+
+  // ✅ TODAY'S CHECK-INS
+  @Get('checkin/today')
+  async getTodayCheckins(@Req() req: any) {
+    try {
+      const user = req.user;
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      const tomorrow = new Date(today);
+      tomorrow.setDate(tomorrow.getDate() + 1);
+
+      let where: any = {
+        checkIn: { gte: today, lt: tomorrow },
+        bookingStatus: { in: ['Confirm', 'Confirmed', 'Pending'] },
+      };
+
+      // ✅ Filter by viewer's branches
+      if (user.role === 'VIEWER') {
+        const userBranches = user.branches || [];
+        if (userBranches.length === 0) {
+          return { success: true, data: [] };
+        }
+        where.branch = { in: userBranches };
+      }
+
+      const bookings = await this.svc.prisma.booking.findMany({
+        where,
+        orderBy: { checkIn: 'asc' },
+      });
+
+      return { success: true, data: bookings };
+    } catch (error) {
+      this.logger.error('Error fetching today checkins:', error);
+      throw new InternalServerErrorException('Failed to fetch today checkins');
+    }
+  }
+
+  // ✅ TOMORROW'S CHECK-INS
+  @Get('checkin/tomorrow')
+  async getTomorrowCheckins(@Req() req: any) {
+    try {
+      const user = req.user;
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      const tomorrow = new Date(today);
+      tomorrow.setDate(tomorrow.getDate() + 1);
+      const dayAfter = new Date(tomorrow);
+      dayAfter.setDate(dayAfter.getDate() + 1);
+
+      let where: any = {
+        checkIn: { gte: tomorrow, lt: dayAfter },
+        bookingStatus: { in: ['Confirm', 'Confirmed', 'Pending'] },
+      };
+
+      if (user.role === 'VIEWER') {
+        const userBranches = user.branches || [];
+        if (userBranches.length === 0) {
+          return { success: true, data: [] };
+        }
+        where.branch = { in: userBranches };
+      }
+
+      const bookings = await this.svc.prisma.booking.findMany({
+        where,
+        orderBy: { checkIn: 'asc' },
+      });
+
+      return { success: true, data: bookings };
+    } catch (error) {
+      this.logger.error('Error fetching tomorrow checkins:', error);
+      throw new InternalServerErrorException('Failed to fetch tomorrow checkins');
+    }
+  }
+
+  // ✅ UPCOMING CHECKOUTS
+  @Get('checkout/upcoming')
+  async getUpcomingCheckouts(@Req() req: any) {
+    try {
+      const user = req.user;
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      const futureDate = new Date(today);
+      futureDate.setDate(futureDate.getDate() + 7);
+
+      let where: any = {
+        checkOut: { gte: today, lt: futureDate },
+        bookingStatus: { in: ['Confirm', 'Confirmed', 'CheckedIn'] },
+      };
+
+      if (user.role === 'VIEWER') {
+        const userBranches = user.branches || [];
+        if (userBranches.length === 0) {
+          return { success: true, data: [] };
+        }
+        where.branch = { in: userBranches };
+      }
+
+      const bookings = await this.svc.prisma.booking.findMany({
+        where,
+        orderBy: { checkOut: 'asc' },
+      });
+
+      return { success: true, data: bookings };
+    } catch (error) {
+      this.logger.error('Error fetching upcoming checkouts:', error);
+      throw new InternalServerErrorException('Failed to fetch upcoming checkouts');
+    }
+  }
+
+  // ✅ RESEND CONFIRMATION EMAIL
+  @Post(':id/resend-email')
+  async resendConfirmationEmail(@Req() req: any, @Param('id') id: string) {
+    try {
+      const user = req.user;
+      
+      // ✅ Check if user has permission
+      if (user.role === 'VIEWER') {
+        throw new ForbiddenException('You do not have permission to resend emails');
+      }
+
+      const booking = await this.svc.prisma.booking.findUnique({
+        where: { id },
+      });
+
+      if (!booking) {
+        throw new NotFoundException('Booking not found');
+      }
+
+      if (!booking.email) {
+        throw new BadRequestException('No email associated with this booking');
+      }
+
+      // ✅ Send email
+      await this.emailService.sendBookingConfirmation(booking.email, booking);
+      this.logger.log(`📧 Confirmation email resent to: ${booking.email}`);
+
+      return {
+        success: true,
+        message: `Confirmation email resent to ${booking.email}`,
+        email: booking.email,
+      };
+    } catch (error) {
+      this.logger.error('Error resending email:', error);
+      throw error;
     }
   }
 }

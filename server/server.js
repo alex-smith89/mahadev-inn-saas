@@ -11,7 +11,7 @@ const PORT = process.env.PORT || 4000;
 
 // Middleware
 app.use(cors({
-  origin: ['http://localhost:3000', 'http://localhost:3001', 'http://localhost:3002'],
+  origin: ['http://localhost:3000', 'http://localhost:3001', 'http://localhost:3002', 'http://localhost:3003'],
   credentials: true
 }));
 app.use(express.json());
@@ -114,40 +114,78 @@ app.post('/api/auth/login', async (req, res) => {
 
     const userBranches = branchesResult.rows.map(row => row.branch_name);
 
-    if (!userBranches.includes(branch)) {
-      return res.status(400).json({ 
-        message: `Branch "${branch}" is not assigned to this user. Available: ${userBranches.join(', ')}` 
-      });
-    }
+    // ✅ If user is OWNER or MANAGER, allow any branch they select
+    // ✅ For VIEWER, check if the branch is assigned
+    if (user.role === 'OWNER' || user.role === 'MANAGER') {
+      // ✅ Allow login with any branch (even if not in their list)
+      // But if they have branches assigned, use the first one as default
+      const selectedBranch = branch || (userBranches.length > 0 ? userBranches[0] : 'Pokhara');
+      
+      const token = jwt.sign(
+        { 
+          id: user.id, 
+          username: user.username, 
+          role: user.role,
+          branches: userBranches,
+          selectedBranch: selectedBranch,
+          canViewAllBranches: user.canviewallbranches === true,
+          canCreateBookings: user.cancreatebookings === true
+        },
+        JWT_SECRET,
+        { expiresIn: '24h' }
+      );
 
-    const token = jwt.sign(
-      { 
-        id: user.id, 
-        username: user.username, 
+      const userData = {
+        id: user.id,
+        username: user.username,
+        role: user.role,
+        branches: userBranches,
+        selectedBranch: selectedBranch,
+        canViewAllBranches: user.canviewallbranches === true,
+        canCreateBookings: user.cancreatebookings === true
+      };
+
+      return res.json({
+        token,
+        user: userData
+      });
+    } else {
+      // ✅ For VIEWER, check branch assignment
+      if (!userBranches.includes(branch)) {
+        return res.status(400).json({ 
+          message: `Branch "${branch}" is not assigned to this user. Available: ${userBranches.join(', ')}` 
+        });
+      }
+
+      const token = jwt.sign(
+        { 
+          id: user.id, 
+          username: user.username, 
+          role: user.role,
+          branches: userBranches,
+          selectedBranch: branch,
+          canViewAllBranches: user.canviewallbranches === true,
+          canCreateBookings: user.cancreatebookings === true
+        },
+        JWT_SECRET,
+        { expiresIn: '24h' }
+      );
+
+      const userData = {
+        id: user.id,
+        username: user.username,
         role: user.role,
         branches: userBranches,
         selectedBranch: branch,
         canViewAllBranches: user.canviewallbranches === true,
         canCreateBookings: user.cancreatebookings === true
-      },
-      JWT_SECRET,
-      { expiresIn: '24h' }
-    );
+      };
 
-    const userData = {
-      id: user.id,
-      username: user.username,
-      role: user.role,
-      branches: userBranches,
-      selectedBranch: branch,
-      canViewAllBranches: user.canviewallbranches === true,
-      canCreateBookings: user.cancreatebookings === true
-    };
-
-    res.json({
-      token,
-      user: userData
-    });
+      res.json({
+        token,
+        user: userData
+      });
+    }
   } catch (error) {
     console.error('Login error:', error);
     res.status(500).json({ message: 'Server error' });
@@ -170,14 +208,24 @@ app.get('/api/bookings', authenticate, async (req, res) => {
     const params = [];
     let paramCount = 1;
 
-    if (canViewAllBranches && selectedBranch === 'all') {
-      // Owner can see all branches
-    } else if (canViewAllBranches && selectedBranch) {
-      query += ` AND branch = $${paramCount}`;
-      params.push(selectedBranch);
-      paramCount++;
+    // ✅ OWNER and MANAGER can see ALL branches
+    if (user.role === 'OWNER' || user.role === 'MANAGER') {
+      // ✅ Allow viewing all branches
+      if (selectedBranch === 'all' || canViewAllBranches) {
+        // Show all bookings
+      } else if (selectedBranch) {
+        query += ` AND branch = $${paramCount}`;
+        params.push(selectedBranch);
+        paramCount++;
+      } else if (userBranches.length > 0) {
+        // Show only assigned branches if no selection
+        const placeholders = userBranches.map((_, i) => `$${paramCount + i}`).join(',');
+        query += ` AND branch IN (${placeholders})`;
+        params.push(...userBranches);
+      }
     } else {
-      if (selectedBranch) {
+      // ✅ VIEWER can only see their assigned branches
+      if (selectedBranch && userBranches.includes(selectedBranch)) {
         query += ` AND branch = $${paramCount}`;
         params.push(selectedBranch);
         paramCount++;
@@ -196,18 +244,22 @@ app.get('/api/bookings', authenticate, async (req, res) => {
 
     // Get branch counts
     const branchCounts = {};
-    for (const branch of userBranches) {
+    const allBranches = user.role === 'OWNER' || user.role === 'MANAGER' 
+      ? await pool.query('SELECT DISTINCT branch FROM bookings')
+      : await pool.query('SELECT DISTINCT branch FROM bookings WHERE branch = ANY($1::text[])', [userBranches]);
+    
+    for (const row of allBranches.rows) {
       const countResult = await pool.query(
         'SELECT COUNT(*) as count FROM bookings WHERE branch = $1',
-        [branch]
+        [row.branch]
       );
-      branchCounts[branch] = parseInt(countResult.rows[0].count);
+      branchCounts[row.branch] = parseInt(countResult.rows[0].count);
     }
 
     const branchInfo = {
       selectedBranch: selectedBranch || 'none',
       availableBranches: userBranches,
-      canViewAllBranches: canViewAllBranches,
+      canViewAllBranches: canViewAllBranches || user.role === 'OWNER' || user.role === 'MANAGER',
       currentBranch: selectedBranch || (userBranches.length > 0 ? userBranches[0] : 'none')
     };
 
@@ -225,7 +277,7 @@ app.get('/api/bookings', authenticate, async (req, res) => {
   }
 });
 
-// Create booking with real-time branch updates
+// ✅ FIXED: Create booking with real-time branch updates
 app.post('/api/bookings', authenticate, async (req, res) => {
   try {
     const user = req.user;
@@ -247,7 +299,13 @@ app.post('/api/bookings', authenticate, async (req, res) => {
       totalCost,
       currency,
       heads,
-      remark
+      remark,
+      extraPersons,
+      subtotal,
+      vatAmount,
+      vatRate,
+      roomCapacity,
+      totalCapacity
     } = req.body;
 
     console.log('📝 Creating booking:', {
@@ -258,9 +316,22 @@ app.post('/api/bookings', authenticate, async (req, res) => {
       userBranches: user.branches
     });
 
-    // Validate branch permission
-    if (!user.canViewAllBranches) {
-      if (!user.branches.includes(branch)) {
+    // ✅ FIX: Allow MANAGER and OWNER to create bookings in ANY branch
+    if (user.role === 'VIEWER') {
+      // ✅ VIEWER cannot create bookings at all
+      return res.status(403).json({ 
+        message: 'Viewers cannot create bookings. Please contact the owner for permission.' 
+      });
+    }
+
+    // ✅ OWNER and MANAGER can create in ANY branch - No restriction!
+    // ✅ This is the key fix - removed the branch check for MANAGER
+    if (user.role === 'OWNER' || user.role === 'MANAGER') {
+      console.log(`✅ ${user.role} ${user.username} is creating booking in branch: ${branch}`);
+      // Allow creating in any branch
+    } else {
+      // Fallback for any other role
+      if (!user.canViewAllBranches && !user.branches.includes(branch)) {
         return res.status(403).json({ 
           message: `You do not have permission to create bookings in branch: ${branch}` 
         });
@@ -272,12 +343,15 @@ app.post('/api/bookings', authenticate, async (req, res) => {
       `INSERT INTO bookings 
       (bookingNo, agentName, agentContact, email, branch, roomType, roomsCount, 
        mealPlan, facility, checkIn, checkOut, bookingStatus, roomCharges, 
-       extraPersonCharges, totalCost, currency, heads, remark, created_at, updated_at) 
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, NOW(), NOW())
+       extraPersonCharges, totalCost, currency, heads, remark, extraPersons,
+       subtotal, vatAmount, vatRate, roomCapacity, totalCapacity, created_at, updated_at, createdBy, createdByRole) 
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, NOW(), NOW(), $25, $26)
       RETURNING *`,
-      [bookingNo, agentName, agentContact, email, branch, roomType, roomsCount,
+      [bookingNo, agentName, agentContact, email, branch, roomType, roomsCount || 1,
        mealPlan, facility, checkIn, checkOut, bookingStatus || 'Confirm', roomCharges || 0,
-       extraPersonCharges || 0, totalCost || 0, currency || 'NPR', heads || 0, remark || '']
+       extraPersonCharges || 0, totalCost || 0, currency || 'NPR', heads || 0, remark || '',
+       extraPersons || 0, subtotal || 0, vatAmount || 0, vatRate || 13, roomCapacity || 1, totalCapacity || 1,
+       user.username || 'Unknown', user.role || 'User']
     );
 
     const newBooking = result.rows[0];
@@ -350,6 +424,96 @@ app.post('/api/bookings', authenticate, async (req, res) => {
   }
 });
 
+// Update booking
+app.put('/api/bookings/:id', authenticate, async (req, res) => {
+  try {
+    const user = req.user;
+    const bookingId = req.params.id;
+    const {
+      agentName,
+      agentContact,
+      email,
+      branch,
+      roomType,
+      roomsCount,
+      mealPlan,
+      facility,
+      checkIn,
+      checkOut,
+      bookingStatus,
+      roomCharges,
+      extraPersonCharges,
+      totalCost,
+      currency,
+      heads,
+      remark
+    } = req.body;
+
+    // ✅ Check if user has permission to update this booking
+    if (user.role === 'VIEWER') {
+      return res.status(403).json({ message: 'Viewers cannot update bookings' });
+    }
+
+    // ✅ MANAGER and OWNER can update any booking
+    const result = await pool.query(
+      `UPDATE bookings 
+       SET agentName = $1, agentContact = $2, email = $3, branch = $4, 
+           roomType = $5, roomsCount = $6, mealPlan = $7, facility = $8,
+           checkIn = $9, checkOut = $10, bookingStatus = $11, roomCharges = $12,
+           extraPersonCharges = $13, totalCost = $14, currency = $15, 
+           heads = $16, remark = $17, updated_at = NOW()
+       WHERE id = $18
+       RETURNING *`,
+      [agentName, agentContact, email, branch, roomType, roomsCount,
+       mealPlan, facility, checkIn, checkOut, bookingStatus, roomCharges,
+       extraPersonCharges, totalCost, currency, heads, remark, bookingId]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ message: 'Booking not found' });
+    }
+
+    res.json({
+      success: true,
+      data: result.rows[0],
+      message: 'Booking updated successfully'
+    });
+  } catch (error) {
+    console.error('Error updating booking:', error);
+    res.status(500).json({ message: 'Error updating booking' });
+  }
+});
+
+// Delete booking
+app.delete('/api/bookings/:id', authenticate, async (req, res) => {
+  try {
+    const user = req.user;
+    const bookingId = req.params.id;
+
+    // ✅ Only OWNER can delete bookings
+    if (user.role !== 'OWNER') {
+      return res.status(403).json({ message: 'Only owners can delete bookings' });
+    }
+
+    const result = await pool.query(
+      'DELETE FROM bookings WHERE id = $1 RETURNING *',
+      [bookingId]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ message: 'Booking not found' });
+    }
+
+    res.json({
+      success: true,
+      message: 'Booking deleted successfully'
+    });
+  } catch (error) {
+    console.error('Error deleting booking:', error);
+    res.status(500).json({ message: 'Error deleting booking' });
+  }
+});
+
 // Update booking statuses automatically
 async function updateBookingStatuses() {
   try {
@@ -393,7 +557,7 @@ app.post('/api/automation/checkin', authenticate, async (req, res) => {
     const user = req.user;
     const userBranches = user.branches || [];
     const selectedBranch = user.selectedBranch;
-    const canViewAllBranches = user.canViewAllBranches;
+    const canViewAllBranches = user.canViewAllBranches || user.role === 'OWNER' || user.role === 'MANAGER';
     
     let targetBranches = [];
     if (canViewAllBranches && selectedBranch === 'all') {
@@ -431,13 +595,13 @@ app.post('/api/automation/checkin', authenticate, async (req, res) => {
           `INSERT INTO notifications (title, message, branch, bookingId, type, created_at) 
            VALUES ($1, $2, $3, $4, $5, NOW())`,
           ['🔄 Automated Check-in', 
-           `Guest ${booking.agentName} (${booking.bookingNo}) has been automatically checked in at ${booking.branch}.`,
+           `Guest ${booking.agentname} (${booking.bookingno}) has been automatically checked in at ${booking.branch}.`,
            booking.branch, booking.id, 'auto_checkin']
         );
         
         checkedIn++;
         checkedInBookings.push(booking);
-        console.log(`✅ Checked in: ${booking.agentName} (${booking.bookingNo}) at ${booking.branch}`);
+        console.log(`✅ Checked in: ${booking.agentname} (${booking.bookingno}) at ${booking.branch}`);
         
       } catch (error) {
         console.error(`Error checking in booking ${booking.id}:`, error);
@@ -450,10 +614,10 @@ app.post('/api/automation/checkin', authenticate, async (req, res) => {
         checkedIn: checkedIn,
         bookings: checkedInBookings.map(b => ({
           id: b.id,
-          agentName: b.agentName,
-          bookingNo: b.bookingNo,
+          agentName: b.agentname,
+          bookingNo: b.bookingno,
           branch: b.branch,
-          roomType: b.roomType
+          roomType: b.roomtype
         }))
       },
       message: `Successfully checked in ${checkedIn} guests`
@@ -475,7 +639,7 @@ app.post('/api/automation/checkout', authenticate, async (req, res) => {
     const user = req.user;
     const userBranches = user.branches || [];
     const selectedBranch = user.selectedBranch;
-    const canViewAllBranches = user.canViewAllBranches;
+    const canViewAllBranches = user.canViewAllBranches || user.role === 'OWNER' || user.role === 'MANAGER';
     
     let targetBranches = [];
     if (canViewAllBranches && selectedBranch === 'all') {
@@ -513,13 +677,13 @@ app.post('/api/automation/checkout', authenticate, async (req, res) => {
           `INSERT INTO notifications (title, message, branch, bookingId, type, created_at) 
            VALUES ($1, $2, $3, $4, $5, NOW())`,
           ['📤 Automated Checkout', 
-           `Guest ${booking.agentName} (${booking.bookingNo}) has been automatically checked out from ${booking.branch}. Room is now vacant.`,
+           `Guest ${booking.agentname} (${booking.bookingno}) has been automatically checked out from ${booking.branch}. Room is now vacant.`,
            booking.branch, booking.id, 'auto_checkout']
         );
         
         checkedOut++;
         checkedOutBookings.push(booking);
-        console.log(`✅ Checked out: ${booking.agentName} (${booking.bookingNo}) from ${booking.branch}`);
+        console.log(`✅ Checked out: ${booking.agentname} (${booking.bookingno}) from ${booking.branch}`);
         
       } catch (error) {
         console.error(`Error checking out booking ${booking.id}:`, error);
@@ -532,10 +696,10 @@ app.post('/api/automation/checkout', authenticate, async (req, res) => {
         checkedOut: checkedOut,
         bookings: checkedOutBookings.map(b => ({
           id: b.id,
-          agentName: b.agentName,
-          bookingNo: b.bookingNo,
+          agentName: b.agentname,
+          bookingNo: b.bookingno,
           branch: b.branch,
-          roomType: b.roomType
+          roomType: b.roomtype
         }))
       },
       message: `Successfully checked out ${checkedOut} guests`
@@ -557,7 +721,7 @@ app.post('/api/automation/reminders', authenticate, async (req, res) => {
     const user = req.user;
     const userBranches = user.branches || [];
     const selectedBranch = user.selectedBranch;
-    const canViewAllBranches = user.canViewAllBranches;
+    const canViewAllBranches = user.canViewAllBranches || user.role === 'OWNER' || user.role === 'MANAGER';
     
     let targetBranches = [];
     if (canViewAllBranches && selectedBranch === 'all') {
@@ -597,7 +761,7 @@ app.post('/api/automation/reminders', authenticate, async (req, res) => {
           `INSERT INTO notifications (title, message, branch, bookingId, type, created_at) 
            VALUES ($1, $2, $3, $4, $5, NOW())`,
           [`📅 Checkout Reminder - ${daysUntilCheckout} day${daysUntilCheckout > 1 ? 's' : ''}`,
-           `Guest ${booking.agentName} (${booking.bookingNo}) has checkout in ${daysUntilCheckout} days at ${booking.branch}.`,
+           `Guest ${booking.agentname} (${booking.bookingno}) has checkout in ${daysUntilCheckout} days at ${booking.branch}.`,
            booking.branch, booking.id, 'checkout_reminder']
         );
         checkoutReminders++;
@@ -618,7 +782,7 @@ app.post('/api/automation/reminders', authenticate, async (req, res) => {
         `INSERT INTO notifications (title, message, branch, bookingId, type, created_at) 
          VALUES ($1, $2, $3, $4, $5, NOW())`,
         ['📅 Check-in Tomorrow',
-         `Guest ${booking.agentName} (${booking.bookingNo}) is scheduled to check-in tomorrow at ${booking.branch}.`,
+         `Guest ${booking.agentname} (${booking.bookingno}) is scheduled to check-in tomorrow at ${booking.branch}.`,
          booking.branch, booking.id, 'checkin_reminder']
       );
       checkinReminders++;
@@ -649,7 +813,7 @@ app.post('/api/automation/run', authenticate, async (req, res) => {
     const user = req.user;
     const selectedBranch = user.selectedBranch;
     const userBranches = user.branches || [];
-    const canViewAllBranches = user.canViewAllBranches;
+    const canViewAllBranches = user.canViewAllBranches || user.role === 'OWNER' || user.role === 'MANAGER';
 
     let targetBranches = [];
     if (canViewAllBranches && selectedBranch === 'all') {
@@ -890,11 +1054,11 @@ app.get('/api/notifications', authenticate, async (req, res) => {
   try {
     const user = req.user;
     const selectedBranch = user.selectedBranch;
-    const canViewAllBranches = user.canViewAllBranches;
+    const canViewAllBranches = user.canViewAllBranches || user.role === 'OWNER' || user.role === 'MANAGER';
     const userBranches = user.branches || [];
 
     let query = `
-      SELECT n.*, un.isRead, un.createdAt as readAt 
+      SELECT n.*, un.isRead, un.created_at as readAt 
       FROM notifications n
       JOIN user_notifications un ON n.id = un.notification_id
       WHERE un.user_id = $1
@@ -925,6 +1089,50 @@ app.get('/api/notifications', authenticate, async (req, res) => {
     res.status(500).json({
       success: false,
       message: 'Failed to fetch notifications'
+    });
+  }
+});
+
+// Get notification history
+app.get('/api/notifications/history', authenticate, async (req, res) => {
+  try {
+    const user = req.user;
+    const selectedBranch = user.selectedBranch;
+    const canViewAllBranches = user.canViewAllBranches || user.role === 'OWNER' || user.role === 'MANAGER';
+    const userBranches = user.branches || [];
+
+    let query = `
+      SELECT n.*, un.isRead, un.created_at as readAt 
+      FROM notifications n
+      JOIN user_notifications un ON n.id = un.notification_id
+      WHERE un.user_id = $1
+    `;
+    const params = [user.id];
+    let paramCount = 2;
+
+    if (!canViewAllBranches || selectedBranch !== 'all') {
+      const branchFilter = selectedBranch || (userBranches.length > 0 ? userBranches[0] : '');
+      if (branchFilter) {
+        query += ` AND n.branch = $${paramCount}`;
+        params.push(branchFilter);
+        paramCount++;
+      }
+    }
+
+    query += ' ORDER BY n.created_at DESC LIMIT 50';
+
+    const result = await pool.query(query, params);
+
+    res.json({
+      success: true,
+      data: result.rows,
+      lastUpdated: new Date().toISOString()
+    });
+  } catch (error) {
+    console.error('Error fetching notification history:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch notification history'
     });
   }
 });
@@ -1008,6 +1216,37 @@ app.get('/api/room-pricing/branch/:branch', authenticate, async (req, res) => {
   }
 });
 
+// ==================== ROOM CAPACITY ENDPOINTS ====================
+
+// Get room capacity for a branch
+app.get('/api/room-capacity/branch/:branch', authenticate, async (req, res) => {
+  try {
+    const { branch } = req.params;
+    
+    const result = await pool.query(
+      'SELECT * FROM room_capacity WHERE branch = $1',
+      [branch]
+    );
+
+    if (result.rows.length === 0) {
+      return res.json({
+        data: {
+          branch: branch,
+          singleCap: 10,
+          doubleCap: 15,
+          tripleCap: 8,
+          quardCap: 5
+        }
+      });
+    }
+
+    res.json({ data: result.rows[0] });
+  } catch (error) {
+    console.error('Error fetching room capacity:', error);
+    res.status(500).json({ message: 'Error fetching room capacity' });
+  }
+});
+
 // ==================== OTHER ENDPOINTS ====================
 
 // Today's check-ins
@@ -1015,7 +1254,7 @@ app.get('/api/checkin/today', authenticate, async (req, res) => {
   try {
     const user = req.user;
     const selectedBranch = user.selectedBranch;
-    const canViewAllBranches = user.canViewAllBranches;
+    const canViewAllBranches = user.canViewAllBranches || user.role === 'OWNER' || user.role === 'MANAGER';
     const userBranches = user.branches || [];
 
     await updateBookingStatuses();
@@ -1048,12 +1287,48 @@ app.get('/api/checkin/today', authenticate, async (req, res) => {
   }
 });
 
+// Tomorrow's check-ins
+app.get('/api/checkin/tomorrow', authenticate, async (req, res) => {
+  try {
+    const user = req.user;
+    const selectedBranch = user.selectedBranch;
+    const canViewAllBranches = user.canViewAllBranches || user.role === 'OWNER' || user.role === 'MANAGER';
+    const userBranches = user.branches || [];
+
+    let query = 'SELECT * FROM bookings WHERE DATE(checkIn) = CURRENT_DATE + INTERVAL \'1 day\' AND bookingStatus IN ($1, $2, $3)';
+    const params = ['Confirm', 'Confirmed', 'Pending'];
+    let paramCount = 4;
+
+    if (!canViewAllBranches || selectedBranch !== 'all') {
+      const branchFilter = selectedBranch || (userBranches.length > 0 ? userBranches[0] : '');
+      if (branchFilter) {
+        query += ` AND branch = $${paramCount}`;
+        params.push(branchFilter);
+      }
+    }
+
+    const result = await pool.query(query, params);
+
+    res.json({
+      success: true,
+      data: result.rows,
+      lastUpdated: new Date().toISOString()
+    });
+  } catch (error) {
+    console.error('Error fetching tomorrow checkins:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch tomorrow checkins'
+    });
+  }
+});
+
 // Upcoming checkouts
 app.get('/api/checkout/upcoming', authenticate, async (req, res) => {
   try {
     const user = req.user;
     const selectedBranch = user.selectedBranch;
-    const canViewAllBranches = user.canViewAllBranches;
+    const canViewAllBranches = user.canViewAllBranches || user.role === 'OWNER' || user.role === 'MANAGER';
     const userBranches = user.branches || [];
 
     await updateBookingStatuses();

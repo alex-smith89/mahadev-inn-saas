@@ -1,52 +1,32 @@
-// src/email/email.controller.ts
-import { Controller, Post, Body, UseGuards } from '@nestjs/common';
+// server/src/email/email.controller.ts
+import { Controller, Post, Body, Logger } from '@nestjs/common';
 import { EmailService } from './email.service';
-import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 
-@Controller('api/email')
-@UseGuards(JwtAuthGuard)
+@Controller('email')
 export class EmailController {
+  private readonly logger = new Logger(EmailController.name);
+
   constructor(private readonly emailService: EmailService) {}
 
-  @Post('booking-confirmation')
-  async sendBookingConfirmation(@Body() body: any) {
-    const { email, booking } = body;
-    const result = await this.emailService.sendBookingConfirmation(email, booking);
-    return { success: result };
+  @Post('send-booking-confirmation')
+  async sendBookingConfirmation(@Body() body: { to: string; booking: any }) {
+    try {
+      await this.emailService.sendBookingConfirmation(body.to, body.booking);
+      return { success: true, message: 'Email sent successfully' };
+    } catch (error) {
+      this.logger.error(`Error sending email: ${error.message}`);
+      return { success: false, error: error.message };
+    }
   }
 
-  @Post('booking-request')
-  async sendBookingRequest(@Body() body: any) {
-    const { email, booking } = body;
-    const result = await this.emailService.sendBookingRequest(email, booking);
-    return { success: result };
-  }
-
-  @Post('checkout-reminder')
-  async sendCheckoutReminder(@Body() body: any) {
-    const { email, guestName, bookingNo, checkOutDate, branch, roomType, daysUntilCheckout } = body;
-    const result = await this.emailService.sendCheckoutReminderEmail(
-      email,
-      guestName,
-      bookingNo,
-      checkOutDate,
-      branch,
-      roomType,
-      daysUntilCheckout
-    );
-    return { success: result };
-  }
-
-  @Post('auto-checkout')
-  async sendAutoCheckout(@Body() body: any) {
-    const { email, guestName, bookingNo, branch, roomType } = body;
-    const result = await this.emailService.sendAutoCheckoutEmail(
-      email,
-      guestName,
-      bookingNo,
-      branch,
-      roomType
-    );
-    return { success: result };
+  @Post('send-booking-request')
+  async sendBookingRequest(@Body() body: { to: string; booking: any }) {
+    try {
+      await this.emailService.sendBookingRequest(body.to, body.booking);
+      return { success: true, message: 'Email sent successfully' };
+    } catch (error) {
+      this.logger.error(`Error sending email: ${error.message}`);
+      return { success: false, error: error.message };
+    }
   }
 }

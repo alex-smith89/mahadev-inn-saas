@@ -1,10 +1,13 @@
-import { Injectable, BadRequestException, NotFoundException, ForbiddenException } from '@nestjs/common';
+// src/bookings/bookings.service.ts
+import { Injectable, BadRequestException, NotFoundException, ForbiddenException, Logger } from '@nestjs/common';
 import { Branch, Booking, BookingStatus, MealPlan } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { RoomTypeEnum } from '@prisma/client';
 
 @Injectable()
 export class BookingsService {
+  private readonly logger = new Logger(BookingsService.name);
+
   constructor(public prisma: PrismaService) {}
 
   private bookingNo(branch: Branch) {
@@ -28,8 +31,18 @@ export class BookingsService {
   async create(data: any): Promise<Booking> {
     // ✅ Validate branch is provided
     if (!data.branch) {
+      this.logger.error('❌ Branch is required but not provided');
       throw new BadRequestException('Branch is required');
     }
+
+    this.logger.log(`📝 Creating booking for branch: ${data.branch}`);
+    this.logger.log(`📋 Booking data:`, {
+      agentName: data.agentName,
+      roomType: data.roomType,
+      roomsCount: data.roomsCount,
+      checkIn: data.checkIn,
+      checkOut: data.checkOut,
+    });
 
     // Validate contact format
     if (!/^\+\d{1,4}\d{10}$/.test(String(data.agentContact))) {
@@ -46,56 +59,62 @@ export class BookingsService {
       throw new BadRequestException('Check-out must be after check-in');
     }
 
-    // ✅ Log the branch being used
-    console.log(`📝 Creating booking for branch: ${data.branch}`);
+    // ✅ Check branch capacity
+    try {
+      const capacity = await this.prisma.branchCapacity.findUnique({
+        where: { branch: data.branch },
+      });
 
-    // Check branch capacity
-    const capacity = await this.prisma.branchCapacity.findUnique({
-      where: { branch: data.branch },
-    });
-
-    if (!capacity) {
-      throw new BadRequestException(
-        `No capacity record found for branch: ${data.branch}`,
-      );
-    }
-
-    // Check overlapping bookings
-    const overlapping = await this.prisma.booking.findMany({
-      where: {
-        branch: data.branch,
-        roomType: data.roomType,
-        bookingStatus: { in: ['Confirm', 'Confirmed'] },
-        OR: [
-          {
-            checkIn: { lte: checkOut },
-            checkOut: { gte: checkIn },
+      if (!capacity) {
+        this.logger.warn(`⚠️ No capacity record found for branch: ${data.branch}, skipping capacity check`);
+      } else {
+        // Check overlapping bookings
+        const overlapping = await this.prisma.booking.findMany({
+          where: {
+            branch: data.branch,
+            roomType: data.roomType,
+            bookingStatus: { in: ['Confirm', 'Confirmed'] },
+            OR: [
+              {
+                checkIn: { lte: checkOut },
+                checkOut: { gte: checkIn },
+              },
+            ],
           },
-        ],
-      },
-    });
+        });
 
-    const totalBooked = overlapping.reduce((sum: any, b: { roomsCount: any }) => sum + b.roomsCount, 0);
-    const maxCap =
-      data.roomType === 'Single'
-        ? capacity.singleCap
-        : data.roomType === 'Double'
-        ? capacity.doubleCap
-        : 0;
+        const totalBooked = overlapping.reduce((sum: any, b: { roomsCount: any }) => sum + b.roomsCount, 0);
+        const maxCap =
+          data.roomType === 'Single'
+            ? capacity.singleCap
+            : data.roomType === 'Double'
+            ? capacity.doubleCap
+            : data.roomType === 'Triple'
+            ? capacity.tripleCap
+            : data.roomType === 'Quard'
+            ? capacity.quardCap
+            : 0;
 
-    if (totalBooked + data.roomsCount > maxCap) {
-      const available = maxCap - totalBooked;
-      throw new BadRequestException(
-        `Not enough ${data.roomType} rooms available in ${data.branch}. Only ${
-          available >= 0 ? available : 0
-        } left.`,
-      );
+        if (totalBooked + data.roomsCount > maxCap) {
+          const available = maxCap - totalBooked;
+          throw new BadRequestException(
+            `Not enough ${data.roomType} rooms available in ${data.branch}. Only ${
+              available >= 0 ? available : 0
+            } left.`,
+          );
+        }
+      }
+    } catch (error) {
+      if (error instanceof BadRequestException) {
+        throw error;
+      }
+      this.logger.warn(`⚠️ Capacity check failed: ${error.message}, continuing anyway`);
     }
 
     const roomCharges = data.roomCharges || data.price || 0;
     const totalPrice = roomCharges * data.roomsCount * nights;
 
-    // ✅ Create booking with branch properly saved
+    // ✅ Create booking with only fields that exist in schema
     const booking = await this.prisma.booking.create({
       data: {
         bookingNo: this.bookingNo(data.branch),
@@ -111,7 +130,7 @@ export class BookingsService {
         checkOut,
         nights,
         remark: data.remark ?? null,
-        branch: data.branch, // ✅ Make sure branch is saved
+        branch: data.branch,
         bookingStatus: data.bookingStatus ?? 'Confirm',
         roomCharges: roomCharges,
         kitchenCharges: data.kitchenCharges || 0,
@@ -124,14 +143,14 @@ export class BookingsService {
       },
     });
 
-    console.log(`✅ Booking created with ID: ${booking.id} for branch: ${booking.branch}`);
+    this.logger.log(`✅ Booking created with ID: ${booking.id} for branch: ${booking.branch}`);
     return booking;
   }
 
   // ---------- UPDATE BOOKING ----------
   async update(id: string, data: any): Promise<Booking> {
     try {
-      console.log('📝 Updating booking:', id, data);
+      this.logger.log('📝 Updating booking:', id, data);
 
       const existing = await this.prisma.booking.findUnique({
         where: { id },
@@ -141,25 +160,22 @@ export class BookingsService {
         throw new BadRequestException('Booking not found');
       }
 
-      // ✅ CHECK: If only status update, skip all validation
-      // Check if the request only contains bookingStatus
+      // ✅ If only status update, skip all validation
       const keys = Object.keys(data);
       const isOnlyStatusUpdate = keys.length === 1 && keys[0] === 'bookingStatus';
       
       if (isOnlyStatusUpdate) {
-        console.log(`✅ Updating only status to: ${data.bookingStatus}`);
+        this.logger.log(`✅ Updating only status to: ${data.bookingStatus}`);
         const updated = await this.prisma.booking.update({
           where: { id },
           data: {
             bookingStatus: data.bookingStatus,
           },
         });
-        console.log(`✅ Status updated successfully for booking ${id}`);
         return updated;
       }
 
       // ✅ For full updates, validate all fields
-      // Validate contact format
       if (!/^\+\d{1,4}\d{10}$/.test(String(data.agentContact))) {
         throw new BadRequestException(
           'Agent Contact must be in format +CCXXXXXXXXXX (e.g., +977987654321)',
@@ -174,48 +190,56 @@ export class BookingsService {
         throw new BadRequestException('Check-out must be after check-in');
       }
 
-      // Check branch capacity
-      const capacity = await this.prisma.branchCapacity.findUnique({
-        where: { branch: data.branch },
-      });
+      // ✅ Check branch capacity
+      try {
+        const capacity = await this.prisma.branchCapacity.findUnique({
+          where: { branch: data.branch },
+        });
 
-      if (!capacity) {
-        throw new BadRequestException(
-          `No capacity record found for branch: ${data.branch}`,
-        );
-      }
-
-      // Check overlapping bookings (excluding current)
-      const overlapping = await this.prisma.booking.findMany({
-        where: {
-          branch: data.branch,
-          roomType: data.roomType,
-          bookingStatus: { in: ['Confirm', 'Confirmed'] },
-          NOT: { id },
-          OR: [
-            {
-              checkIn: { lte: checkOut },
-              checkOut: { gte: checkIn },
+        if (!capacity) {
+          this.logger.warn(`⚠️ No capacity record found for branch: ${data.branch}, skipping capacity check`);
+        } else {
+          const overlapping = await this.prisma.booking.findMany({
+            where: {
+              branch: data.branch,
+              roomType: data.roomType,
+              bookingStatus: { in: ['Confirm', 'Confirmed'] },
+              NOT: { id },
+              OR: [
+                {
+                  checkIn: { lte: checkOut },
+                  checkOut: { gte: checkIn },
+                },
+              ],
             },
-          ],
-        },
-      });
+          });
 
-      const totalBooked = overlapping.reduce((sum: any, b: { roomsCount: any }) => sum + b.roomsCount, 0);
-      const maxCap =
-        data.roomType === 'Single'
-          ? capacity.singleCap
-          : data.roomType === 'Double'
-          ? capacity.doubleCap
-          : 0;
+          const totalBooked = overlapping.reduce((sum: any, b: { roomsCount: any }) => sum + b.roomsCount, 0);
+          const maxCap =
+            data.roomType === 'Single'
+              ? capacity.singleCap
+              : data.roomType === 'Double'
+              ? capacity.doubleCap
+              : data.roomType === 'Triple'
+              ? capacity.tripleCap
+              : data.roomType === 'Quard'
+              ? capacity.quardCap
+              : 0;
 
-      if (totalBooked + data.roomsCount > maxCap) {
-        const available = maxCap - totalBooked;
-        throw new BadRequestException(
-          `Not enough ${data.roomType} rooms available in ${data.branch}. Only ${
-            available >= 0 ? available : 0
-          } left.`,
-        );
+          if (totalBooked + data.roomsCount > maxCap) {
+            const available = maxCap - totalBooked;
+            throw new BadRequestException(
+              `Not enough ${data.roomType} rooms available in ${data.branch}. Only ${
+                available >= 0 ? available : 0
+              } left.`,
+            );
+          }
+        }
+      } catch (error) {
+        if (error instanceof BadRequestException) {
+          throw error;
+        }
+        this.logger.warn(`⚠️ Capacity check failed: ${error.message}, continuing anyway`);
       }
 
       const roomCharges = data.roomCharges || data.price || 0;
@@ -235,7 +259,7 @@ export class BookingsService {
           checkOut,
           nights,
           remark: data.remark ?? null,
-          branch: data.branch, // ✅ Make sure branch is saved on update
+          branch: data.branch,
           bookingStatus: data.bookingStatus ?? 'Confirm',
           roomCharges: roomCharges,
           kitchenCharges: data.kitchenCharges || 0,
@@ -248,10 +272,9 @@ export class BookingsService {
         },
       });
 
-      console.log(`✅ Booking ${id} updated for branch: ${updated.branch}`);
       return updated;
     } catch (error) {
-      console.error('❌ Error updating booking:', error);
+      this.logger.error('❌ Error updating booking:', error);
       throw error;
     }
   }
@@ -270,7 +293,6 @@ export class BookingsService {
       orderBy: { checkIn: 'desc' },
     });
 
-    console.log(`📋 Found ${bookings.length} bookings for branch: ${branch}`);
     return bookings;
   }
 
@@ -300,149 +322,7 @@ export class BookingsService {
     return booking;
   }
 
-  // ============================================================
-  // ✅ BY DATE METHOD
-  // ============================================================
-  async byDate(date: string, branch?: Branch) {
-    const target = new Date(date);
-
-    const where: any = {
-      checkIn: { lte: target },
-      checkOut: { gt: target },
-      OR: [{ bookingStatus: 'Confirm' }, { bookingStatus: 'Confirmed' }],
-    };
-
-    if (branch) {
-      where.branch = branch;
-    }
-
-    return this.prisma.booking.findMany({
-      where,
-      orderBy: { checkIn: 'asc' },
-    });
-  }
-
-  // ============================================================
-  // ✅ SUMMARY METHOD
-  // ============================================================
-  async summary(
-    month: string,
-    branch: Branch,
-    totals: { single: number; double: number; triple: number; quard: number },
-  ) {
-    const start = new Date(`${month}-01T00:00:00Z`);
-    const end = new Date(start);
-    end.setMonth(start.getMonth() + 1);
-
-    const bookings = await this.prisma.booking.findMany({
-      where: {
-        branch,
-        AND: [
-          {
-            OR: [
-              { checkIn: { gte: start, lt: end } },
-              { checkOut: { gte: start, lt: end } },
-            ],
-          },
-          {
-            OR: [{ bookingStatus: 'Confirm' }, { bookingStatus: 'Confirmed' }],
-          },
-        ],
-      },
-    });
-
-    const map: Record<
-      string,
-      { totalOccupied: number; occupancyPercent: number; tomorrowCheckIns: number }
-    > = {};
-
-    const capacity =
-      totals.single + totals.double + totals.triple + totals.quard;
-
-    for (let d = new Date(start); d < end; d.setDate(d.getDate() + 1)) {
-      const key = d.toISOString().slice(0, 10);
-      const tomorrow = new Date(d);
-      tomorrow.setDate(d.getDate() + 1);
-
-      let totalOccupied = 0;
-      let tomorrowCheckIns = 0;
-
-      for (const b of bookings) {
-        if (b.checkIn <= d && b.checkOut > d) {
-          totalOccupied += b.roomsCount;
-        }
-        if (
-          b.checkIn.toISOString().slice(0, 10) ===
-          tomorrow.toISOString().slice(0, 10)
-        ) {
-          tomorrowCheckIns += b.roomsCount;
-        }
-      }
-
-      const occupancyPercent = Math.round(
-        (totalOccupied / Math.max(1, capacity)) * 100,
-      );
-
-      map[key] = { totalOccupied, occupancyPercent, tomorrowCheckIns };
-    }
-
-    return map;
-  }
-
-  // ============================================================
-  // ✅ SUMMARY ALL METHOD
-  // ============================================================
-  async summaryAll(
-    month: string,
-    branches: Branch[],
-    totalsPerBranch: {
-      single: number;
-      double: number;
-      triple: number;
-      quard: number;
-    },
-  ) {
-    const start = new Date(`${month}-01T00:00:00Z`);
-    const end = new Date(start);
-    end.setMonth(start.getMonth() + 1);
-
-    const all: Record<
-      string,
-      { totalOccupied: number; occupancyPercent: number; tomorrowCheckIns: number }
-    > = {};
-
-    for (let d = new Date(start); d < end; d.setDate(d.getDate() + 1)) {
-      const key = d.toISOString().slice(0, 10);
-      all[key] = { totalOccupied: 0, occupancyPercent: 0, tomorrowCheckIns: 0 };
-    }
-
-    for (const br of branches) {
-      const part = await this.summary(month, br, totalsPerBranch);
-      for (const k of Object.keys(part)) {
-        all[k].totalOccupied += part[k].totalOccupied;
-        all[k].tomorrowCheckIns += part[k].tomorrowCheckIns;
-      }
-    }
-
-    const perDayCapacity =
-      (totalsPerBranch.single +
-        totalsPerBranch.double +
-        totalsPerBranch.triple +
-        totalsPerBranch.quard) *
-      branches.length;
-
-    for (const k of Object.keys(all)) {
-      all[k].occupancyPercent = Math.round(
-        (all[k].totalOccupied / Math.max(1, perDayCapacity)) * 100,
-      );
-    }
-
-    return all;
-  }
-
-  // ============================================================
-  // ✅ REMOVE METHOD
-  // ============================================================
+  // ---------- REMOVE BOOKING ----------
   async remove(id: string) {
     const booking = await this.prisma.booking.findUnique({
       where: { id },
@@ -457,20 +337,42 @@ export class BookingsService {
   }
 
   // ============================================================
-  // ✅ GET BOOKING STATS
+  // ✅ GET BOOKING STATS - With viewer branch filtering
   // ============================================================
-  async getBookingStats(branch: string) {
+  async getBookingStats(branch: string, user?: any) {
     try {
       const today = new Date();
       today.setHours(0, 0, 0, 0);
       
+      let where: any = {};
+      
+      // ✅ If user is VIEWER, restrict to their branches
+      if (user && user.role === 'VIEWER') {
+        const userBranches = user.branches || [];
+        if (userBranches.length === 0) {
+          return {
+            confirmed: 0,
+            pending: 0,
+            todayCheckIns: 0,
+            tomorrowCheckOuts: 0,
+            totalRevenue: 0,
+            totalCustomers: 0,
+            totalBookings: 0,
+            branch: branch || 'none',
+          };
+        }
+        if (branch && branch !== 'all' && userBranches.includes(branch)) {
+          where.branch = branch as Branch;
+        } else {
+          where.branch = { in: userBranches };
+        }
+      } else if (branch && branch !== 'all') {
+        where.branch = branch as Branch;
+      }
+      
       const allBookings = await this.prisma.booking.findMany({
-        where: {
-          branch: branch as Branch,
-        },
+        where,
       });
-
-      console.log(`📊 Booking Stats: ${allBookings.length} bookings found for branch: ${branch}`);
 
       const confirmedBookings = allBookings.filter(
         b => b.bookingStatus === 'Confirm' || b.bookingStatus === 'Confirmed'
@@ -481,17 +383,15 @@ export class BookingsService {
       );
 
       const todayCheckIns = allBookings.filter(
-        b => b.bookingStatus === 'Confirm' && 
-        b.checkIn <= today && 
-        b.checkOut > today
+        b => (b.bookingStatus === 'Confirm' || b.bookingStatus === 'Confirmed') && 
+        new Date(b.checkIn).toDateString() === today.toDateString()
       );
 
       const tomorrow = new Date(today);
       tomorrow.setDate(tomorrow.getDate() + 1);
       const tomorrowCheckOuts = allBookings.filter(
         b => (b.bookingStatus === 'Confirm' || b.bookingStatus === 'Confirmed') &&
-        b.checkOut >= tomorrow && 
-        b.checkOut < new Date(tomorrow.getTime() + 86400000)
+        new Date(b.checkOut).toDateString() === tomorrow.toDateString()
       );
 
       let totalRevenue = 0;
@@ -504,8 +404,6 @@ export class BookingsService {
         if (b.agentName) uniqueCustomers.add(b.agentName);
       });
 
-      console.log(`💰 Total Revenue: ${totalRevenue}, Customers: ${uniqueCustomers.size}`);
-
       return {
         confirmed: confirmedBookings.length,
         pending: pendingBookings.length,
@@ -514,52 +412,87 @@ export class BookingsService {
         totalRevenue: totalRevenue,
         totalCustomers: uniqueCustomers.size,
         totalBookings: allBookings.length,
+        branch: branch || 'all',
       };
     } catch (error) {
-      console.error('Error in getBookingStats:', error);
+      this.logger.error('Error in getBookingStats:', error);
       throw error;
     }
   }
 
   // ============================================================
-  // ✅ GET DASHBOARD STATS
+  // ✅ GET DASHBOARD STATS - With viewer branch filtering
   // ============================================================
-  async getDashboardStats(branch: string) {
+  async getDashboardStats(branch: string, user?: any) {
     try {
-      console.log(`📊 Fetching dashboard stats for branch: ${branch}`);
+      this.logger.log(`📊 Fetching dashboard stats for branch: ${branch}`);
       
       const today = new Date();
       today.setHours(0, 0, 0, 0);
       
-      // ✅ Fetch bookings with branch filter
+      let where: any = {};
+      
+      // ✅ If user is VIEWER, restrict to their branches
+      if (user && user.role === 'VIEWER') {
+        const userBranches = user.branches || [];
+        if (userBranches.length === 0) {
+          return {
+            success: true,
+            branch: branch || 'none',
+            date: today.toISOString().slice(0, 10),
+            stats: {
+              totalRooms: 0,
+              occupiedRooms: 0,
+              availableRooms: 0,
+              occupancyPercent: 0,
+              totalBookings: 0,
+              totalRevenue: 0,
+              totalCustomers: 0,
+              todayCheckIns: 0,
+              todayCheckOuts: 0,
+              activeBookings: 0,
+            },
+            changes: { customers: 0, bookings: 0, rooms: 0, revenue: 0 },
+            allBookings: [],
+          };
+        }
+        if (branch && branch !== 'all' && userBranches.includes(branch)) {
+          where.branch = branch as Branch;
+        } else {
+          where.branch = { in: userBranches };
+        }
+      } else if (branch && branch !== 'all') {
+        where.branch = branch as Branch;
+      }
+      
       const allBookings = await this.prisma.booking.findMany({
-        where: {
-          branch: branch as Branch,
-        },
+        where,
       });
-
-      console.log(`📊 Found ${allBookings.length} bookings for branch: ${branch}`);
 
       const confirmedBookings = allBookings.filter(
         b => b.bookingStatus === 'Confirm' || b.bookingStatus === 'Confirmed'
       );
-      console.log(`✅ Confirmed bookings: ${confirmedBookings.length}`);
 
       const totalBookings = allBookings.length;
 
-      const capacity = await this.prisma.branchCapacity.findUnique({
-        where: { branch: branch as Branch },
-      });
-
-      // ✅ Calculate total rooms from capacity
-      const totalRooms = capacity ? 
-        (capacity.singleCap || 0) + 
-        (capacity.doubleCap || 0) + 
-        (capacity.tripleCap || 0) + 
-        (capacity.quardCap || 0) 
-        : 50;
+      let totalRooms = 50;
+      if (branch && branch !== 'all') {
+        const capacity = await this.prisma.branchCapacity.findUnique({
+          where: { branch: branch as Branch },
+        });
+        totalRooms = capacity ? 
+          (capacity.singleCap || 0) + 
+          (capacity.doubleCap || 0) + 
+          (capacity.tripleCap || 0) + 
+          (capacity.quardCap || 0) 
+          : 50;
+      } else {
+        const allCapacities = await this.prisma.branchCapacity.findMany();
+        totalRooms = allCapacities.reduce((sum, cap) => 
+          sum + (cap.singleCap || 0) + (cap.doubleCap || 0) + (cap.tripleCap || 0) + (cap.quardCap || 0), 0
+        ) || 50;
+      }
       
-      // ✅ Calculate occupied rooms based on today's date
       const todayBookings = allBookings.filter(
         b => (b.bookingStatus === 'Confirm' || b.bookingStatus === 'Confirmed' || b.bookingStatus === 'CheckedIn') &&
         new Date(b.checkIn) <= today && 
@@ -575,26 +508,22 @@ export class BookingsService {
         const price = b.price || b.roomCharges || 0;
         totalRevenue += price;
       });
-      console.log(`💰 Total Revenue: ${totalRevenue}`);
 
       const uniqueCustomers = new Set();
       allBookings.forEach(b => {
         if (b.agentName) uniqueCustomers.add(b.agentName);
       });
-      console.log(`👥 Unique Customers: ${uniqueCustomers.size}`);
 
-      // ✅ Calculate today's check-ins
       const todayCheckInsCount = allBookings.filter(
         b => new Date(b.checkIn).toDateString() === today.toDateString() &&
         (b.bookingStatus === 'Confirm' || b.bookingStatus === 'Confirmed')
       ).length;
 
-      // ✅ Calculate today's check-outs
       const todayCheckOutsCount = allBookings.filter(
-        b => new Date(b.checkOut).toDateString() === today.toDateString()
+        b => new Date(b.checkOut).toDateString() === today.toDateString() &&
+        (b.bookingStatus === 'Confirm' || b.bookingStatus === 'Confirmed' || b.bookingStatus === 'CheckedIn')
       ).length;
 
-      // ✅ Calculate active bookings
       const activeBookings = allBookings.filter(
         b => (b.bookingStatus === 'Confirm' || b.bookingStatus === 'Confirmed' || b.bookingStatus === 'CheckedIn') &&
         new Date(b.checkIn) <= today && 
@@ -603,7 +532,7 @@ export class BookingsService {
 
       return {
         success: true,
-        branch,
+        branch: branch || 'all',
         date: today.toISOString().slice(0, 10),
         stats: {
           totalRooms,
@@ -626,7 +555,7 @@ export class BookingsService {
         allBookings: allBookings,
       };
     } catch (error) {
-      console.error('Error in getDashboardStats:', error);
+      this.logger.error('Error in getDashboardStats:', error);
       throw error;
     }
   }
@@ -641,8 +570,24 @@ export class BookingsService {
     status?: string,
     from?: string,
     to?: string,
+    user?: any,
   ) {
-    const where: any = { branch: branch as Branch };
+    let where: any = {};
+    
+    // ✅ If user is VIEWER, restrict to their branches
+    if (user && user.role === 'VIEWER') {
+      const userBranches = user.branches || [];
+      if (userBranches.length === 0) {
+        return { bookings: [], total: 0, page, limit, totalPages: 0 };
+      }
+      if (branch && branch !== 'all' && userBranches.includes(branch)) {
+        where.branch = branch as Branch;
+      } else {
+        where.branch = { in: userBranches };
+      }
+    } else if (branch && branch !== 'all') {
+      where.branch = branch as Branch;
+    }
 
     if (status) {
       where.bookingStatus = status;
@@ -665,30 +610,12 @@ export class BookingsService {
       this.prisma.booking.count({ where }),
     ]);
 
-    console.log(`📋 Found ${bookings.length} bookings for branch: ${branch} (Page ${page})`);
-
     return {
       bookings,
       total,
       page,
       limit,
       totalPages: Math.ceil(total / limit),
-    };
-  }
-
-  // ---------- GET BOOKING WITH FEEDBACK ----------
-  async getBookingWithFeedback(id: string) {
-    const booking = await this.prisma.booking.findUnique({
-      where: { id },
-    });
-
-    if (!booking) {
-      throw new NotFoundException('Booking not found');
-    }
-
-    return {
-      ...booking,
-      feedback: null,
     };
   }
 

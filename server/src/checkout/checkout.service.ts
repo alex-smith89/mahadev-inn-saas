@@ -1,223 +1,324 @@
 // src/checkout/checkout.service.ts
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { EmailService } from '../email/email.service';
-import { NotificationService } from '../notification/notification.service';
-import { Branch } from '@prisma/client';
 
 @Injectable()
 export class CheckoutService {
+  private readonly logger = new Logger(CheckoutService.name);
+
   constructor(
     private prisma: PrismaService,
     private emailService: EmailService,
-    private notificationService: NotificationService,
   ) {}
 
-  // ✅ Run auto checkout
-  async runAutoCheckout() {
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    const tomorrow = new Date(today);
-    tomorrow.setDate(tomorrow.getDate() + 1);
+  // ✅ AUTO CHECKOUT
+  async autoCheckout(user: any) {
+    try {
+      const userBranches = user.branches || [];
+      const selectedBranch = user.selectedBranch;
+      const canViewAllBranches = user.canViewAllBranches || user.role === 'OWNER' || user.role === 'MANAGER';
 
-    const bookingsToCheckout = await this.prisma.booking.findMany({
-      where: {
-        bookingStatus: {
-          in: ['Confirm', 'Confirmed', 'CheckedIn'],
+      let targetBranches = [];
+      if (canViewAllBranches && selectedBranch === 'all') {
+        const allBranchesResult = await this.prisma.booking.findMany({
+          select: { branch: true },
+          distinct: ['branch'],
+        });
+        targetBranches = allBranchesResult.map(row => row.branch);
+      } else if (selectedBranch && selectedBranch !== 'all') {
+        targetBranches = [selectedBranch];
+      } else {
+        targetBranches = userBranches;
+      }
+
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+
+      const bookingsToCheckout = await this.prisma.booking.findMany({
+        where: {
+          branch: { in: targetBranches },
+          bookingStatus: { in: ['Confirm', 'Confirmed', 'CheckedIn'] },
+          checkOut: { lte: today },
         },
-        checkOut: {
-          lte: tomorrow,
-        },
-      },
-    });
+      });
 
-    const results = {
-      processed: 0,
-      notifications: 0,
-      emails: 0,
-      errors: 0,
-    };
+      let checkedOut = 0;
 
-    for (const booking of bookingsToCheckout) {
-      try {
-        const checkOutDate = new Date(booking.checkOut);
-        const daysUntilCheckout = Math.ceil((checkOutDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
-
-        if (daysUntilCheckout <= 0) {
+      for (const booking of bookingsToCheckout) {
+        try {
           await this.prisma.booking.update({
             where: { id: booking.id },
             data: {
               bookingStatus: 'CheckedOut',
+              updatedAt: new Date(),
             },
           });
 
-          results.processed++;
-
-          await this.notificationService.create({
-            title: 'Automated Checkout Completed',
-            message: `Guest ${booking.agentName} has been automatically checked out from ${booking.roomType} (${booking.branch}). Room is now vacant and requires cleaning.`,
-            branch: booking.branch,
-            bookingId: booking.id,
-            type: 'auto_checkout',
-          });
-
-          results.notifications++;
-
+          // ✅ Send auto checkout email
           if (booking.email) {
-            await this.emailService.sendAutoCheckoutEmail(
-              booking.email,
-              booking.agentName,
-              booking.bookingNo,
-              booking.branch,
-              booking.roomType,
-            );
-            results.emails++;
+            try {
+              await this.emailService.sendAutoCheckoutEmail(booking.email, booking);
+              this.logger.log(`📧 Auto checkout email sent to ${booking.email}`);
+            } catch (emailError) {
+              this.logger.error(`Email error: ${emailError.message}`);
+            }
           }
-        } else if (daysUntilCheckout >= 1 && daysUntilCheckout <= 3) {
-          const reminderTitles = {
-            3: 'Checkout Reminder - 3 days left',
-            2: 'Checkout Reminder - 2 days left',
-            1: 'Checkout Reminder - 1 day left',
-          };
 
-          const reminderMessages = {
-            3: `Guest ${booking.agentName} (Booking #${booking.bookingNo}) has checkout in 3 days from ${booking.roomType} (${booking.branch}).`,
-            2: `Guest ${booking.agentName} (Booking #${booking.bookingNo}) has checkout in 2 days from ${booking.roomType} (${booking.branch}).`,
-            1: `Guest ${booking.agentName} (Booking #${booking.bookingNo}) has checkout in 1 day from ${booking.roomType} (${booking.branch}).`,
-          };
+          checkedOut++;
+          this.logger.log(`✅ Checked out: ${booking.agentName} (${booking.bookingNo}) from ${booking.branch}`);
+        } catch (error) {
+          this.logger.error(`Error checking out booking ${booking.id}:`, error);
+        }
+      }
 
-          await this.notificationService.create({
-            title: reminderTitles[daysUntilCheckout as keyof typeof reminderTitles] || 'Checkout Reminder',
-            message: reminderMessages[daysUntilCheckout as keyof typeof reminderMessages] || `Guest ${booking.agentName} has checkout in ${daysUntilCheckout} days.`,
-            branch: booking.branch,
-            bookingId: booking.id,
-            type: 'checkout_reminder',
-          });
+      return { checkedOut, bookings: bookingsToCheckout };
+    } catch (error) {
+      this.logger.error('Error in auto checkout:', error);
+      throw error;
+    }
+  }
 
-          results.notifications++;
+  // ✅ GET TODAY'S CHECKOUTS
+  async getTodayCheckouts(user: any) {
+    try {
+      const userBranches = user.branches || [];
+      const selectedBranch = user.selectedBranch;
+      const canViewAllBranches = user.canViewAllBranches || user.role === 'OWNER' || user.role === 'MANAGER';
 
+      let targetBranches = [];
+      if (canViewAllBranches && selectedBranch === 'all') {
+        const allBranchesResult = await this.prisma.booking.findMany({
+          select: { branch: true },
+          distinct: ['branch'],
+        });
+        targetBranches = allBranchesResult.map(row => row.branch);
+      } else if (selectedBranch && selectedBranch !== 'all') {
+        targetBranches = [selectedBranch];
+      } else {
+        targetBranches = userBranches;
+      }
+
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      const tomorrow = new Date(today);
+      tomorrow.setDate(tomorrow.getDate() + 1);
+
+      const checkouts = await this.prisma.booking.findMany({
+        where: {
+          branch: { in: targetBranches },
+          bookingStatus: { in: ['Confirm', 'Confirmed', 'CheckedIn'] },
+          checkOut: { gte: today, lt: tomorrow },
+        },
+        orderBy: { checkOut: 'asc' },
+      });
+
+      return checkouts;
+    } catch (error) {
+      this.logger.error('Error getting today checkouts:', error);
+      throw error;
+    }
+  }
+
+  // ✅ GET UPCOMING CHECKOUTS
+  async getUpcomingCheckouts(user: any, branch?: string) {
+    try {
+      const userBranches = user.branches || [];
+      const selectedBranch = branch || user.selectedBranch;
+      const canViewAllBranches = user.canViewAllBranches || user.role === 'OWNER' || user.role === 'MANAGER';
+
+      let targetBranches = [];
+      if (canViewAllBranches && selectedBranch === 'all') {
+        const allBranchesResult = await this.prisma.booking.findMany({
+          select: { branch: true },
+          distinct: ['branch'],
+        });
+        targetBranches = allBranchesResult.map(row => row.branch);
+      } else if (selectedBranch && selectedBranch !== 'all') {
+        targetBranches = [selectedBranch];
+      } else {
+        targetBranches = userBranches;
+      }
+
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      const futureDate = new Date(today);
+      futureDate.setDate(futureDate.getDate() + 7);
+
+      const checkouts = await this.prisma.booking.findMany({
+        where: {
+          branch: { in: targetBranches },
+          bookingStatus: { in: ['Confirm', 'Confirmed', 'CheckedIn'] },
+          checkOut: { gte: today, lt: futureDate },
+        },
+        orderBy: { checkOut: 'asc' },
+      });
+
+      return checkouts;
+    } catch (error) {
+      this.logger.error('Error getting upcoming checkouts:', error);
+      throw error;
+    }
+  }
+
+  // ✅ GET VACANT ROOMS
+  async getVacantRooms(user: any, branch?: string) {
+    try {
+      const userBranches = user.branches || [];
+      const selectedBranch = branch || user.selectedBranch;
+      const canViewAllBranches = user.canViewAllBranches || user.role === 'OWNER' || user.role === 'MANAGER';
+
+      let targetBranches = [];
+      if (canViewAllBranches && selectedBranch === 'all') {
+        const allBranchesResult = await this.prisma.booking.findMany({
+          select: { branch: true },
+          distinct: ['branch'],
+        });
+        targetBranches = allBranchesResult.map(row => row.branch);
+      } else if (selectedBranch && selectedBranch !== 'all') {
+        targetBranches = [selectedBranch];
+      } else {
+        targetBranches = userBranches;
+      }
+
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+
+      // Get all bookings that are currently occupied
+      const occupiedBookings = await this.prisma.booking.findMany({
+        where: {
+          branch: { in: targetBranches },
+          bookingStatus: { in: ['Confirm', 'Confirmed', 'CheckedIn'] },
+          checkIn: { lte: today },
+          checkOut: { gt: today },
+        },
+      });
+
+      // Calculate total rooms from branch capacities
+      let totalRooms = 0;
+      for (const branchName of targetBranches) {
+        const capacity = await this.prisma.branchCapacity.findUnique({
+          where: { branch: branchName as any },
+        });
+        if (capacity) {
+          totalRooms += (capacity.singleCap || 0) + 
+                        (capacity.doubleCap || 0) + 
+                        (capacity.tripleCap || 0) + 
+                        (capacity.quardCap || 0);
+        }
+      }
+
+      // If no capacity found, use default
+      if (totalRooms === 0) {
+        totalRooms = targetBranches.length * 50;
+      }
+
+      const occupiedRooms = occupiedBookings.reduce((sum, b) => sum + b.roomsCount, 0);
+      const vacantRooms = Math.max(0, totalRooms - occupiedRooms);
+      const occupancyRate = totalRooms > 0 ? Math.round((occupiedRooms / totalRooms) * 100) : 0;
+
+      return {
+        totalRooms,
+        occupiedRooms,
+        vacantRooms,
+        occupancyRate,
+        bookings: occupiedBookings,
+      };
+    } catch (error) {
+      this.logger.error('Error getting vacant rooms:', error);
+      throw error;
+    }
+  }
+
+  // ✅ MARK ROOM CLEANED
+  async markRoomCleaned(bookingId: string, branch?: string) {
+    try {
+      const booking = await this.prisma.booking.findUnique({
+        where: { id: bookingId },
+      });
+
+      if (!booking) {
+        throw new Error('Booking not found');
+      }
+
+      // ✅ Update booking status to reflect room is cleaned
+      // You can add a 'roomCleaned' field to the booking schema if needed
+      // For now, we'll just log it and return success
+
+      this.logger.log(`🧹 Room for booking ${bookingId} marked as cleaned`);
+
+      return {
+        success: true,
+        bookingId,
+        message: 'Room marked as cleaned successfully',
+      };
+    } catch (error) {
+      this.logger.error('Error marking room cleaned:', error);
+      throw error;
+    }
+  }
+
+  // ✅ SEND CHECKOUT REMINDERS
+  async sendCheckoutReminders(user: any) {
+    try {
+      const userBranches = user.branches || [];
+      const selectedBranch = user.selectedBranch;
+      const canViewAllBranches = user.canViewAllBranches || user.role === 'OWNER' || user.role === 'MANAGER';
+
+      let targetBranches = [];
+      if (canViewAllBranches && selectedBranch === 'all') {
+        const allBranchesResult = await this.prisma.booking.findMany({
+          select: { branch: true },
+          distinct: ['branch'],
+        });
+        targetBranches = allBranchesResult.map(row => row.branch);
+      } else if (selectedBranch && selectedBranch !== 'all') {
+        targetBranches = [selectedBranch];
+      } else {
+        targetBranches = userBranches;
+      }
+
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      const futureDate = new Date(today);
+      futureDate.setDate(futureDate.getDate() + 3);
+
+      const bookingsToRemind = await this.prisma.booking.findMany({
+        where: {
+          branch: { in: targetBranches },
+          bookingStatus: { in: ['Confirm', 'Confirmed', 'CheckedIn'] },
+          checkOut: { gte: today, lte: futureDate },
+        },
+      });
+
+      let remindersSent = 0;
+
+      for (const booking of bookingsToRemind) {
+        const daysUntilCheckout = Math.ceil(
+          (new Date(booking.checkOut).getTime() - today.getTime()) / (1000 * 60 * 60 * 24)
+        );
+
+        if (daysUntilCheckout > 0 && daysUntilCheckout <= 3) {
           if (booking.email) {
-            await this.emailService.sendCheckoutReminderEmail(
-              booking.email,
-              booking.agentName,
-              booking.bookingNo,
-              booking.checkOut.toLocaleDateString(),
-              booking.branch,
-              booking.roomType,
-              daysUntilCheckout,
-            );
-            results.emails++;
+            try {
+              await this.emailService.sendCheckoutReminderEmail(booking.email, booking);
+              this.logger.log(`📧 Checkout reminder sent to ${booking.email} (${daysUntilCheckout} days)`);
+              remindersSent++;
+            } catch (emailError) {
+              this.logger.error(`Email error: ${emailError.message}`);
+            }
           }
         }
-      } catch (error) {
-        console.error(`Error processing booking ${booking.id}:`, error);
-        results.errors++;
       }
+
+      return {
+        remindersSent,
+        bookings: bookingsToRemind,
+        branches: targetBranches,
+      };
+    } catch (error) {
+      this.logger.error('Error sending checkout reminders:', error);
+      throw error;
     }
-
-    return results;
-  }
-
-  async getTodayCheckouts() {
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    const tomorrow = new Date(today);
-    tomorrow.setDate(tomorrow.getDate() + 1);
-
-    return this.prisma.booking.findMany({
-      where: {
-        bookingStatus: {
-          in: ['Confirm', 'Confirmed', 'CheckedIn'],
-        },
-        checkOut: {
-          gte: today,
-          lt: tomorrow,
-        },
-      },
-      orderBy: { checkOut: 'asc' },
-    });
-  }
-
-  async getUpcomingCheckouts(branch?: string) {
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    const dayAfterTomorrow = new Date(today);
-    dayAfterTomorrow.setDate(dayAfterTomorrow.getDate() + 2);
-
-    const where: any = {
-      bookingStatus: {
-        in: ['Confirm', 'Confirmed', 'CheckedIn'],
-      },
-      checkOut: {
-        gte: today,
-        lte: dayAfterTomorrow,
-      },
-    };
-
-    if (branch) {
-      where.branch = branch;
-    }
-
-    return this.prisma.booking.findMany({
-      where,
-      orderBy: { checkOut: 'asc' },
-    });
-  }
-
-  async getVacantRooms(branch?: string) {
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-
-    const where: any = {
-      bookingStatus: {
-        in: ['Confirm', 'Confirmed', 'CheckedIn'],
-      },
-      checkIn: {
-        lte: today,
-      },
-      checkOut: {
-        gt: today,
-      },
-    };
-
-    if (branch) {
-      where.branch = branch;
-    }
-
-    const occupiedBookings = await this.prisma.booking.findMany({
-      where,
-    });
-
-    const roomCapacities: Record<string, number> = {
-      'Pokhara': 65,
-      'Kathmandu1': 50,
-      'Kathmandu2': 45,
-      'Bhairawaha': 40,
-    };
-
-    const totalRooms = branch ? (roomCapacities[branch] || 50) : 200;
-    const occupiedRooms = occupiedBookings.reduce((sum: number, booking: any) => {
-      return sum + (booking.roomsCount || 1);
-    }, 0);
-
-    const vacantRooms = Math.max(0, totalRooms - occupiedRooms);
-
-    return {
-      totalRooms,
-      occupiedRooms,
-      vacantRooms,
-      occupancyRate: totalRooms > 0 ? Math.round((occupiedRooms / totalRooms) * 100) : 0,
-      branch: branch || 'all',
-    };
-  }
-
-  async markRoomCleaned(bookingId: string, branch?: string) {
-    console.log(`🧹 Room for booking ${bookingId} marked as cleaned`);
-    return {
-      success: true,
-      bookingId,
-      branch: branch || 'all',
-      message: 'Room marked as cleaned successfully',
-    };
   }
 }
