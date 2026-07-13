@@ -116,12 +116,19 @@ model Booking {
   childrenBelow10     Int             @default(0)
   totalCost           Float           @default(0)
 
-  //  NEW FIELDS for better tracking and filtering
+  // NEW FIELDS for better tracking and filtering
   branchName          String?         @db.VarChar(100)   // Additional branch field for filtering
   createdBy           String?         @db.VarChar(50)    // User who created the booking
   userRole            String?         @db.VarChar(20)    // Role of the user who created
   createdByUsername   String?         @db.VarChar(50)    // Username of creator
   creatorRole         String?         @db.VarChar(20)    // Role of creator
+
+  // ✅ NEW: Automation fields
+  actualCheckIn       DateTime?       @map("actual_check_in")
+  actualCheckOut      DateTime?       @map("actual_check_out")
+  roomNumber          String?         @map("room_number") @db.VarChar(50)
+  checkoutReminderSent Boolean        @default(false)     @map("checkout_reminder_sent")
+  checkinReminderSent   Boolean       @default(false)     @map("checkin_reminder_sent")
 
   // Timestamps
   created_at          DateTime        @default(now())
@@ -132,6 +139,7 @@ model Booking {
   user                User?           @relation(fields: [userId], references: [id])
   userId              Int?            @map("user_id")
   notifications       Notification[]
+  emailLogs           EmailLog[]
   
   @@index([branch])
   @@index([branchName])
@@ -143,6 +151,8 @@ model Booking {
   @@index([userId])
   @@index([createdBy])
   @@index([userRole])
+  @@index([actualCheckIn])
+  @@index([actualCheckOut])
 }
 
 // Branch Capacity
@@ -319,13 +329,13 @@ model RoomTypeCapacity {
 
 // ===== NOTIFICATION MODEL =====
 
-// Notification Model
+// ✅ UPDATED Notification Model
 model Notification {
   id          String   @id @default(cuid())
-  type        String   // ROOM_VACANT, CHECKOUT_COMPLETED, ROOM_CLEANED, CHECKOUT_REMINDER
+  type        String   // checkin_success, checkout_reminder, checkin_reminder, force_checkin, checkout_success, room_vacant
   title       String
   message     String
-  branch      String
+  branch      Branch
   roomId      String?  @map("room_id")
   bookingId   String?  @map("booking_id")
   isRead      Boolean  @default(false) @map("is_read")
@@ -344,4 +354,52 @@ model Notification {
   @@index([type])
   @@index([bookingId])
   @@index([userId])
+}
+
+// ===== EMAIL LOG MODEL =====
+
+// ✅ NEW: Email Log Model
+model EmailLog {
+  id          String   @id @default(cuid())
+  to          String   @db.VarChar(255)
+  subject     String   @db.VarChar(255)
+  template    String   @db.VarChar(100)
+  data        Json
+  status      String   @db.VarChar(20) // sent, failed, pending
+  sentAt      DateTime @map("sent_at")
+  error       String?  @db.Text
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  // Relations
+  booking     Booking? @relation(fields: [bookingId], references: [id])
+  bookingId   String?  @map("booking_id")
+
+  @@map("email_logs")
+  @@index([to])
+  @@index([status])
+  @@index([sentAt])
+  @@index([createdAt])
+  @@index([bookingId])
+}
+
+// ===== AUTOMATION LOG MODEL =====
+
+// ✅ NEW: Automation Log Model
+model AutomationLog {
+  id          String   @id @default(cuid())
+  type        String   @db.VarChar(50) // checkin, checkout, reminder
+  branch      Branch
+  bookingId   String?  @map("booking_id")
+  status      String   @db.VarChar(20) // success, failed
+  message     String?  @db.Text
+  details     Json?
+  executedBy  String   @db.VarChar(50) // username
+  executedAt  DateTime @default(now()) @map("executed_at")
+
+  @@map("automation_logs")
+  @@index([branch])
+  @@index([type])
+  @@index([status])
+  @@index([executedAt])
+  @@index([bookingId])
 }
