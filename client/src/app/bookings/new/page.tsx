@@ -320,7 +320,7 @@ export default function NewBookingPage() {
     return '';
   };
 
-  // ✅ Updated PDF Receipt with proper head count
+  // ✅ Clean Professional PDF Receipt - With Full Price Summary
   const generateReceiptPDF = (booking: any) => {
     const doc = new jsPDF({
       orientation: 'portrait',
@@ -330,111 +330,159 @@ export default function NewBookingPage() {
     });
     
     const pageWidth = doc.internal.pageSize.getWidth();
-    doc.setFont('helvetica', 'normal');
+    const pageHeight = doc.internal.pageSize.getHeight();
     
-    let y = 20;
+    let y = 15;
     
+    // ===== HEADER =====
+    // Decorative top border
+    doc.setFillColor(79, 70, 229);
+    doc.rect(0, 0, pageWidth, 4, 'F');
+    
+    // Hotel Name
     doc.setTextColor(79, 70, 229);
-    doc.setFontSize(24);
+    doc.setFontSize(22);
     doc.setFont('helvetica', 'bold');
     doc.text('MAHADEV INN', pageWidth / 2, y, { align: 'center' });
-    y += 10;
+    y += 7;
     
     doc.setTextColor(107, 114, 128);
-    doc.setFontSize(14);
+    doc.setFontSize(11);
     doc.setFont('helvetica', 'normal');
-    doc.text(`Booking Confirmation - ${booking.branch || 'Pokhara'}`, pageWidth / 2, y, { align: 'center' });
-    y += 12;
+    doc.text('Booking Confirmation', pageWidth / 2, y, { align: 'center' });
+    y += 5;
     
-    doc.setDrawColor(200, 200, 200);
-    doc.setLineWidth(0.5);
-    doc.line(20, y, pageWidth - 20, y);
+    doc.setTextColor(107, 114, 128);
+    doc.setFontSize(9);
+    doc.setFont('helvetica', 'normal');
+    doc.text(`Branch: ${booking.branch || 'Pokhara'}`, pageWidth / 2, y, { align: 'center' });
+    y += 5;
+    
+    doc.setTextColor(156, 163, 175);
+    doc.setFontSize(7);
+    doc.setFont('helvetica', 'normal');
+    const dateStr = new Date().toLocaleDateString('en-US', {
+      weekday: 'long',
+      year: 'numeric',
+      month: 'long',
+      day: 'numeric'
+    });
+    doc.text(`Generated on: ${dateStr}`, pageWidth / 2, y, { align: 'center' });
+    y += 8;
+    
+    // Decorative divider
+    doc.setDrawColor(79, 70, 229);
+    doc.setLineWidth(0.3);
+    doc.line(25, y, pageWidth - 25, y);
+    y += 8;
+    
+    // ===== BOOKING DETAILS =====
+    doc.setFillColor(245, 245, 255);
+    doc.rect(20, y - 2, pageWidth - 40, 8, 'F');
+    doc.setTextColor(79, 70, 229);
+    doc.setFontSize(11);
+    doc.setFont('helvetica', 'bold');
+    doc.text('BOOKING DETAILS', 25, y + 3);
     y += 10;
     
-    const leftCol = 30;
-    const rightCol = 120;
-    const rowHeight = 9;
+    const leftCol = 35;
+    const rightCol = 110;
+    const rowHeight = 7;
     
-    const addInfoRow = (label: string, value: string, isStatus: boolean = false, isBookingNo: boolean = false) => {
-      doc.setTextColor(107, 114, 128);
-      doc.setFontSize(10);
-      doc.setFont('helvetica', 'bold');
-      doc.text(label + ':', leftCol, y);
-      
-      if (isBookingNo) {
-        doc.setTextColor(79, 70, 229);
-        doc.setFontSize(12);
-        doc.setFont('helvetica', 'bold');
-        doc.text('#' + value, rightCol, y);
-      } else if (isStatus) {
-        const statusColor = value === 'Confirm' || value === 'Confirmed' 
-          ? [34, 197, 94] 
-          : value === 'Pending' 
-            ? [234, 179, 8] 
-            : [107, 114, 128];
-        doc.setTextColor(statusColor[0], statusColor[1], statusColor[2]);
-        doc.setFontSize(11);
-        doc.setFont('helvetica', 'bold');
-        doc.text(value, rightCol, y);
-      } else {
-        doc.setTextColor(31, 41, 55);
-        doc.setFontSize(11);
-        doc.setFont('helvetica', 'normal');
-        doc.text(String(value), rightCol, y);
+    const addRow = (label: string, value: string, isHighlight: boolean = false) => {
+      if (isHighlight) {
+        doc.setFillColor(255, 247, 237);
+        doc.rect(25, y - 1, pageWidth - 50, rowHeight, 'F');
       }
+      
+      doc.setTextColor(107, 114, 128);
+      doc.setFontSize(8);
+      doc.setFont('helvetica', 'bold');
+      doc.text(label + ':', leftCol, y + 2);
+      
+      doc.setTextColor(31, 41, 55);
+      doc.setFontSize(9);
+      doc.setFont('helvetica', 'normal');
+      doc.text(String(value), rightCol, y + 2);
       y += rowHeight;
     };
     
-    addInfoRow('Booking No', booking.bookingNo || 'N/A', false, true);
-    addInfoRow('Status', booking.bookingStatus || 'Pending', true);
-    addInfoRow('Guest Name', booking.agentName || 'N/A');
-    addInfoRow('Contact', booking.agentContact || 'N/A');
-    addInfoRow('Email', booking.email || 'N/A');
+    addRow('Booking No', '#' + (booking.bookingNo || 'N/A'), false);
     
-    const checkInDisplay = new Date(booking.checkIn).toLocaleDateString('en-US', {
-      month: '2-digit',
-      day: '2-digit',
+    // Status with color
+    const status = booking.bookingStatus || 'Pending';
+    const isConfirmed = status === 'Confirm' || status === 'Confirmed';
+    doc.setTextColor(107, 114, 128);
+    doc.setFontSize(8);
+    doc.setFont('helvetica', 'bold');
+    doc.text('Status:', leftCol, y + 2);
+    
+    doc.setFontSize(9);
+    doc.setFont('helvetica', 'bold');
+    if (isConfirmed) {
+      doc.setTextColor(34, 197, 94);
+      doc.text('CONFIRMED', rightCol, y + 2);
+    } else if (status === 'Pending') {
+      doc.setTextColor(234, 179, 8);
+      doc.text('PENDING', rightCol, y + 2);
+    } else {
+      doc.setTextColor(107, 114, 128);
+      doc.text(status, rightCol, y + 2);
+    }
+    y += rowHeight;
+    
+    addRow('Guest Name', booking.agentName || 'N/A', true);
+    addRow('Contact', booking.agentContact || 'N/A');
+    addRow('Email', booking.email || 'N/A');
+    
+    const checkInDate = new Date(booking.checkIn);
+    const checkOutDate = new Date(booking.checkOut);
+    const checkInStr = checkInDate.toLocaleDateString('en-US', {
+      month: 'short',
+      day: 'numeric',
       year: 'numeric'
     });
-    addInfoRow('Check-In', checkInDisplay);
-    
-    const checkOutDisplay = new Date(booking.checkOut).toLocaleDateString('en-US', {
-      month: '2-digit',
-      day: '2-digit',
+    const checkOutStr = checkOutDate.toLocaleDateString('en-US', {
+      month: 'short',
+      day: 'numeric',
       year: 'numeric'
     });
-    addInfoRow('Check-Out', checkOutDisplay);
-    addInfoRow('Rooms', `${booking.roomsCount || 1} (${booking.roomType || 'Single'})`);
-    addInfoRow('Nights', String(costBreakdown.nights || 0));
-    addInfoRow('Heads', String(booking.heads || Number(booking.roomsCount) || 1));
-    addInfoRow('Room Capacity', `${costBreakdown.roomCapacity} per room`);
-    addInfoRow('Total Capacity', String(costBreakdown.totalCapacity || 0));
     
-    y += 4;
+    addRow('Check-In', checkInStr);
+    addRow('Check-Out', checkOutStr);
+    addRow('Rooms', `${booking.roomsCount || 1} (${booking.roomType || 'Single'})`);
+    addRow('Nights', String(costBreakdown.nights || 0));
+    addRow('Heads', String(booking.heads || Number(booking.roomsCount) || 1));
+    addRow('Room Capacity', `${costBreakdown.roomCapacity} per room`);
+    addRow('Total Capacity', String(costBreakdown.totalCapacity || 0));
+    
+    y += 2;
     
     // ===== COST BREAKDOWN =====
     doc.setDrawColor(200, 200, 200);
-    doc.setLineWidth(0.5);
-    doc.line(20, y, pageWidth - 20, y);
-    y += 8;
-    
-    doc.setTextColor(79, 70, 229);
-    doc.setFontSize(14);
-    doc.setFont('helvetica', 'bold');
-    doc.text('Cost Breakdown', pageWidth / 2, y, { align: 'center' });
-    y += 10;
+    doc.setLineWidth(0.2);
+    doc.line(25, y, pageWidth - 25, y);
+    y += 6;
     
     doc.setFillColor(245, 245, 255);
-    doc.rect(25, y - 4, pageWidth - 50, 10, 'F');
-    
+    doc.rect(20, y - 2, pageWidth - 40, 8, 'F');
     doc.setTextColor(79, 70, 229);
     doc.setFontSize(10);
     doc.setFont('helvetica', 'bold');
-    doc.text('Description', 35, y + 2);
-    doc.text('Details', 120, y + 2);
-    y += 12;
+    doc.text('COST BREAKDOWN', 25, y + 3);
+    y += 9;
     
-    const tableData = [
+    // Table Header
+    doc.setFillColor(79, 70, 229);
+    doc.rect(25, y - 1, pageWidth - 50, 6, 'F');
+    doc.setTextColor(255, 255, 255);
+    doc.setFontSize(7);
+    doc.setFont('helvetica', 'bold');
+    doc.text('Description', 30, y + 2);
+    doc.text('Details', 110, y + 2);
+    y += 8;
+    
+    const tableItems = [
       { label: 'Room Type', value: booking.roomType || 'Single' },
       { label: 'Rooms Booked', value: String(booking.roomsCount || 1) },
       { label: 'Total Heads', value: String(booking.heads || 1) },
@@ -444,155 +492,157 @@ export default function NewBookingPage() {
       { label: 'Remarks', value: booking.remark || 'None' },
     ];
     
-    tableData.forEach((row, index) => {
+    tableItems.forEach((item, index) => {
       if (index % 2 === 0) {
         doc.setFillColor(250, 250, 255);
-        doc.rect(25, y - 3, pageWidth - 50, 8, 'F');
+        doc.rect(25, y - 1, pageWidth - 50, 6, 'F');
       }
       
       doc.setTextColor(31, 41, 55);
-      doc.setFontSize(10);
+      doc.setFontSize(7.5);
       doc.setFont('helvetica', 'normal');
-      doc.text(row.label, 35, y + 2);
-      doc.text(row.value, 120, y + 2);
-      y += 9;
+      doc.text(item.label, 30, y + 2);
+      doc.text(item.value, 110, y + 2);
+      y += 7;
     });
     
-    y += 4;
+    y += 2;
     
-    // ===== PRICE SUMMARY WITH VAT =====
+    // ===== PRICE SUMMARY =====
     doc.setDrawColor(200, 200, 200);
-    doc.setLineWidth(0.5);
-    doc.line(20, y, pageWidth - 20, y);
-    y += 10;
+    doc.setLineWidth(0.2);
+    doc.line(25, y, pageWidth - 25, y);
+    y += 6;
     
+    doc.setFillColor(245, 245, 255);
+    doc.rect(20, y - 2, pageWidth - 40, 8, 'F');
     doc.setTextColor(79, 70, 229);
-    doc.setFontSize(14);
+    doc.setFontSize(10);
     doc.setFont('helvetica', 'bold');
-    doc.text('Price Summary', pageWidth / 2, y, { align: 'center' });
-    y += 10;
+    doc.text('PRICE SUMMARY', 25, y + 3);
+    y += 9;
     
     const displayCurrency = selectedCurrency || 'NPR';
-    const subtotalDisplay = displayCurrency === 'INR' 
-      ? (costBreakdown.subtotalNPR || 0) * NPR_TO_INR 
-      : (costBreakdown.subtotalNPR || 0);
-    const vatDisplay = displayCurrency === 'INR' 
-      ? (costBreakdown.vatAmountNPR || 0) * NPR_TO_INR 
-      : (costBreakdown.vatAmountNPR || 0);
-    const totalDisplay = displayCurrency === 'INR' 
-      ? (costBreakdown.totalNPR || 0) * NPR_TO_INR 
-      : (costBreakdown.totalNPR || 0);
-    const currencySymbol = displayCurrency === 'INR' ? '₹' : 'Rs.';
+    const currencySymbol = displayCurrency === 'INR' ? 'Rs.' : 'Rs.';
+    const rate = displayCurrency === 'INR' ? NPR_TO_INR : 1;
     
     // Room Charge
     doc.setTextColor(107, 114, 128);
-    doc.setFontSize(10);
+    doc.setFontSize(8);
     doc.setFont('helvetica', 'bold');
-    doc.text('Room Charge:', 35, y);
-    
-    const roomChargeDisplay = displayCurrency === 'INR' 
-      ? (costBreakdown.baseCostNPR || 0) * NPR_TO_INR 
-      : (costBreakdown.baseCostNPR || 0);
+    doc.text('Room Charge:', 35, y + 2);
     doc.setTextColor(31, 41, 55);
-    doc.setFontSize(11);
+    doc.setFontSize(9);
     doc.setFont('helvetica', 'normal');
-    doc.text(`${currencySymbol} ${roomChargeDisplay.toLocaleString('en-IN', { maximumFractionDigits: 0 })}`, 140, y);
-    y += 9;
+    const roomCharge = costBreakdown.baseCostNPR * rate;
+    doc.text(`${currencySymbol} ${roomCharge.toLocaleString('en-IN', { maximumFractionDigits: 0 })}`, 140, y + 2);
+    y += 7;
     
     // Extra Person Charge (if any)
     if (costBreakdown.extraCostNPR > 0) {
       doc.setTextColor(107, 114, 128);
-      doc.setFontSize(10);
+      doc.setFontSize(8);
       doc.setFont('helvetica', 'bold');
-      doc.text(`Extra Person (${costBreakdown.extraPersons} × ${costBreakdown.nights} nights):`, 35, y);
-      
-      const extraChargeDisplay = displayCurrency === 'INR' 
-        ? (costBreakdown.extraCostNPR || 0) * NPR_TO_INR 
-        : (costBreakdown.extraCostNPR || 0);
+      doc.text(`Extra Person (${costBreakdown.extraPersons} x ${costBreakdown.nights} nights):`, 35, y + 2);
       doc.setTextColor(31, 41, 55);
-      doc.setFontSize(11);
+      doc.setFontSize(9);
       doc.setFont('helvetica', 'normal');
-      doc.text(`${currencySymbol} ${extraChargeDisplay.toLocaleString('en-IN', { maximumFractionDigits: 0 })}`, 140, y);
-      y += 9;
+      const extraCharge = costBreakdown.extraCostNPR * rate;
+      doc.text(`${currencySymbol} ${extraCharge.toLocaleString('en-IN', { maximumFractionDigits: 0 })}`, 140, y + 2);
+      y += 7;
     }
     
-    // Subtotal
-    doc.setTextColor(107, 114, 128);
-    doc.setFontSize(10);
-    doc.setFont('helvetica', 'bold');
-    doc.text('Subtotal:', 35, y);
-    doc.setTextColor(31, 41, 55);
-    doc.setFontSize(11);
-    doc.setFont('helvetica', 'normal');
-    doc.text(`${currencySymbol} ${subtotalDisplay.toLocaleString('en-IN', { maximumFractionDigits: 0 })}`, 140, y);
-    y += 9;
-    
-    // VAT (13%)
-    doc.setTextColor(79, 70, 229);
-    doc.setFontSize(10);
-    doc.setFont('helvetica', 'bold');
-    doc.text('VAT (13%):', 35, y);
-    doc.setTextColor(236, 72, 153);
-    doc.setFontSize(11);
-    doc.setFont('helvetica', 'bold');
-    doc.text(`${currencySymbol} ${vatDisplay.toLocaleString('en-IN', { maximumFractionDigits: 0 })}`, 140, y);
-    y += 9;
-    
+    // Divider
     doc.setDrawColor(200, 200, 200);
-    doc.setLineWidth(0.3);
-    doc.line(35, y - 2, pageWidth - 25, y - 2);
-    y += 4;
+    doc.setLineWidth(0.1);
+    doc.line(35, y - 1, pageWidth - 25, y - 1);
+    
+    // Subtotal
+    doc.setTextColor(79, 70, 229);
+    doc.setFontSize(8);
+    doc.setFont('helvetica', 'bold');
+    doc.text('Subtotal:', 35, y + 2);
+    doc.setTextColor(31, 41, 55);
+    doc.setFontSize(9);
+    doc.setFont('helvetica', 'normal');
+    const subtotal = costBreakdown.subtotalNPR * rate;
+    doc.text(`${currencySymbol} ${subtotal.toLocaleString('en-IN', { maximumFractionDigits: 0 })}`, 140, y + 2);
+    y += 7;
+    
+    // VAT
+    doc.setTextColor(236, 72, 153);
+    doc.setFontSize(8);
+    doc.setFont('helvetica', 'bold');
+    doc.text('VAT (13%):', 35, y + 2);
+    doc.setTextColor(236, 72, 153);
+    doc.setFontSize(9);
+    doc.setFont('helvetica', 'bold');
+    const vat = costBreakdown.vatAmountNPR * rate;
+    doc.text(`${currencySymbol} ${vat.toLocaleString('en-IN', { maximumFractionDigits: 0 })}`, 140, y + 2);
+    y += 7;
+    
+    // Divider
+    doc.setDrawColor(200, 200, 200);
+    doc.setLineWidth(0.2);
+    doc.line(35, y - 1, pageWidth - 25, y - 1);
+    y += 2;
     
     // Total
-    doc.setTextColor(79, 70, 229);
-    doc.setFontSize(13);
-    doc.setFont('helvetica', 'bold');
-    doc.text('Total (incl. VAT):', 35, y);
+    doc.setFillColor(79, 70, 229);
+    doc.rect(25, y - 1, pageWidth - 50, 8, 'F');
     
-    doc.setTextColor(236, 72, 153);
-    doc.setFontSize(14);
+    doc.setTextColor(255, 255, 255);
+    doc.setFontSize(10);
     doc.setFont('helvetica', 'bold');
-    doc.text(`${currencySymbol} ${totalDisplay.toLocaleString('en-IN', { maximumFractionDigits: 0 })}`, 140, y);
-    y += 12;
+    doc.text('TOTAL (incl. VAT)', 35, y + 4);
+    
+    const totalDisplay = (costBreakdown.totalNPR || 0) * rate;
+    doc.text(`${currencySymbol} ${totalDisplay.toLocaleString('en-IN', { maximumFractionDigits: 0 })}`, 140, y + 4);
+    y += 10;
     
     if (displayCurrency === 'INR') {
       doc.setTextColor(156, 163, 175);
-      doc.setFontSize(8);
+      doc.setFontSize(6);
       doc.setFont('helvetica', 'italic');
-      doc.text(`* Exchange rate: 1 NPR = ${NPR_TO_INR} INR`, 35, y);
-      y += 6;
+      doc.text('* Exchange rate: 1 NPR = 1.6 INR', 35, y);
+      y += 5;
     }
     
     // ===== FOOTER =====
-    y += 10;
-    
+    y += 4;
     doc.setDrawColor(79, 70, 229);
-    doc.setLineWidth(0.5);
-    doc.line(20, y, pageWidth - 20, y);
-    y += 12;
-    
-    doc.setTextColor(79, 70, 229);
-    doc.setFontSize(16);
-    doc.setFont('helvetica', 'bold');
-    doc.text('Thank You!', pageWidth / 2, y, { align: 'center' });
+    doc.setLineWidth(0.3);
+    doc.line(25, y, pageWidth - 25, y);
     y += 8;
     
+    doc.setTextColor(79, 70, 229);
+    doc.setFontSize(14);
+    doc.setFont('helvetica', 'bold');
+    doc.text('Thank You!', pageWidth / 2, y, { align: 'center' });
+    y += 7;
+    
     doc.setTextColor(107, 114, 128);
-    doc.setFontSize(10);
+    doc.setFontSize(9);
     doc.setFont('helvetica', 'normal');
     doc.text('For choosing Mahadev Inn. We look forward to welcoming you!', pageWidth / 2, y, { align: 'center' });
-    y += 10;
+    y += 6;
     
     doc.setTextColor(156, 163, 175);
-    doc.setFontSize(8);
+    doc.setFontSize(6.5);
     doc.setFont('helvetica', 'normal');
     doc.text('Email: info@mahadevinn.com | Phone: +977-9800000000', pageWidth / 2, y, { align: 'center' });
+    y += 5;
     
-    const fileName = `Receipt_${booking.bookingNo || 'booking'}_${new Date().toISOString().split('T')[0]}.pdf`;
+    doc.setTextColor(200, 200, 200);
+    doc.setFontSize(5.5);
+    doc.setFont('helvetica', 'italic');
+    doc.text(`Generated by: ${booking.createdBy || 'System'} (${booking.createdByRole || 'User'})`, pageWidth / 2, y, { align: 'center' });
+    
+    const fileName = `Booking_${booking.bookingNo || 'booking'}_${new Date().toISOString().split('T')[0]}.pdf`;
     doc.save(fileName);
   };
 
-  // ✅ Updated handleSubmit with proper head count and branch synchronization
+  // ✅ Handle Submit with PDF generation
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
@@ -719,6 +769,7 @@ export default function NewBookingPage() {
             : `✅ Booking confirmed by ${roleMsg} at ${timeStr}! Total: ${displayTotal} (incl. 13% VAT: ${displayVAT})${extraPersonMsg}`
         );
 
+        // ✅ Generate Professional PDF
         generateReceiptPDF(booking);
 
         // ✅ Clear all caches to ensure all users see the update
@@ -1308,29 +1359,6 @@ export default function NewBookingPage() {
             >
               Cancel
             </Link>
-          </div>
-
-          <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 mt-4">
-            <div className="flex items-start gap-2">
-              <span className="text-blue-500 text-lg">🔔</span>
-              <div className="text-xs text-blue-700">
-                <p className="font-semibold">Automated Booking Features:</p>
-                <ul className="list-disc list-inside mt-1 space-y-0.5">
-                  <li>🕐 <strong>Booking time auto-captured at creation</strong></li>
-                  <li>👥 <strong>Smart head count: Extra persons automatically calculated</strong></li>
-                  <li>💱 <strong>Dual currency support: NPR and INR</strong></li>
-                  <li>🧾 <strong>13% VAT automatically calculated and added</strong></li>
-                  <li>👤 <strong>Tracking: Shows who created the booking (Owner/Manager)</strong></li>
-                  <li>🔄 <strong>Real-time sync: All users see updates instantly</strong></li>
-                  <li>📧 Confirmation email sent instantly with PDF receipt</li>
-                  <li>📅 Auto check-in on arrival date</li>
-                  <li>🔔 Checkout reminders at 3, 2, and 1 day before</li>
-                  <li>📤 Auto check-out at 12:00 PM on departure date</li>
-                  <li>📍 All data is branch-specific and isolated</li>
-                  <li>🔔 Real-time notifications to all branch managers</li>
-                </ul>
-              </div>
-            </div>
           </div>
         </form>
       </div>
