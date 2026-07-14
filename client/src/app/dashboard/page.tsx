@@ -90,8 +90,6 @@ export default function DashboardPage() {
   const [isLocalMode, setIsLocalMode] = useState(false);
   const [allBookingsCache, setAllBookingsCache] = useState<any[]>([]);
   const [automationRunning, setAutomationRunning] = useState(false);
-  const [showAutomationModal, setShowAutomationModal] = useState(false);
-  const [automationResults, setAutomationResults] = useState<any>(null);
   const [notificationHistory, setNotificationHistory] = useState<any[]>([]);
   const [showNotificationHistory, setShowNotificationHistory] = useState(false);
   const [branchInfo, setBranchInfo] = useState<any>(null);
@@ -131,16 +129,13 @@ export default function DashboardPage() {
     setTimeout(() => setToastMessage(null), 5000);
   };
 
-  // ✅ Format check-in display - Shows full date and time
+  // ✅ Format check-in display
   const formatCheckInDisplay = (booking: any) => {
     if (!booking || !booking.checkIn) return 'N/A';
     
     const checkInDate = new Date(booking.checkIn);
-    
-    // Check if check-in has time component (not midnight)
     const hasTime = checkInDate.getHours() !== 0 || checkInDate.getMinutes() !== 0 || checkInDate.getSeconds() !== 0;
     
-    // Format: "Jul 9, 2026 05:05 PM"
     const dateStr = checkInDate.toLocaleDateString('en-US', {
       month: 'short',
       day: 'numeric',
@@ -156,7 +151,7 @@ export default function DashboardPage() {
     return hasTime ? `${dateStr} ${timeStr}` : dateStr;
   };
 
-  // ✅ Get relative time string (e.g., "5m ago", "2h ago", "3d ago")
+  // ✅ Get relative time string
   const getRelativeTime = (dateString: string) => {
     if (!dateString) return '';
     
@@ -177,7 +172,7 @@ export default function DashboardPage() {
     return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
   };
 
-  // ✅ Get check-in time color based on recency
+  // ✅ Get check-in time color
   const getCheckInTimeColor = (booking: any) => {
     if (!booking || !booking.checkIn) return 'text-gray-400';
     
@@ -202,7 +197,7 @@ export default function DashboardPage() {
     if (isNaN(date.getTime())) return false;
     const now = new Date();
     const diffMs = now.getTime() - date.getTime();
-    return diffMs < (1000 * 60 * 60); // Less than 1 hour
+    return diffMs < (1000 * 60 * 60);
   };
 
   // ✅ Check if booking is from today
@@ -347,7 +342,6 @@ export default function DashboardPage() {
       
       if (response.ok) {
         const data = await response.json();
-        // ✅ Sort by check-in time (earliest first)
         const sorted = (data.data || []).sort((a: any, b: any) => {
           return new Date(a.checkIn).getTime() - new Date(b.checkIn).getTime();
         });
@@ -387,83 +381,7 @@ export default function DashboardPage() {
     router.push('/bookings/new');
   };
 
-  // ✅ RUN FULL AUTOMATION
-  const runFullAutomation = async () => {
-    try {
-      setAutomationRunning(true);
-      setError('');
-      
-      const token = localStorage.getItem('token');
-      if (!token) {
-        alert('Please login first');
-        return;
-      }
-
-      const response = await fetch(`${API_URL}/automation/run`, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json',
-        },
-      });
-
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.message || 'Failed to run automation');
-      }
-
-      const data = await response.json();
-      
-      if (data.success) {
-        const results = data.data;
-        setAutomationResults(results);
-        setShowAutomationModal(true);
-        
-        // Show detailed summary
-        let summary = `🤖 Automation Complete!\n\n`;
-        
-        if (results.notifications?.checkinToday?.length > 0) {
-          summary += `✅ Check-in TODAY: ${results.notifications.checkinToday.map((b: any) => b.agentName).join(', ')}\n`;
-        }
-        if (results.notifications?.checkinTomorrow?.length > 0) {
-          summary += `📅 Check-in TOMORROW: ${results.notifications.checkinTomorrow.map((b: any) => b.agentName).join(', ')}\n`;
-        }
-        if (results.notifications?.checkoutToday?.length > 0) {
-          summary += `📤 Check-out TODAY: ${results.notifications.checkoutToday.map((b: any) => b.agentName).join(', ')}\n`;
-        }
-        if (results.notifications?.checkoutTomorrow?.length > 0) {
-          summary += `📅 Check-out TOMORROW: ${results.notifications.checkoutTomorrow.map((b: any) => b.agentName).join(', ')}\n`;
-        }
-        if (results.checkins?.checkedIn > 0) {
-          summary += `🔄 Auto Check-ins: ${results.checkins.checkedIn} processed\n`;
-        }
-        if (results.checkouts?.checkedOut > 0) {
-          summary += `🔄 Auto Checkouts: ${results.checkouts.checkedOut} processed\n`;
-        }
-        if (results.branches) {
-          summary += `📍 Branches: ${results.branches.join(', ')}\n`;
-        }
-        
-        summary += `\n🕐 Completed: ${new Date(results.timestamp).toLocaleTimeString()}`;
-        
-        alert(summary);
-        
-        // Refresh all data
-        await refreshAllData();
-        showNotification('✅ Full automation completed successfully', 'success');
-      } else {
-        throw new Error(data.message || 'Automation failed');
-      }
-    } catch (err: any) {
-      console.error('Error running automation:', err);
-      setError(`❌ Automation error: ${err.message}`);
-      showNotification(`❌ Automation failed: ${err.message}`, 'warning');
-    } finally {
-      setAutomationRunning(false);
-    }
-  };
-
-  // ✅ Run Auto Check-in Only
+  // ✅ Run Auto Check-in Only (FIXED - Passes branch to backend)
   const runAutoCheckin = async () => {
     try {
       setAutomationRunning(true);
@@ -474,12 +392,25 @@ export default function DashboardPage() {
         return;
       }
 
+      // ✅ Get the current selected branch
+      const currentBranch = selectedBranch || user?.branches?.[0] || '';
+      
+      if (!currentBranch || currentBranch === 'all') {
+        alert('Please select a specific branch for auto check-in');
+        return;
+      }
+
+      console.log(`🔄 Running auto check-in for branch: ${currentBranch}`);
+
       const response = await fetch(`${API_URL}/automation/checkin`, {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json',
         },
+        body: JSON.stringify({ 
+          branch: currentBranch  // ✅ Pass the branch in the request body
+        }),
       });
 
       if (!response.ok) {
@@ -488,12 +419,14 @@ export default function DashboardPage() {
       }
 
       const data = await response.json();
+      console.log('Auto check-in response:', data);
       
       if (data.success) {
         const checkedInCount = data.data?.checkedIn || 0;
         const bookings = data.data?.bookings || [];
         
         let message = `✅ Auto Check-in Complete!\n\n`;
+        message += `Branch: ${currentBranch}\n`;
         message += `Checked in: ${checkedInCount} guests\n`;
         
         if (bookings.length > 0) {
@@ -505,13 +438,21 @@ export default function DashboardPage() {
           });
         }
         
+        if (checkedInCount === 0) {
+          message += `\n📌 No guests to check in today at ${currentBranch}`;
+        }
+        
         alert(message);
         
         // Refresh all data
         await refreshAllData();
         
         // Show notification toast
-        showNotification(`✅ ${checkedInCount} guest(s) checked in successfully`, 'success');
+        if (checkedInCount > 0) {
+          showNotification(`✅ ${checkedInCount} guest(s) checked in at ${currentBranch}`, 'success');
+        } else {
+          showNotification(`ℹ️ No guests to check in at ${currentBranch} today`, 'info');
+        }
       } else {
         throw new Error(data.message || 'Check-in automation failed');
       }
@@ -524,7 +465,7 @@ export default function DashboardPage() {
     }
   };
 
-  // ✅ Run Auto Check-out Only
+  // ✅ Run Auto Check-out Only (FIXED - Passes branch to backend)
   const runAutoCheckout = async () => {
     try {
       setAutomationRunning(true);
@@ -535,12 +476,25 @@ export default function DashboardPage() {
         return;
       }
 
+      // ✅ Get the current selected branch
+      const currentBranch = selectedBranch || user?.branches?.[0] || '';
+      
+      if (!currentBranch || currentBranch === 'all') {
+        alert('Please select a specific branch for auto check-out');
+        return;
+      }
+
+      console.log(`🔄 Running auto check-out for branch: ${currentBranch}`);
+
       const response = await fetch(`${API_URL}/automation/checkout`, {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json',
         },
+        body: JSON.stringify({ 
+          branch: currentBranch  // ✅ Pass the branch in the request body
+        }),
       });
 
       if (!response.ok) {
@@ -549,19 +503,26 @@ export default function DashboardPage() {
       }
 
       const data = await response.json();
+      console.log('Auto check-out response:', data);
       
       if (data.success) {
         const checkedOutCount = data.data?.checkedOut || 0;
         const bookings = data.data?.bookings || [];
         
         let message = `✅ Auto Check-out Complete!\n\n`;
+        message += `Branch: ${currentBranch}\n`;
         message += `Checked out: ${checkedOutCount} guests\n`;
         
         if (bookings.length > 0) {
           message += `\n📋 Checked-out guests:\n`;
           bookings.forEach((b: any) => {
-            message += `  • ${b.agentName} (${b.bookingNo}) - ${b.branch}\n`;
+            const checkOutDate = new Date(b.checkOut).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+            message += `  • ${b.agentName} (${b.bookingNo}) - ${b.branch} on ${checkOutDate}\n`;
           });
+        }
+        
+        if (checkedOutCount === 0) {
+          message += `\n📌 No guests to check out today at ${currentBranch}`;
         }
         
         alert(message);
@@ -570,7 +531,11 @@ export default function DashboardPage() {
         await refreshAllData();
         
         // Show notification toast
-        showNotification(`✅ ${checkedOutCount} guest(s) checked out successfully`, 'success');
+        if (checkedOutCount > 0) {
+          showNotification(`✅ ${checkedOutCount} guest(s) checked out at ${currentBranch}`, 'success');
+        } else {
+          showNotification(`ℹ️ No guests to check out at ${currentBranch} today`, 'info');
+        }
       } else {
         throw new Error(data.message || 'Check-out automation failed');
       }
@@ -578,59 +543,6 @@ export default function DashboardPage() {
       console.error('Error running check-out:', err);
       alert(`❌ Error: ${err.message}`);
       showNotification(`❌ Check-out failed: ${err.message}`, 'warning');
-    } finally {
-      setAutomationRunning(false);
-    }
-  };
-
-  // ✅ Run Reminders Only
-  const runReminders = async () => {
-    try {
-      setAutomationRunning(true);
-      const token = localStorage.getItem('token');
-      
-      if (!token) {
-        alert('Please login first');
-        return;
-      }
-
-      const response = await fetch(`${API_URL}/automation/reminders`, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json',
-        },
-      });
-
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.message || 'Failed to send reminders');
-      }
-
-      const data = await response.json();
-      
-      if (data.success) {
-        const checkoutReminders = data.data?.checkoutReminders || 0;
-        const checkinReminders = data.data?.checkinReminders || 0;
-        
-        let message = `📧 Reminders Sent!\n\n`;
-        message += `Checkout reminders: ${checkoutReminders}\n`;
-        message += `Check-in reminders: ${checkinReminders}\n`;
-        
-        alert(message);
-        
-        // Refresh all data
-        await refreshAllData();
-        
-        // Show notification toast
-        showNotification(`📧 ${checkoutReminders + checkinReminders} reminder(s) sent`, 'info');
-      } else {
-        throw new Error(data.message || 'Failed to send reminders');
-      }
-    } catch (err: any) {
-      console.error('Error sending reminders:', err);
-      alert(`❌ Error: ${err.message}`);
-      showNotification(`❌ Reminders failed: ${err.message}`, 'warning');
     } finally {
       setAutomationRunning(false);
     }
@@ -684,16 +596,14 @@ export default function DashboardPage() {
   useEffect(() => {
     if (!selectedBranch || !user) return;
 
-    // Initial load
     refreshAllData();
     setLastUpdate(new Date().toLocaleTimeString());
 
-    // Set up polling for real-time updates
     const interval = setInterval(() => {
       console.log(`🔄 Checking for updates in branch: ${selectedBranch}`);
       refreshAllData();
       setLastUpdate(new Date().toLocaleTimeString());
-    }, 15000); // Check every 15 seconds
+    }, 15000);
 
     setUpdateInterval(interval);
 
@@ -708,23 +618,17 @@ export default function DashboardPage() {
       const detail = event.detail;
       console.log('📢 Real-time booking event received:', detail);
       
-      // Check if the booking is for the current branch
       if (detail && detail.branch) {
         const currentBranch = selectedBranch || user?.branches?.[0] || '';
         if (detail.branch === currentBranch || selectedBranch === 'all') {
-          console.log(`🔄 New booking in ${detail.branch}, refreshing data...`);
-          // Refresh data immediately
           refreshAllData();
-          // Show notification
           setLastUpdate(new Date().toLocaleTimeString());
-          // Show success toast or notification
           const timeMsg = detail.checkInTime ? ` at ${getFullDateTime(detail.checkInTime)}` : '';
           showNotification(`📋 New booking #${detail.bookingNo} created for ${detail.agentName}${timeMsg}`, 'success');
         }
       }
     };
 
-    // Listen for storage events (cross-tab)
     const handleStorageChange = (e: StorageEvent) => {
       if (e.key === 'bookingUpdated') {
         try {
@@ -806,7 +710,6 @@ export default function DashboardPage() {
             localStorage.setItem('selectedBranch', 'all');
           }
         } else {
-          // ✅ For MANAGER and VIEWER, only allow branches they have access to
           if (savedBranch && userBranches.includes(savedBranch)) {
             setSelectedBranch(savedBranch);
           } else if (userBranches.length > 0) {
@@ -939,10 +842,8 @@ export default function DashboardPage() {
         return;
       }
 
-      // ✅ Determine the branch to fetch
       let branchToFetch = selectedBranch || user?.branches?.[0] || '';
       
-      // ✅ For VIEWER, if they selected 'all' or no branch, use their first branch
       if (isViewer) {
         const userBranches = user?.branches || [];
         if (userBranches.length === 0) {
@@ -970,9 +871,6 @@ export default function DashboardPage() {
       }
 
       console.log('📊 Loading dashboard data for branch:', branchToFetch);
-      console.log('👤 User role:', user?.role);
-      console.log('📍 User branches:', user?.branches);
-      console.log('📍 API URL:', API_URL);
 
       let bookings: any[] = [];
       let branchInfoData = null;
@@ -1037,7 +935,6 @@ export default function DashboardPage() {
           });
           console.log('📊 Bookings per branch after normalization:', branchCountsData);
           
-          // ✅ Filter bookings based on user role and branch selection
           if (user?.role === 'OWNER') {
             if (selectedBranch === 'all') {
               bookings = allBookings;
@@ -1061,18 +958,15 @@ export default function DashboardPage() {
               console.log(`📋 Manager: Filtered bookings for ${selectedBranch}: ${bookings.length}`);
             }
           } else if (user?.role === 'VIEWER') {
-            // ✅ VIEWER: Only show bookings from their assigned branches
             const userBranches = user?.branches || [];
             
             if (selectedBranch === 'all' || !selectedBranch) {
-              // Show all bookings from assigned branches
               bookings = allBookings.filter((b: any) => {
                 const bookingBranch = b.branch || b.branchName || '';
                 return userBranches.includes(bookingBranch);
               });
               console.log(`📋 Viewer: Showing bookings from assigned branches: ${bookings.length}`);
             } else {
-              // Show only the selected branch (must be in their assigned branches)
               if (userBranches.includes(selectedBranch)) {
                 bookings = allBookings.filter((b: any) => {
                   const bookingBranch = b.branch || b.branchName || '';
@@ -1080,7 +974,6 @@ export default function DashboardPage() {
                 });
                 console.log(`📋 Viewer: Filtered bookings for ${selectedBranch}: ${bookings.length}`);
               } else {
-                // Fallback: show first assigned branch
                 const firstBranch = userBranches[0] || '';
                 bookings = allBookings.filter((b: any) => {
                   const bookingBranch = b.branch || b.branchName || '';
@@ -1090,7 +983,6 @@ export default function DashboardPage() {
               }
             }
           } else {
-            // Fallback for other roles
             if (selectedBranch) {
               bookings = allBookings.filter((b: any) => {
                 const bookingBranch = b.branch || b.branchName || '';
@@ -1163,7 +1055,7 @@ export default function DashboardPage() {
 
       console.log(`📋 Final bookings count for ${selectedBranch || 'all'}: ${bookings.length}`);
 
-      // ✅ Calculate capacity based on selected branch
+      // Calculate capacity based on selected branch
       let capacityTotal = 65;
       if (selectedBranch && selectedBranch !== 'all') {
         try {
@@ -1190,7 +1082,6 @@ export default function DashboardPage() {
           setTotalRooms(65);
         }
       } else {
-        // For 'all' branches, sum all capacities
         let totalCapacity = 0;
         const branchesToCheck = user?.branches || ['Pokhara', 'Kathmandu1', 'Kathmandu2', 'Bhairawaha'];
         for (const b of branchesToCheck) {
@@ -1198,7 +1089,6 @@ export default function DashboardPage() {
             const capacityRes = await fetch(`${API_URL}/room-capacity/branch/${b}`, {
               headers: {
                 'Authorization': `Bearer ${token}`,
-                'Content-Type': 'application/json',
               },
             });
             if (capacityRes.ok) {
@@ -1752,7 +1642,6 @@ export default function DashboardPage() {
       const date = new Date(b.checkIn);
       const bookingBranch = b.branch || b.branchName || '';
       
-      // ✅ Only count bookings for this specific branch
       if (bookingBranch === branchName &&
           date.getMonth() === currentMonth && 
           date.getFullYear() === currentYear &&
@@ -1896,17 +1785,6 @@ export default function DashboardPage() {
               <FiPieChart className="w-4 h-4 sm:w-5 sm:h-5 flex-shrink-0" />
               <span className="truncate">Reports</span>
             </Link>
-
-            {(isOwner || isManager) && (
-              <button
-                onClick={() => setShowAutomationModal(true)}
-                className="flex items-center space-x-3 px-3 sm:px-4 py-2.5 sm:py-3 w-full rounded-lg hover:bg-indigo-700 transition-colors text-sm sm:text-base"
-              >
-                <FiCpu className="w-4 h-4 sm:w-5 sm:h-5 flex-shrink-0" />
-                <span className="truncate">Automation</span>
-                <span className="ml-auto text-[10px] bg-green-500/30 px-2 py-0.5 rounded-full">AI</span>
-              </button>
-            )}
           </nav>
 
           <div className="p-3 sm:p-4 border-t border-indigo-700">
@@ -1961,19 +1839,19 @@ export default function DashboardPage() {
               </div>
             </div>
             <div className="flex items-center space-x-1 sm:space-x-4 flex-shrink-0">
-              {/* ✅ Branch Dropdown with viewer filtering */}
+              {/* Branch Dropdown with viewer filtering */}
               <div className="relative">
                 <select
                   value={selectedBranch || (getAvailableBranches().length > 0 ? getAvailableBranches()[0] : '')}
                   onChange={(e) => handleBranchChange(e.target.value)}
                   className="text-xs sm:text-sm border-2 border-indigo-300 rounded-lg px-3 sm:px-4 py-1.5 sm:py-2 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition bg-white min-w-[120px] sm:min-w-[160px] font-medium text-gray-700 hover:border-indigo-400 cursor-pointer shadow-sm"
                 >
-                  {/* ✅ Owner and Manager can see "All Branches" option */}
+                  {/* Owner and Manager can see "All Branches" option */}
                   {(isOwner || isManager) && (
                     <option value="all" className="font-bold text-indigo-600">🌐 All Branches</option>
                   )}
                   
-                  {/* ✅ Branches - filtered for viewers */}
+                  {/* Branches - filtered for viewers */}
                   {getAvailableBranches().map((branch) => {
                     return (
                       <option key={branch} value={branch} className="py-1">
@@ -2106,30 +1984,6 @@ export default function DashboardPage() {
                 <FiUser className="w-3 h-3 sm:w-4 sm:h-4" />
                 <span className="text-[10px] sm:text-sm hidden sm:inline">Profile</span>
               </button>
-
-              {(isOwner || isManager) && (
-                <button
-                  onClick={runFullAutomation}
-                  disabled={automationRunning}
-                  className={`px-2 sm:px-3 py-1.5 sm:py-2 rounded-lg transition-colors flex items-center space-x-1 text-sm ${
-                    automationRunning 
-                      ? 'bg-gray-300 text-gray-500 cursor-not-allowed' 
-                      : 'bg-gradient-to-r from-purple-500 to-pink-500 text-white hover:from-purple-600 hover:to-pink-600'
-                  }`}
-                >
-                  {automationRunning ? (
-                    <>
-                      <span className="animate-spin rounded-full h-3 w-3 border-b-2 border-white"></span>
-                      <span className="text-[10px] sm:text-sm hidden xs:inline">Running...</span>
-                    </>
-                  ) : (
-                    <>
-                      <FiZap className="w-3 h-3 sm:w-4 sm:h-4" />
-                      <span className="text-[10px] sm:text-sm hidden xs:inline">Auto</span>
-                    </>
-                  )}
-                </button>
-              )}
             </div>
           </div>
         </header>
@@ -2315,7 +2169,7 @@ export default function DashboardPage() {
             </div>
           </div>
 
-          {/* ✅ Enhanced Today's Check-ins with Full Date and Time */}
+          {/* Today's Check-ins with Full Date and Time */}
           {todayCheckins.length > 0 && (
             <div className="bg-white rounded-xl shadow-sm p-4 mb-4 border-l-4 border-green-500">
               <h3 className="text-sm font-semibold text-gray-800 mb-3 flex items-center">
@@ -2377,7 +2231,7 @@ export default function DashboardPage() {
             </div>
           )}
 
-          {/* ✅ Checkout Information Section */}
+          {/* Checkout Information Section */}
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
             <div className="bg-white rounded-xl shadow-sm p-4 border-l-4 border-green-500">
               <div className="flex items-center justify-between">
@@ -2441,17 +2295,6 @@ export default function DashboardPage() {
                   </p>
                   <p className="text-xs text-gray-400">Auto check-in/out enabled</p>
                 </div>
-                <button
-                  onClick={runFullAutomation}
-                  disabled={automationRunning}
-                  className="w-12 h-12 bg-purple-100 rounded-lg flex items-center justify-center hover:bg-purple-200 transition-colors disabled:opacity-50"
-                >
-                  {automationRunning ? (
-                    <span className="animate-spin rounded-full h-6 w-6 border-b-2 border-purple-600"></span>
-                  ) : (
-                    <FiZap className="w-6 h-6 text-purple-600" />
-                  )}
-                </button>
               </div>
             </div>
           </div>
@@ -2511,7 +2354,7 @@ export default function DashboardPage() {
               </div>
             </div>
 
-            {/* ✅ Revenue Card - Shows BRANCH-WISE monthly revenue */}
+            {/* Revenue Card - Shows BRANCH-WISE monthly revenue */}
             <div className="bg-white rounded-xl shadow-sm p-3 sm:p-6 border-l-4 border-purple-500 hover:shadow-md transition-shadow">
               <div className="flex items-center justify-between">
                 <div className="min-w-0">
@@ -2575,7 +2418,6 @@ export default function DashboardPage() {
               <h3 className="text-sm sm:text-lg font-semibold text-gray-800 mb-3 sm:mb-4">🏪 Branch Performance</h3>
               <div className="grid grid-cols-1 xs:grid-cols-2 lg:grid-cols-4 gap-2 sm:gap-4">
                 {Object.entries(branchStats).map(([branch, data]) => {
-                  // ✅ Calculate branch-wise monthly revenue for display
                   const branchMonthlyRevenue = calculateBranchMonthlyRevenue(branch);
                   return (
                     <div key={branch} className="p-3 sm:p-4 bg-gradient-to-r from-indigo-50 to-purple-50 rounded-lg border border-indigo-100 hover:shadow-md transition-shadow">
@@ -2630,7 +2472,7 @@ export default function DashboardPage() {
             </div>
           </div>
 
-          {/* ✅ Recent Bookings - With Time Display and Relative Time */}
+          {/* Recent Bookings */}
           {recentBookings.length > 0 && (
             <div className="bg-white rounded-xl shadow-sm p-3 sm:p-6 mb-4 sm:mb-6">
               <div className="flex items-center justify-between mb-3 sm:mb-4 flex-wrap gap-2">
@@ -2732,8 +2574,8 @@ export default function DashboardPage() {
             </div>
           )}
 
-          {/* ✅ Quick Actions */}
-          <div className="grid grid-cols-2 xs:grid-cols-4 sm:grid-cols-5 gap-2 sm:gap-4">
+          {/* ✅ Quick Actions - Only Auto Check-in and Auto Checkout with Branch Display */}
+          <div className="grid grid-cols-2 xs:grid-cols-4 gap-2 sm:gap-4">
             {isOwner || isManager ? (
               <>
                 <button
@@ -2746,51 +2588,36 @@ export default function DashboardPage() {
                 
                 <button
                   onClick={runAutoCheckin}
-                  disabled={automationRunning}
-                  className="bg-green-600 text-white rounded-xl shadow-sm p-2 sm:p-4 hover:bg-green-700 transition-colors text-center disabled:opacity-50"
+                  disabled={automationRunning || selectedBranch === 'all'}
+                  className={`text-white rounded-xl shadow-sm p-2 sm:p-4 transition-colors text-center ${
+                    selectedBranch === 'all' 
+                      ? 'bg-gray-400 cursor-not-allowed' 
+                      : 'bg-green-600 hover:bg-green-700'
+                  } disabled:opacity-50`}
+                  title={selectedBranch === 'all' ? 'Please select a specific branch' : `Process check-ins for ${displayBranchName}`}
                 >
                   <FiCheckCircle className="w-4 h-4 sm:w-6 sm:h-6 mx-auto mb-1 sm:mb-2" />
                   <p className="text-[10px] sm:text-sm font-medium">Auto Check-in</p>
-                  <p className="text-[8px] opacity-75">Process check-ins</p>
+                  <p className="text-[8px] opacity-75">
+                    {selectedBranch === 'all' ? 'Select branch first' : displayBranchName}
+                  </p>
                 </button>
                 
                 <button
                   onClick={runAutoCheckout}
-                  disabled={automationRunning}
-                  className="bg-blue-600 text-white rounded-xl shadow-sm p-2 sm:p-4 hover:bg-blue-700 transition-colors text-center disabled:opacity-50"
+                  disabled={automationRunning || selectedBranch === 'all'}
+                  className={`text-white rounded-xl shadow-sm p-2 sm:p-4 transition-colors text-center ${
+                    selectedBranch === 'all' 
+                      ? 'bg-gray-400 cursor-not-allowed' 
+                      : 'bg-blue-600 hover:bg-blue-700'
+                  } disabled:opacity-50`}
+                  title={selectedBranch === 'all' ? 'Please select a specific branch' : `Process check-outs for ${displayBranchName}`}
                 >
                   <FiClock className="w-4 h-4 sm:w-6 sm:h-6 mx-auto mb-1 sm:mb-2" />
                   <p className="text-[10px] sm:text-sm font-medium">Auto Checkout</p>
-                  <p className="text-[8px] opacity-75">Process checkouts</p>
-                </button>
-                
-                <button
-                  onClick={runReminders}
-                  disabled={automationRunning}
-                  className="bg-yellow-600 text-white rounded-xl shadow-sm p-2 sm:p-4 hover:bg-yellow-700 transition-colors text-center disabled:opacity-50"
-                >
-                  <FiMail className="w-4 h-4 sm:w-6 sm:h-6 mx-auto mb-1 sm:mb-2" />
-                  <p className="text-[10px] sm:text-sm font-medium">Send Reminders</p>
-                  <p className="text-[8px] opacity-75">Email notifications</p>
-                </button>
-
-                <button
-                  onClick={runFullAutomation}
-                  disabled={automationRunning}
-                  className="bg-gradient-to-r from-purple-600 to-pink-600 text-white rounded-xl shadow-sm p-2 sm:p-4 hover:from-purple-700 hover:to-pink-700 transition-colors text-center disabled:opacity-50"
-                >
-                  {automationRunning ? (
-                    <>
-                      <span className="animate-spin rounded-full h-4 w-4 sm:h-6 sm:w-6 border-b-2 border-white mx-auto mb-1 sm:mb-2"></span>
-                      <p className="text-[10px] sm:text-sm font-medium">Running...</p>
-                    </>
-                  ) : (
-                    <>
-                      <FiZap className="w-4 h-4 sm:w-6 sm:h-6 mx-auto mb-1 sm:mb-2" />
-                      <p className="text-[10px] sm:text-sm font-medium">Full Auto</p>
-                      <p className="text-[8px] opacity-75">Run all automation</p>
-                    </>
-                  )}
+                  <p className="text-[8px] opacity-75">
+                    {selectedBranch === 'all' ? 'Select branch first' : displayBranchName}
+                  </p>
                 </button>
               </>
             ) : (
@@ -2802,109 +2629,6 @@ export default function DashboardPage() {
           </div>
         </div>
       </div>
-
-      {/* Automation Results Modal */}
-      {showAutomationModal && automationResults && (
-        <div className="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full z-50 flex items-center justify-center p-4">
-          <div className="relative bg-white rounded-xl shadow-lg max-w-md w-full mx-4 p-4 sm:p-6">
-            <div className="flex justify-between items-start mb-4">
-              <div className="flex items-center space-x-3">
-                <div className="w-10 h-10 rounded-full bg-purple-100 flex items-center justify-center text-xl">
-                  🤖
-                </div>
-                <div>
-                  <h3 className="text-lg font-bold text-gray-800">Automation Complete</h3>
-                  <p className="text-xs text-gray-500">{new Date(automationResults.timestamp).toLocaleString()}</p>
-                </div>
-              </div>
-              <button
-                onClick={() => setShowAutomationModal(false)}
-                className="text-gray-400 hover:text-gray-600"
-              >
-                <FiX className="w-6 h-6" />
-              </button>
-            </div>
-
-            <div className="space-y-3">
-              <div className="grid grid-cols-2 gap-3">
-                <div className="bg-green-50 p-3 rounded-lg">
-                  <p className="text-xs text-gray-500">Check-ins</p>
-                  <p className="text-2xl font-bold text-green-600">{automationResults.checkins?.checkedIn || 0}</p>
-                  <p className="text-xs text-gray-400">Processed</p>
-                </div>
-                <div className="bg-blue-50 p-3 rounded-lg">
-                  <p className="text-xs text-gray-500">Checkouts</p>
-                  <p className="text-2xl font-bold text-blue-600">{automationResults.checkouts?.checkedOut || 0}</p>
-                  <p className="text-xs text-gray-400">Processed</p>
-                </div>
-              </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div className="bg-yellow-50 p-3 rounded-lg">
-                  <p className="text-xs text-gray-500">Reminders</p>
-                  <p className="text-2xl font-bold text-yellow-600">{automationResults.reminders?.reminders || 0}</p>
-                  <p className="text-xs text-gray-400">Sent</p>
-                </div>
-                <div className="bg-purple-50 p-3 rounded-lg">
-                  <p className="text-xs text-gray-500">Check-in Reminders</p>
-                  <p className="text-2xl font-bold text-purple-600">{automationResults.checkinReminders?.reminders || 0}</p>
-                  <p className="text-xs text-gray-400">Sent</p>
-                </div>
-              </div>
-
-              {automationResults.branches && (
-                <div className="mt-2 p-3 bg-gray-50 rounded-lg">
-                  <p className="text-xs font-semibold text-gray-700">📍 Branches Processed:</p>
-                  <div className="flex flex-wrap gap-1 mt-1">
-                    {automationResults.branches.map((branch: string) => (
-                      <span key={branch} className="text-xs bg-indigo-100 text-indigo-700 px-2 py-0.5 rounded">
-                        {branch}
-                      </span>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {automationResults.notifications && (
-                <div className="mt-2 p-3 bg-gray-50 rounded-lg">
-                  <p className="text-xs font-semibold text-gray-700">📋 Notification Details:</p>
-                  <div className="grid grid-cols-2 gap-1 mt-1">
-                    {automationResults.notifications.checkinToday?.length > 0 && (
-                      <span className="text-xs text-green-600">✅ Check-in Today: {automationResults.notifications.checkinToday.length}</span>
-                    )}
-                    {automationResults.notifications.checkinTomorrow?.length > 0 && (
-                      <span className="text-xs text-blue-600">📅 Check-in Tomorrow: {automationResults.notifications.checkinTomorrow.length}</span>
-                    )}
-                    {automationResults.notifications.checkoutToday?.length > 0 && (
-                      <span className="text-xs text-red-600">📤 Checkout Today: {automationResults.notifications.checkoutToday.length}</span>
-                    )}
-                    {automationResults.notifications.checkoutTomorrow?.length > 0 && (
-                      <span className="text-xs text-orange-600">📅 Checkout Tomorrow: {automationResults.notifications.checkoutTomorrow.length}</span>
-                    )}
-                  </div>
-                </div>
-              )}
-            </div>
-
-            <div className="mt-4 flex gap-2">
-              <button
-                onClick={() => setShowAutomationModal(false)}
-                className="flex-1 bg-gray-200 text-gray-700 px-4 py-2 rounded-lg hover:bg-gray-300 transition-colors"
-              >
-                Close
-              </button>
-              <button
-                onClick={() => {
-                  setShowAutomationModal(false);
-                  refreshAllData();
-                }}
-                className="flex-1 bg-indigo-600 text-white px-4 py-2 rounded-lg hover:bg-indigo-700 transition-colors"
-              >
-                Refresh Data
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* Notification Toast */}
       {toastMessage && (

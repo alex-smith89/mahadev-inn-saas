@@ -10,6 +10,8 @@ import {
   Logger,
   Body,
   Query,
+  Patch,
+  Delete,
 } from '@nestjs/common';
 import { AutomationService } from './automation.service';
 import { PrismaService } from '../prisma/prisma.service';
@@ -25,7 +27,7 @@ export class AutomationController {
     private readonly prisma: PrismaService,
   ) {}
 
-  // ✅ RUN AUTO CHECK-IN WITH ALL NOTIFICATIONS
+  // ✅ RUN AUTO CHECK-IN
   @Post('checkin')
   @UseGuards(JwtAuthGuard)
   async runAutoCheckin(@Req() req: any, @Body() body: any) {
@@ -61,6 +63,80 @@ export class AutomationController {
     }
   }
 
+  // ✅ GET NOTIFICATIONS
+  @Get('notifications')
+  @UseGuards(JwtAuthGuard)
+  async getNotifications(@Req() req: any) {
+    try {
+      const user = req.user;
+      const notifications = await this.automationService.getNotifications(user);
+      const unreadCount = await this.automationService.getUnreadNotificationCount(user);
+
+      return {
+        success: true,
+        data: notifications,
+        unreadCount: unreadCount,
+        count: notifications.length,
+      };
+    } catch (error) {
+      this.logger.error('❌ Error:', error);
+      throw new InternalServerErrorException(error.message);
+    }
+  }
+
+  // ✅ GET UNREAD NOTIFICATION COUNT
+  @Get('notifications/unread/count')
+  @UseGuards(JwtAuthGuard)
+  async getUnreadCount(@Req() req: any) {
+    try {
+      const user = req.user;
+      const count = await this.automationService.getUnreadNotificationCount(user);
+
+      return {
+        success: true,
+        unreadCount: count,
+      };
+    } catch (error) {
+      this.logger.error('❌ Error:', error);
+      throw new InternalServerErrorException(error.message);
+    }
+  }
+
+  // ✅ MARK NOTIFICATION AS READ
+  @Patch('notifications/:id/read')
+  @UseGuards(JwtAuthGuard)
+  async markNotificationRead(@Req() req: any, @Query('id') id: string) {
+    try {
+      const result = await this.automationService.markNotificationRead(id);
+
+      return {
+        success: true,
+        data: result,
+      };
+    } catch (error) {
+      this.logger.error('❌ Error:', error);
+      throw new InternalServerErrorException(error.message);
+    }
+  }
+
+  // ✅ MARK ALL NOTIFICATIONS AS READ
+  @Patch('notifications/read/all')
+  @UseGuards(JwtAuthGuard)
+  async markAllNotificationsRead(@Req() req: any) {
+    try {
+      const user = req.user;
+      const result = await this.automationService.markAllNotificationsRead(user);
+
+      return {
+        success: true,
+        data: result,
+      };
+    } catch (error) {
+      this.logger.error('❌ Error:', error);
+      throw new InternalServerErrorException(error.message);
+    }
+  }
+
   // ✅ RUN AUTO CHECK-OUT
   @Post('checkout')
   @UseGuards(JwtAuthGuard)
@@ -86,48 +162,6 @@ export class AutomationController {
     }
   }
 
-  // ✅ RUN FULL AUTOMATION
-  @Post('run')
-  @UseGuards(JwtAuthGuard)
-  async runFullAutomation(@Req() req: any) {
-    try {
-      const user = req.user;
-
-      if (user.role !== 'OWNER' && user.role !== 'MANAGER') {
-        throw new ForbiddenException('Permission denied');
-      }
-
-      const result = await this.automationService.runFullAutomation(user);
-
-      return {
-        success: true,
-        data: result,
-        message: 'Full automation completed',
-      };
-    } catch (error) {
-      this.logger.error('❌ Error:', error);
-      throw new InternalServerErrorException(error.message);
-    }
-  }
-
-  // ✅ GET AUTOMATION STATUS
-  @Get('status')
-  @UseGuards(JwtAuthGuard)
-  async getStatus(@Req() req: any) {
-    try {
-      const user = req.user;
-      const status = await this.automationService.getAutomationStatus(user);
-
-      return {
-        success: true,
-        data: status,
-      };
-    } catch (error) {
-      this.logger.error('❌ Error:', error);
-      throw new InternalServerErrorException(error.message);
-    }
-  }
-
   // ✅ GET TODAY'S SUMMARY
   @Get('summary/today')
   @UseGuards(JwtAuthGuard)
@@ -146,125 +180,17 @@ export class AutomationController {
     }
   }
 
-  // ✅ GET NOTIFICATIONS
-  @Get('notifications')
+  // ✅ GET AUTOMATION STATUS
+  @Get('status')
   @UseGuards(JwtAuthGuard)
-  async getNotifications(@Req() req: any) {
+  async getStatus(@Req() req: any) {
     try {
       const user = req.user;
-      
-      const notifications = await this.prisma.notification.findMany({
-        where: {
-          branch: user.branch || undefined,
-        },
-        orderBy: {
-          createdAt: 'desc',
-        },
-        take: 50,
-      });
-
-      // Mark as read
-      await this.prisma.notification.updateMany({
-        where: {
-          isRead: false,
-        },
-        data: {
-          isRead: true,
-        },
-      });
+      const status = await this.automationService.getAutomationStatus(user);
 
       return {
         success: true,
-        data: notifications,
-        count: notifications.length,
-      };
-    } catch (error) {
-      this.logger.error('❌ Error:', error);
-      throw new InternalServerErrorException(error.message);
-    }
-  }
-
-  // ✅ FORCE CHECK-IN (For testing)
-  @Post('force/checkin')
-  @UseGuards(JwtAuthGuard)
-  async forceCheckin(@Req() req: any, @Body() body: { branch: string }) {
-    try {
-      const user = req.user;
-      const branchStr = body.branch;
-
-      this.logger.log(`🔧 Force check-in for branch: ${branchStr}`);
-
-      if (!branchStr) {
-        throw new ForbiddenException('Branch is required');
-      }
-
-      if (user.role !== 'OWNER' && user.role !== 'MANAGER') {
-        throw new ForbiddenException('Permission denied');
-      }
-
-      const validBranches = Object.values(Branch);
-      if (!validBranches.includes(branchStr as Branch)) {
-        return {
-          success: false,
-          message: `Invalid branch. Valid branches: ${validBranches.join(', ')}`,
-        };
-      }
-
-      const branchEnum = branchStr as Branch;
-      const today = new Date();
-      today.setHours(0, 0, 0, 0);
-
-      const allBookings = await this.prisma.booking.findMany({
-        where: {
-          branch: branchEnum,
-        },
-      });
-
-      const todayBookings = allBookings.filter(b => {
-        const checkIn = new Date(b.checkIn);
-        checkIn.setHours(0, 0, 0, 0);
-        const isToday = checkIn.getTime() === today.getTime();
-        const notCheckedIn = b.bookingStatus !== 'CheckedIn' && b.bookingStatus !== 'CheckedOut';
-        return isToday && notCheckedIn;
-      });
-
-      let checkedIn = 0;
-      const results = [];
-
-      for (const booking of todayBookings) {
-        try {
-          const updated = await this.prisma.booking.update({
-            where: { id: booking.id },
-            data: {
-              bookingStatus: 'CheckedIn',
-              updatedAt: new Date(),
-            },
-          });
-
-          await this.prisma.notification.create({
-            data: {
-              title: '🔧 Force Check-in',
-              message: `${booking.agentName} (${booking.bookingNo}) force checked in at ${booking.branch}`,
-              branch: booking.branch,
-              bookingId: booking.id,
-              type: 'force_checkin',
-              isRead: false,
-              createdAt: new Date(),
-            },
-          });
-
-          results.push(updated);
-          checkedIn++;
-        } catch (error) {
-          this.logger.error(`❌ Error checking in ${booking.bookingNo}:`, error);
-        }
-      }
-
-      return {
-        success: true,
-        message: `Force checked in ${checkedIn} guests at ${branchStr}`,
-        checkedIn,
-        bookings: results,
+        data: status,
       };
     } catch (error) {
       this.logger.error('❌ Error:', error);
@@ -300,6 +226,9 @@ export class AutomationController {
           checkOut: true,
           bookingStatus: true,
           email: true,
+          actualCheckIn: true,
+          checkoutReminderSent: true,
+          checkinReminderSent: true,
         },
         orderBy: {
           checkIn: 'desc',
@@ -310,8 +239,6 @@ export class AutomationController {
       today.setHours(0, 0, 0, 0);
       const tomorrow = new Date(today);
       tomorrow.setDate(tomorrow.getDate() + 1);
-      const dayAfter = new Date(today);
-      dayAfter.setDate(dayAfter.getDate() + 2);
 
       const todayBookings = bookings.filter(b => {
         const checkIn = new Date(b.checkIn);
@@ -323,34 +250,16 @@ export class AutomationController {
         b.bookingStatus !== 'CheckedIn' && b.bookingStatus !== 'CheckedOut'
       );
 
-      const checkoutTomorrow = bookings.filter(b => {
-        const checkOut = new Date(b.checkOut);
-        checkOut.setHours(0, 0, 0, 0);
-        return checkOut.getTime() === tomorrow.getTime() && 
-               ['CheckedIn', 'Confirm'].includes(b.bookingStatus);
-      });
-
-      const checkoutDayAfter = bookings.filter(b => {
-        const checkOut = new Date(b.checkOut);
-        checkOut.setHours(0, 0, 0, 0);
-        return checkOut.getTime() === dayAfter.getTime() && 
-               ['CheckedIn', 'Confirm'].includes(b.bookingStatus);
-      });
-
       return {
         success: true,
         data: {
           total: bookings.length,
           todayBookings: todayBookings.length,
           notCheckedInToday: notCheckedInToday.length,
-          checkoutTomorrow: checkoutTomorrow.length,
-          checkoutDayAfter: checkoutDayAfter.length,
           bookings: bookings,
           todayBookingsList: todayBookings,
           notCheckedInTodayList: notCheckedInToday,
-          checkoutTomorrowList: checkoutTomorrow,
-          checkoutDayAfterList: checkoutDayAfter,
-          message: `Found ${notCheckedInToday.length} bookings for today that are not checked in. ${checkoutTomorrow.length} checkouts tomorrow, ${checkoutDayAfter.length} checkouts day after.`,
+          message: `Found ${notCheckedInToday.length} bookings for today that are not checked in.`,
         },
       };
     } catch (error) {
