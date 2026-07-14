@@ -381,7 +381,7 @@ export default function DashboardPage() {
     router.push('/bookings/new');
   };
 
-  // ✅ Run Auto Check-in Only (FIXED - Passes branch to backend)
+  // ✅ Run Auto Check-in Only
   const runAutoCheckin = async () => {
     try {
       setAutomationRunning(true);
@@ -392,7 +392,6 @@ export default function DashboardPage() {
         return;
       }
 
-      // ✅ Get the current selected branch
       const currentBranch = selectedBranch || user?.branches?.[0] || '';
       
       if (!currentBranch || currentBranch === 'all') {
@@ -409,7 +408,7 @@ export default function DashboardPage() {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({ 
-          branch: currentBranch  // ✅ Pass the branch in the request body
+          branch: currentBranch
         }),
       });
 
@@ -443,11 +442,8 @@ export default function DashboardPage() {
         }
         
         alert(message);
-        
-        // Refresh all data
         await refreshAllData();
         
-        // Show notification toast
         if (checkedInCount > 0) {
           showNotification(`✅ ${checkedInCount} guest(s) checked in at ${currentBranch}`, 'success');
         } else {
@@ -465,7 +461,7 @@ export default function DashboardPage() {
     }
   };
 
-  // ✅ Run Auto Check-out Only (FIXED - Passes branch to backend)
+  // ✅ Run Auto Check-out Only
   const runAutoCheckout = async () => {
     try {
       setAutomationRunning(true);
@@ -476,7 +472,6 @@ export default function DashboardPage() {
         return;
       }
 
-      // ✅ Get the current selected branch
       const currentBranch = selectedBranch || user?.branches?.[0] || '';
       
       if (!currentBranch || currentBranch === 'all') {
@@ -493,7 +488,7 @@ export default function DashboardPage() {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({ 
-          branch: currentBranch  // ✅ Pass the branch in the request body
+          branch: currentBranch
         }),
       });
 
@@ -526,11 +521,8 @@ export default function DashboardPage() {
         }
         
         alert(message);
-        
-        // Refresh all data
         await refreshAllData();
         
-        // Show notification toast
         if (checkedOutCount > 0) {
           showNotification(`✅ ${checkedOutCount} guest(s) checked out at ${currentBranch}`, 'success');
         } else {
@@ -822,7 +814,7 @@ export default function DashboardPage() {
     };
   }, [selectedBranch, user]);
 
-  // ✅ loadDashboardData - Updated with viewer filtering
+  // ✅ loadDashboardData - FIXED for "All Branches"
   const loadDashboardData = async (forceRefresh = false) => {
     try {
       setRefreshing(true);
@@ -842,8 +834,15 @@ export default function DashboardPage() {
         return;
       }
 
-      let branchToFetch = selectedBranch || user?.branches?.[0] || '';
+      // ✅ Determine branch to fetch
+      let branchToFetch = '';
       
+      // ✅ For OWNER with 'all' selected, don't send any branch parameter
+      if (selectedBranch && selectedBranch !== 'all' && selectedBranch !== 'undefined') {
+        branchToFetch = selectedBranch;
+      }
+      
+      // For VIEWER, restrict to their branches
       if (isViewer) {
         const userBranches = user?.branches || [];
         if (userBranches.length === 0) {
@@ -865,18 +864,22 @@ export default function DashboardPage() {
           setRefreshing(false);
           return;
         }
-        if (branchToFetch === 'all' || !branchToFetch) {
+        if (!branchToFetch || branchToFetch === 'all') {
           branchToFetch = userBranches[0];
         }
       }
 
-      console.log('📊 Loading dashboard data for branch:', branchToFetch);
+      console.log('📊 Loading dashboard data for branch:', branchToFetch || 'ALL (No filter)');
 
       let bookings: any[] = [];
       let branchInfoData = null;
 
       try {
-        const url = `${API_URL}/bookings${branchToFetch ? `?branch=${branchToFetch}` : ''}`;
+        // ✅ Build URL - if branchToFetch is empty, don't add branch param (gets ALL bookings)
+        let url = `${API_URL}/bookings`;
+        if (branchToFetch) {
+          url += `?branch=${branchToFetch}`;
+        }
         console.log('📊 Fetching all bookings from:', url);
         
         const allBookingsResponse = await fetch(url, {
@@ -892,6 +895,9 @@ export default function DashboardPage() {
         if (allBookingsResponse.ok) {
           const data = await allBookingsResponse.json();
           console.log('📥 Full API response received');
+          console.log('📥 Data structure:', Object.keys(data));
+          console.log('📥 Data.bookings count:', data.bookings?.length || 0);
+          console.log('📥 Data.data count:', data.data?.length || 0);
           
           if (data.branchInfo) {
             branchInfoData = data.branchInfo;
@@ -909,8 +915,17 @@ export default function DashboardPage() {
             console.log('📊 Branch status summary:', data.branchStatusSummary);
           }
           
+          // ✅ Get bookings from either 'bookings' or 'data' field
           let allBookings = data.bookings || data.data || [];
           console.log(`📋 Raw bookings from API:`, allBookings.length);
+          
+          // ✅ If allBookings is empty, try to get from different response structure
+          if (allBookings.length === 0 && data) {
+            if (Array.isArray(data)) {
+              allBookings = data;
+              console.log(`📋 Data is directly an array with ${allBookings.length} bookings`);
+            }
+          }
           
           const statusCounts: {[key: string]: number} = {};
           allBookings.forEach((b: any) => {
@@ -935,8 +950,9 @@ export default function DashboardPage() {
           });
           console.log('📊 Bookings per branch after normalization:', branchCountsData);
           
+          // ✅ Filter bookings based on user role and branch selection
           if (user?.role === 'OWNER') {
-            if (selectedBranch === 'all') {
+            if (selectedBranch === 'all' || !selectedBranch) {
               bookings = allBookings;
               console.log(`📋 Owner: Showing ALL bookings: ${bookings.length}`);
             } else {
@@ -947,9 +963,23 @@ export default function DashboardPage() {
               console.log(`📋 Owner: Filtered bookings for ${selectedBranch}: ${bookings.length}`);
             }
           } else if (user?.role === 'MANAGER') {
-            if (selectedBranch === 'all') {
-              bookings = allBookings;
-              console.log(`📋 Manager: Showing ALL bookings: ${bookings.length}`);
+            const userBranches = user?.branches || [];
+            
+            if (selectedBranch === 'all' || !selectedBranch) {
+              if (userBranches.length > 1) {
+                bookings = allBookings.filter((b: any) => {
+                  const bookingBranch = b.branch || b.branchName || '';
+                  return userBranches.includes(bookingBranch);
+                });
+                console.log(`📋 Manager: Showing bookings from all assigned branches: ${bookings.length}`);
+              } else {
+                const firstBranch = userBranches[0] || '';
+                bookings = allBookings.filter((b: any) => {
+                  const bookingBranch = b.branch || b.branchName || '';
+                  return bookingBranch === firstBranch;
+                });
+                console.log(`📋 Manager: Filtered bookings for ${firstBranch}: ${bookings.length}`);
+              }
             } else {
               bookings = allBookings.filter((b: any) => {
                 const bookingBranch = b.branch || b.branchName || '';
@@ -983,7 +1013,7 @@ export default function DashboardPage() {
               }
             }
           } else {
-            if (selectedBranch) {
+            if (selectedBranch && selectedBranch !== 'all') {
               bookings = allBookings.filter((b: any) => {
                 const bookingBranch = b.branch || b.branchName || '';
                 return bookingBranch === selectedBranch;
@@ -1003,49 +1033,116 @@ export default function DashboardPage() {
           return;
         } else {
           console.error('❌ Failed to fetch bookings. Status:', allBookingsResponse.status);
+          const errorText = await allBookingsResponse.text();
+          console.error('❌ Error response:', errorText);
         }
       } catch (err) {
         console.error('Error fetching bookings:', err);
         setError('Failed to fetch bookings from server. Please check if the server is running.');
       }
 
+      // ✅ If no bookings from API, try local storage
       if (bookings.length === 0) {
         try {
-          const localBookings = JSON.parse(localStorage.getItem('bookings') || '[]');
-          if (localBookings.length > 0) {
-            console.log(`📋 Found ${localBookings.length} bookings in local storage`);
-            
-            const normalizedLocal = localBookings.map((b: any) => {
-              const bookingBranch = b.branch || b.branchName || '';
-              const normalizedBranch = normalizeBranchName(bookingBranch);
-              return { ...b, branch: normalizedBranch, branchName: normalizedBranch };
-            });
-            
-            let filteredLocal = [];
-            if (user?.role === 'VIEWER') {
-              const userBranches = user?.branches || [];
-              if (selectedBranch === 'all' || !selectedBranch) {
-                filteredLocal = normalizedLocal.filter((b: any) => {
-                  const bookingBranch = b.branch || b.branchName || '';
-                  return userBranches.includes(bookingBranch);
-                });
+          // Try to get from allBookingsCache first
+          const cachedAllBookings = localStorage.getItem('allBookingsCache');
+          if (cachedAllBookings) {
+            const parsedCache = JSON.parse(cachedAllBookings);
+            if (parsedCache.length > 0) {
+              console.log(`📋 Found ${parsedCache.length} bookings in allBookingsCache`);
+              
+              let filteredCache = [];
+              if (user?.role === 'OWNER') {
+                if (selectedBranch === 'all' || !selectedBranch) {
+                  filteredCache = parsedCache;
+                } else {
+                  filteredCache = parsedCache.filter((b: any) => {
+                    const bookingBranch = b.branch || b.branchName || '';
+                    return bookingBranch === selectedBranch;
+                  });
+                }
               } else {
-                filteredLocal = normalizedLocal.filter((b: any) => {
-                  const bookingBranch = b.branch || b.branchName || '';
-                  return bookingBranch === selectedBranch;
-                });
+                if (selectedBranch && selectedBranch !== 'all') {
+                  filteredCache = parsedCache.filter((b: any) => {
+                    const bookingBranch = b.branch || b.branchName || '';
+                    return bookingBranch === selectedBranch;
+                  });
+                } else {
+                  filteredCache = parsedCache;
+                }
               }
-            } else {
-              filteredLocal = normalizedLocal.filter((b: any) => {
-                const bookingBranch = b.branch || b.branchName || '';
-                return bookingBranch === selectedBranch;
-              });
+              
+              if (filteredCache.length > 0) {
+                bookings = filteredCache;
+                setIsLocalMode(true);
+                console.log(`📋 Using ${bookings.length} bookings from cache for branch ${selectedBranch || 'all'}`);
+              }
             }
-            
-            if (filteredLocal.length > 0) {
-              bookings = filteredLocal;
-              setIsLocalMode(true);
-              console.log(`📋 Using ${bookings.length} bookings from local storage for branch ${selectedBranch}`);
+          }
+          
+          // If still no bookings, try regular bookings cache
+          if (bookings.length === 0) {
+            const localBookings = JSON.parse(localStorage.getItem('bookings') || '[]');
+            if (localBookings.length > 0) {
+              console.log(`📋 Found ${localBookings.length} bookings in local storage`);
+              
+              const normalizedLocal = localBookings.map((b: any) => {
+                const bookingBranch = b.branch || b.branchName || '';
+                const normalizedBranch = normalizeBranchName(bookingBranch);
+                return { ...b, branch: normalizedBranch, branchName: normalizedBranch };
+              });
+              
+              let filteredLocal = [];
+              if (user?.role === 'VIEWER') {
+                const userBranches = user?.branches || [];
+                if (selectedBranch === 'all' || !selectedBranch) {
+                  filteredLocal = normalizedLocal.filter((b: any) => {
+                    const bookingBranch = b.branch || b.branchName || '';
+                    return userBranches.includes(bookingBranch);
+                  });
+                } else {
+                  filteredLocal = normalizedLocal.filter((b: any) => {
+                    const bookingBranch = b.branch || b.branchName || '';
+                    return bookingBranch === selectedBranch;
+                  });
+                }
+              } else if (user?.role === 'MANAGER') {
+                const userBranches = user?.branches || [];
+                if (selectedBranch === 'all' || !selectedBranch) {
+                  if (userBranches.length > 1) {
+                    filteredLocal = normalizedLocal.filter((b: any) => {
+                      const bookingBranch = b.branch || b.branchName || '';
+                      return userBranches.includes(bookingBranch);
+                    });
+                  } else {
+                    const firstBranch = userBranches[0] || '';
+                    filteredLocal = normalizedLocal.filter((b: any) => {
+                      const bookingBranch = b.branch || b.branchName || '';
+                      return bookingBranch === firstBranch;
+                    });
+                  }
+                } else {
+                  filteredLocal = normalizedLocal.filter((b: any) => {
+                    const bookingBranch = b.branch || b.branchName || '';
+                    return bookingBranch === selectedBranch;
+                  });
+                }
+              } else {
+                if (selectedBranch && selectedBranch !== 'all') {
+                  filteredLocal = normalizedLocal.filter((b: any) => {
+                    const bookingBranch = b.branch || b.branchName || '';
+                    return bookingBranch === selectedBranch;
+                  });
+                } else {
+                  filteredLocal = normalizedLocal;
+                }
+              }
+              
+              if (filteredLocal.length > 0) {
+                bookings = filteredLocal;
+                setIsLocalMode(true);
+                console.log(`📋 Using ${bookings.length} bookings from local storage for branch ${selectedBranch || 'all'}`);
+              }
             }
           }
         } catch (e) {
@@ -1054,9 +1151,11 @@ export default function DashboardPage() {
       }
 
       console.log(`📋 Final bookings count for ${selectedBranch || 'all'}: ${bookings.length}`);
+      console.log('📋 Sample booking:', bookings.length > 0 ? bookings[0] : 'No bookings');
 
-      // Calculate capacity based on selected branch
-      let capacityTotal = 65;
+      // ✅ Calculate capacity based on branch
+      let capacityTotal = 0;
+      
       if (selectedBranch && selectedBranch !== 'all') {
         try {
           const capacityRes = await fetch(`${API_URL}/room-capacity/branch/${selectedBranch}`, {
@@ -1076,14 +1175,33 @@ export default function DashboardPage() {
             capacityTotal = total > 0 ? total : 65;
             setTotalRooms(capacityTotal);
             console.log('🏨 Branch capacity loaded:', { total: capacityTotal, ...data });
+          } else {
+            capacityTotal = 65;
+            setTotalRooms(65);
+            console.log('⚠️ Could not fetch branch capacity, using default 65');
           }
         } catch (err) {
           console.log('⚠️ Could not fetch branch capacity, using default 65');
+          capacityTotal = 65;
           setTotalRooms(65);
         }
       } else {
+        // For 'all branches' or when no branch selected
+        let branchesToCheck: string[] = [];
+        
+        if (user?.role === 'OWNER') {
+          branchesToCheck = ['Pokhara', 'Kathmandu1', 'Kathmandu2', 'Bhairawaha'];
+        } else if (user?.role === 'MANAGER' || user?.role === 'VIEWER') {
+          branchesToCheck = user?.branches || [];
+        } else {
+          branchesToCheck = ['Pokhara', 'Kathmandu1', 'Kathmandu2', 'Bhairawaha'];
+        }
+        
+        if (branchesToCheck.length === 0) {
+          branchesToCheck = ['Pokhara'];
+        }
+        
         let totalCapacity = 0;
-        const branchesToCheck = user?.branches || ['Pokhara', 'Kathmandu1', 'Kathmandu2', 'Bhairawaha'];
         for (const b of branchesToCheck) {
           try {
             const capacityRes = await fetch(`${API_URL}/room-capacity/branch/${b}`, {
@@ -1105,7 +1223,7 @@ export default function DashboardPage() {
         }
         capacityTotal = totalCapacity > 0 ? totalCapacity : 65;
         setTotalRooms(capacityTotal);
-        console.log('🏨 Total capacity across all branches:', capacityTotal);
+        console.log('🏨 Total capacity:', capacityTotal);
       }
 
       calculateStats(bookings, capacityTotal);
@@ -1684,6 +1802,9 @@ export default function DashboardPage() {
   // ✅ Get filtered branches for viewer
   const getAvailableBranches = () => {
     if (isViewer) {
+      return user?.branches || [];
+    }
+    if (isManager) {
       return user?.branches || [];
     }
     return branches;
@@ -2574,7 +2695,7 @@ export default function DashboardPage() {
             </div>
           )}
 
-          {/* ✅ Quick Actions - Only Auto Check-in and Auto Checkout with Branch Display */}
+          {/* Quick Actions */}
           <div className="grid grid-cols-2 xs:grid-cols-4 gap-2 sm:gap-4">
             {isOwner || isManager ? (
               <>
