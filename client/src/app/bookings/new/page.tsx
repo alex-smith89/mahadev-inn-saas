@@ -64,15 +64,16 @@ export default function NewBookingPage() {
     roomType: 'Single',
     roomsCount: 1,
     heads: 1,
+    childrenBelow10: 0, // ✅ Children below 10 (no charges by default)
     mealPlan: MEAL_PLANS[0],
     facility: '',
     checkIn: '',
     checkOut: '',
     bookingStatus: 'Confirm',
     remark: '',
-    // ✅ NEW: Kitchen and Dining Charges fields
     kitchenCharges: 0,
     diningCharges: 0,
+    breakfastCharges: 0, // ✅ Breakfast charges (if made)
   });
 
   const [costBreakdown, setCostBreakdown] = useState({
@@ -83,6 +84,7 @@ export default function NewBookingPage() {
     extraCostNPR: 0,
     kitchenChargesNPR: 0,
     diningChargesNPR: 0,
+    breakfastChargesNPR: 0,
     subtotalNPR: 0,
     vatAmountNPR: 0,
     totalNPR: 0,
@@ -90,6 +92,7 @@ export default function NewBookingPage() {
     roomCapacity: 0,
     totalCapacity: 0,
     extraPersons: 0,
+    childrenBelow10: 0,
   });
 
   const normalizeBranchName = (branchName: string) => {
@@ -131,7 +134,6 @@ export default function NewBookingPage() {
         const userData = JSON.parse(userStr);
         setCurrentUser(userData);
         
-        // Set user roles
         setIsOwner(userData.role === 'OWNER');
         setIsManager(userData.role === 'MANAGER');
         setIsViewer(userData.role === 'VIEWER');
@@ -157,8 +159,6 @@ export default function NewBookingPage() {
 
         const savedBranch = localStorage.getItem('selectedBranch');
 
-        // For MANAGER: Allow selecting any branch they have access to
-        // For OWNER: Allow selecting any branch
         if (userData.role === 'OWNER' || userData.role === 'MANAGER') {
           if (savedBranch && savedBranch !== 'all' && userBranches.includes(savedBranch)) {
             setForm((prev) => ({ ...prev, branch: savedBranch }));
@@ -249,17 +249,27 @@ export default function NewBookingPage() {
 
     const roomsCount = Number(form.roomsCount) || 0;
     const heads = Number(form.heads) || 1;
+    const childrenBelow10 = Number(form.childrenBelow10) || 0;
+    
+    // ✅ Children below 10 are NOT counted in extra persons (no charges)
+    // Only adults (heads) count towards room capacity
+    const adults = heads - childrenBelow10; // ✅ Adults only
     
     const roomCapacity = ROOM_CAPACITY[form.roomType] || 1;
     const totalCapacity = roomCapacity * roomsCount;
-    const extraPersons = Math.max(0, heads - totalCapacity);
+    
+    // ✅ Extra persons are ONLY for adults exceeding capacity
+    // Children below 10 have NO charges by default
+    const extraPersons = Math.max(0, adults - totalCapacity);
     
     // ✅ Calculate charges
     const baseCostNPR = roomPriceNPR * roomsCount * nights;
     const extraCostNPR = extraPersonPriceNPR * extraPersons * nights;
     const kitchenChargesNPR = Number(form.kitchenCharges) || 0;
     const diningChargesNPR = Number(form.diningCharges) || 0;
-    const subtotalNPR = baseCostNPR + extraCostNPR + kitchenChargesNPR + diningChargesNPR;
+    const breakfastChargesNPR = Number(form.breakfastCharges) || 0; // ✅ Breakfast charges if made
+    
+    const subtotalNPR = baseCostNPR + extraCostNPR + kitchenChargesNPR + diningChargesNPR + breakfastChargesNPR;
     const vatAmountNPR = subtotalNPR * VAT_RATE;
     const totalNPR = subtotalNPR + vatAmountNPR;
     const totalINR = totalNPR * NPR_TO_INR;
@@ -272,6 +282,7 @@ export default function NewBookingPage() {
       extraCostNPR,
       kitchenChargesNPR,
       diningChargesNPR,
+      breakfastChargesNPR,
       subtotalNPR,
       vatAmountNPR,
       totalNPR,
@@ -279,22 +290,15 @@ export default function NewBookingPage() {
       roomCapacity,
       totalCapacity,
       extraPersons,
+      childrenBelow10,
     });
-  }, [pricing, form.roomType, form.roomsCount, form.heads, form.checkIn, form.checkOut, form.kitchenCharges, form.diningCharges]);
+  }, [pricing, form.roomType, form.roomsCount, form.heads, form.childrenBelow10, form.checkIn, form.checkOut, form.kitchenCharges, form.diningCharges, form.breakfastCharges]);
 
   const handleChange = (
     e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>
   ) => {
     const { name, value } = e.target;
     setForm((prev) => ({ ...prev, [name]: value }));
-  };
-
-  const formatCurrency = (amountNPR: number, currency: string = 'NPR') => {
-    if (currency === 'INR') {
-      const amountINR = amountNPR * NPR_TO_INR;
-      return `Rs. ${amountINR.toLocaleString('en-IN', { maximumFractionDigits: 0 })}`;
-    }
-    return `Rs. ${amountNPR.toLocaleString('en-IN', { maximumFractionDigits: 0 })}`;
   };
 
   const fmtNPR = (n: number) => `Rs. ${n.toLocaleString('en-IN', { maximumFractionDigits: 0 })}`;
@@ -322,6 +326,13 @@ export default function NewBookingPage() {
     if (Number(form.roomsCount) < 1) return 'Rooms count must be at least 1.';
     if (Number(form.heads) < 1) return 'Heads must be at least 1.';
     
+    // ✅ Children below 10 cannot exceed total heads
+    const childrenBelow10 = Number(form.childrenBelow10) || 0;
+    const heads = Number(form.heads) || 1;
+    if (childrenBelow10 > heads) {
+      return 'Children below 10 cannot exceed total heads.';
+    }
+    
     const minHeads = Number(form.roomsCount);
     if (Number(form.heads) < minHeads) {
       return `Heads must be at least ${minHeads} (1 person per room).`;
@@ -330,7 +341,7 @@ export default function NewBookingPage() {
     return '';
   };
 
-  // Clean Professional PDF Receipt - With Full Price Summary
+  // Generate PDF Receipt
   const generateReceiptPDF = (booking: any) => {
     const doc = new jsPDF({
       orientation: 'portrait',
@@ -340,16 +351,12 @@ export default function NewBookingPage() {
     });
     
     const pageWidth = doc.internal.pageSize.getWidth();
-    const pageHeight = doc.internal.pageSize.getHeight();
-    
     let y = 15;
     
-    // ===== HEADER =====
-    // Decorative top border
+    // Header
     doc.setFillColor(79, 70, 229);
     doc.rect(0, 0, pageWidth, 4, 'F');
     
-    // Hotel Name
     doc.setTextColor(79, 70, 229);
     doc.setFontSize(22);
     doc.setFont('helvetica', 'bold');
@@ -366,27 +373,15 @@ export default function NewBookingPage() {
     doc.setFontSize(9);
     doc.setFont('helvetica', 'normal');
     doc.text(`Branch: ${booking.branch || 'Pokhara'}`, pageWidth / 2, y, { align: 'center' });
-    y += 5;
-    
-    doc.setTextColor(156, 163, 175);
-    doc.setFontSize(7);
-    doc.setFont('helvetica', 'normal');
-    const dateStr = new Date().toLocaleDateString('en-US', {
-      weekday: 'long',
-      year: 'numeric',
-      month: 'long',
-      day: 'numeric'
-    });
-    doc.text(`Generated on: ${dateStr}`, pageWidth / 2, y, { align: 'center' });
     y += 8;
     
-    // Decorative divider
+    // Divider
     doc.setDrawColor(79, 70, 229);
     doc.setLineWidth(0.3);
     doc.line(25, y, pageWidth - 25, y);
     y += 8;
     
-    // ===== BOOKING DETAILS =====
+    // Booking Details
     doc.setFillColor(245, 245, 255);
     doc.rect(20, y - 2, pageWidth - 40, 8, 'F');
     doc.setTextColor(79, 70, 229);
@@ -404,12 +399,10 @@ export default function NewBookingPage() {
         doc.setFillColor(255, 247, 237);
         doc.rect(25, y - 1, pageWidth - 50, rowHeight, 'F');
       }
-      
       doc.setTextColor(107, 114, 128);
       doc.setFontSize(8);
       doc.setFont('helvetica', 'bold');
       doc.text(label + ':', leftCol, y + 2);
-      
       doc.setTextColor(31, 41, 55);
       doc.setFontSize(9);
       doc.setFont('helvetica', 'normal');
@@ -418,29 +411,6 @@ export default function NewBookingPage() {
     };
     
     addRow('Booking No', '#' + (booking.bookingNo || 'N/A'), false);
-    
-    // Status with color
-    const status = booking.bookingStatus || 'Pending';
-    const isConfirmed = status === 'Confirm' || status === 'Confirmed';
-    doc.setTextColor(107, 114, 128);
-    doc.setFontSize(8);
-    doc.setFont('helvetica', 'bold');
-    doc.text('Status:', leftCol, y + 2);
-    
-    doc.setFontSize(9);
-    doc.setFont('helvetica', 'bold');
-    if (isConfirmed) {
-      doc.setTextColor(34, 197, 94);
-      doc.text('CONFIRMED', rightCol, y + 2);
-    } else if (status === 'Pending') {
-      doc.setTextColor(234, 179, 8);
-      doc.text('PENDING', rightCol, y + 2);
-    } else {
-      doc.setTextColor(107, 114, 128);
-      doc.text(status, rightCol, y + 2);
-    }
-    y += rowHeight;
-    
     addRow('Guest Name', booking.agentName || 'N/A', true);
     addRow('Contact', booking.agentContact || 'N/A');
     addRow('Email', booking.email || 'N/A');
@@ -462,63 +432,13 @@ export default function NewBookingPage() {
     addRow('Check-Out', checkOutStr);
     addRow('Rooms', `${booking.roomsCount || 1} (${booking.roomType || 'Single'})`);
     addRow('Nights', String(costBreakdown.nights || 0));
-    addRow('Heads', String(booking.heads || Number(booking.roomsCount) || 1));
-    addRow('Room Capacity', `${costBreakdown.roomCapacity} per room`);
-    addRow('Total Capacity', String(costBreakdown.totalCapacity || 0));
+    addRow('Total Heads', String(booking.heads || 1));
+    addRow('Children Below 10', String(costBreakdown.childrenBelow10 || 0));
+    addRow('Extra Persons', String(costBreakdown.extraPersons || 0));
     
     y += 2;
     
-    // ===== COST BREAKDOWN =====
-    doc.setDrawColor(200, 200, 200);
-    doc.setLineWidth(0.2);
-    doc.line(25, y, pageWidth - 25, y);
-    y += 6;
-    
-    doc.setFillColor(245, 245, 255);
-    doc.rect(20, y - 2, pageWidth - 40, 8, 'F');
-    doc.setTextColor(79, 70, 229);
-    doc.setFontSize(10);
-    doc.setFont('helvetica', 'bold');
-    doc.text('COST BREAKDOWN', 25, y + 3);
-    y += 9;
-    
-    // Table Header
-    doc.setFillColor(79, 70, 229);
-    doc.rect(25, y - 1, pageWidth - 50, 6, 'F');
-    doc.setTextColor(255, 255, 255);
-    doc.setFontSize(7);
-    doc.setFont('helvetica', 'bold');
-    doc.text('Description', 30, y + 2);
-    doc.text('Details', 110, y + 2);
-    y += 8;
-    
-    const tableItems = [
-      { label: 'Room Type', value: booking.roomType || 'Single' },
-      { label: 'Rooms Booked', value: String(booking.roomsCount || 1) },
-      { label: 'Total Heads', value: String(booking.heads || 1) },
-      { label: 'Extra Persons', value: String(costBreakdown.extraPersons || 0) },
-      { label: 'Facility', value: booking.facility || 'Standard' },
-      { label: 'Meal Plan', value: booking.mealPlan || 'EP' },
-      { label: 'Remarks', value: booking.remark || 'None' },
-    ];
-    
-    tableItems.forEach((item, index) => {
-      if (index % 2 === 0) {
-        doc.setFillColor(250, 250, 255);
-        doc.rect(25, y - 1, pageWidth - 50, 6, 'F');
-      }
-      
-      doc.setTextColor(31, 41, 55);
-      doc.setFontSize(7.5);
-      doc.setFont('helvetica', 'normal');
-      doc.text(item.label, 30, y + 2);
-      doc.text(item.value, 110, y + 2);
-      y += 7;
-    });
-    
-    y += 2;
-    
-    // ===== PRICE SUMMARY =====
+    // Price Summary
     doc.setDrawColor(200, 200, 200);
     doc.setLineWidth(0.2);
     doc.line(25, y, pageWidth - 25, y);
@@ -533,10 +453,9 @@ export default function NewBookingPage() {
     y += 9;
     
     const displayCurrency = selectedCurrency || 'NPR';
-    const currencySymbol = displayCurrency === 'INR' ? 'Rs.' : 'Rs.';
     const rate = displayCurrency === 'INR' ? NPR_TO_INR : 1;
     
-    // Room Charges (changed from Price)
+    // Room Charges
     doc.setTextColor(107, 114, 128);
     doc.setFontSize(8);
     doc.setFont('helvetica', 'bold');
@@ -545,24 +464,37 @@ export default function NewBookingPage() {
     doc.setFontSize(9);
     doc.setFont('helvetica', 'normal');
     const roomCharge = costBreakdown.baseCostNPR * rate;
-    doc.text(`${currencySymbol} ${roomCharge.toLocaleString('en-IN', { maximumFractionDigits: 0 })}`, 140, y + 2);
+    doc.text(`${displayCurrency === 'INR' ? '₹' : 'Rs.'} ${roomCharge.toLocaleString('en-IN', { maximumFractionDigits: 0 })}`, 140, y + 2);
     y += 7;
     
-    // Extra Person Charge (if any)
+    // Extra Person Charges
     if (costBreakdown.extraCostNPR > 0) {
       doc.setTextColor(107, 114, 128);
       doc.setFontSize(8);
       doc.setFont('helvetica', 'bold');
-      doc.text(`Extra Person (${costBreakdown.extraPersons} x ${costBreakdown.nights} nights):`, 35, y + 2);
+      doc.text(`Extra Person (${costBreakdown.extraPersons} × ${costBreakdown.nights} nights):`, 35, y + 2);
       doc.setTextColor(31, 41, 55);
       doc.setFontSize(9);
       doc.setFont('helvetica', 'normal');
       const extraCharge = costBreakdown.extraCostNPR * rate;
-      doc.text(`${currencySymbol} ${extraCharge.toLocaleString('en-IN', { maximumFractionDigits: 0 })}`, 140, y + 2);
+      doc.text(`${displayCurrency === 'INR' ? '₹' : 'Rs.'} ${extraCharge.toLocaleString('en-IN', { maximumFractionDigits: 0 })}`, 140, y + 2);
       y += 7;
     }
     
-    // ✅ Kitchen Charges (changed from Self Cooking)
+    // Children Below 10 - No Charges (show as free)
+    if (costBreakdown.childrenBelow10 > 0) {
+      doc.setTextColor(34, 197, 94);
+      doc.setFontSize(7);
+      doc.setFont('helvetica', 'bold');
+      doc.text(`👶 Children Below 10 (${costBreakdown.childrenBelow10}):`, 35, y + 2);
+      doc.setTextColor(34, 197, 94);
+      doc.setFontSize(9);
+      doc.setFont('helvetica', 'bold');
+      doc.text('FREE', 140, y + 2);
+      y += 7;
+    }
+    
+    // Kitchen Charges
     if (costBreakdown.kitchenChargesNPR > 0) {
       doc.setTextColor(107, 114, 128);
       doc.setFontSize(8);
@@ -572,11 +504,11 @@ export default function NewBookingPage() {
       doc.setFontSize(9);
       doc.setFont('helvetica', 'normal');
       const kitchenCharge = costBreakdown.kitchenChargesNPR * rate;
-      doc.text(`${currencySymbol} ${kitchenCharge.toLocaleString('en-IN', { maximumFractionDigits: 0 })}`, 140, y + 2);
+      doc.text(`${displayCurrency === 'INR' ? '₹' : 'Rs.'} ${kitchenCharge.toLocaleString('en-IN', { maximumFractionDigits: 0 })}`, 140, y + 2);
       y += 7;
     }
     
-    // ✅ Dining Charges
+    // Dining Charges
     if (costBreakdown.diningChargesNPR > 0) {
       doc.setTextColor(107, 114, 128);
       doc.setFontSize(8);
@@ -586,7 +518,21 @@ export default function NewBookingPage() {
       doc.setFontSize(9);
       doc.setFont('helvetica', 'normal');
       const diningCharge = costBreakdown.diningChargesNPR * rate;
-      doc.text(`${currencySymbol} ${diningCharge.toLocaleString('en-IN', { maximumFractionDigits: 0 })}`, 140, y + 2);
+      doc.text(`${displayCurrency === 'INR' ? '₹' : 'Rs.'} ${diningCharge.toLocaleString('en-IN', { maximumFractionDigits: 0 })}`, 140, y + 2);
+      y += 7;
+    }
+    
+    // Breakfast Charges
+    if (costBreakdown.breakfastChargesNPR > 0) {
+      doc.setTextColor(107, 114, 128);
+      doc.setFontSize(8);
+      doc.setFont('helvetica', 'bold');
+      doc.text('🍳 Breakfast Charges:', 35, y + 2);
+      doc.setTextColor(31, 41, 55);
+      doc.setFontSize(9);
+      doc.setFont('helvetica', 'normal');
+      const breakfastCharge = costBreakdown.breakfastChargesNPR * rate;
+      doc.text(`${displayCurrency === 'INR' ? '₹' : 'Rs.'} ${breakfastCharge.toLocaleString('en-IN', { maximumFractionDigits: 0 })}`, 140, y + 2);
       y += 7;
     }
     
@@ -604,7 +550,7 @@ export default function NewBookingPage() {
     doc.setFontSize(9);
     doc.setFont('helvetica', 'normal');
     const subtotal = costBreakdown.subtotalNPR * rate;
-    doc.text(`${currencySymbol} ${subtotal.toLocaleString('en-IN', { maximumFractionDigits: 0 })}`, 140, y + 2);
+    doc.text(`${displayCurrency === 'INR' ? '₹' : 'Rs.'} ${subtotal.toLocaleString('en-IN', { maximumFractionDigits: 0 })}`, 140, y + 2);
     y += 7;
     
     // VAT
@@ -616,7 +562,7 @@ export default function NewBookingPage() {
     doc.setFontSize(9);
     doc.setFont('helvetica', 'bold');
     const vat = costBreakdown.vatAmountNPR * rate;
-    doc.text(`${currencySymbol} ${vat.toLocaleString('en-IN', { maximumFractionDigits: 0 })}`, 140, y + 2);
+    doc.text(`${displayCurrency === 'INR' ? '₹' : 'Rs.'} ${vat.toLocaleString('en-IN', { maximumFractionDigits: 0 })}`, 140, y + 2);
     y += 7;
     
     // Divider
@@ -635,18 +581,10 @@ export default function NewBookingPage() {
     doc.text('TOTAL (incl. VAT)', 35, y + 4);
     
     const totalDisplay = (costBreakdown.totalNPR || 0) * rate;
-    doc.text(`${currencySymbol} ${totalDisplay.toLocaleString('en-IN', { maximumFractionDigits: 0 })}`, 140, y + 4);
+    doc.text(`${displayCurrency === 'INR' ? '₹' : 'Rs.'} ${totalDisplay.toLocaleString('en-IN', { maximumFractionDigits: 0 })}`, 140, y + 4);
     y += 10;
     
-    if (displayCurrency === 'INR') {
-      doc.setTextColor(156, 163, 175);
-      doc.setFontSize(6);
-      doc.setFont('helvetica', 'italic');
-      doc.text('* Exchange rate: 1 NPR = 1.6 INR', 35, y);
-      y += 5;
-    }
-    
-    // ===== FOOTER =====
+    // Footer
     y += 4;
     doc.setDrawColor(79, 70, 229);
     doc.setLineWidth(0.3);
@@ -663,24 +601,12 @@ export default function NewBookingPage() {
     doc.setFontSize(9);
     doc.setFont('helvetica', 'normal');
     doc.text('For choosing Mahadev Inn. We look forward to welcoming you!', pageWidth / 2, y, { align: 'center' });
-    y += 6;
-    
-    doc.setTextColor(156, 163, 175);
-    doc.setFontSize(6.5);
-    doc.setFont('helvetica', 'normal');
-    doc.text('Email: info@mahadevinn.com | Phone: +977-9800000000', pageWidth / 2, y, { align: 'center' });
-    y += 5;
-    
-    doc.setTextColor(200, 200, 200);
-    doc.setFontSize(5.5);
-    doc.setFont('helvetica', 'italic');
-    doc.text(`Generated by: ${booking.createdBy || 'System'} (${booking.createdByRole || 'User'})`, pageWidth / 2, y, { align: 'center' });
     
     const fileName = `Booking_${booking.bookingNo || 'booking'}_${new Date().toISOString().split('T')[0]}.pdf`;
     doc.save(fileName);
   };
 
-  // Handle Submit with PDF generation
+  // Handle Submit
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
@@ -701,7 +627,6 @@ export default function NewBookingPage() {
         return;
       }
 
-      // Check if user has permission to create bookings
       if (isViewer) {
         setError('❌ Viewers cannot create bookings. Please contact the owner for permission.');
         setLoading(false);
@@ -715,6 +640,7 @@ export default function NewBookingPage() {
       const vatAmountNPR = costBreakdown.vatAmountNPR;
       const subtotalNPR = costBreakdown.subtotalNPR;
       const extraPersons = costBreakdown.extraPersons;
+      const childrenBelow10 = Number(form.childrenBelow10) || 0;
 
       const bookingNo = `BKG-${Date.now().toString().slice(-5)}${Math.floor(Math.random() * 1000)}`;
       const currentTime = new Date().toISOString();
@@ -728,6 +654,7 @@ export default function NewBookingPage() {
         roomType: form.roomType,
         roomsCount: Number(form.roomsCount) || 1,
         heads: Number(form.heads) || 1,
+        childrenBelow10: childrenBelow10, // ✅ Added children below 10
         mealPlan: form.mealPlan,
         facility: form.facility.trim() || undefined,
         checkIn: currentTime,
@@ -736,9 +663,9 @@ export default function NewBookingPage() {
         roomCharges: roomCharges,
         extraPersonCharges: costBreakdown.extraCostNPR,
         extraPersons: extraPersons,
-        // ✅ Kitchen and Dining Charges
         kitchenCharges: Number(form.kitchenCharges) || 0,
         diningCharges: Number(form.diningCharges) || 0,
+        breakfastCharges: Number(form.breakfastCharges) || 0, // ✅ Added breakfast charges
         currency: selectedCurrency,
         subtotal: selectedCurrency === 'INR' ? subtotalNPR * NPR_TO_INR : subtotalNPR,
         vatAmount: selectedCurrency === 'INR' ? vatAmountNPR * NPR_TO_INR : vatAmountNPR,
@@ -758,13 +685,10 @@ export default function NewBookingPage() {
         branch: payload.branch,
         rooms: payload.roomsCount,
         heads: payload.heads,
+        childrenBelow10: payload.childrenBelow10,
         extraPersons: payload.extraPersons,
-        kitchenCharges: payload.kitchenCharges,
-        diningCharges: payload.diningCharges,
+        breakfastCharges: payload.breakfastCharges,
         total: payload.totalCost,
-        currency: payload.currency,
-        createdBy: payload.createdBy,
-        createdByRole: payload.createdByRole
       });
 
       const response = await fetch(`${API_URL}/bookings`, {
@@ -796,87 +720,19 @@ export default function NewBookingPage() {
           ? `₹ ${totalCostINR.toLocaleString('en-IN', { maximumFractionDigits: 0 })}`
           : `Rs. ${totalCostNPR.toLocaleString('en-IN', { maximumFractionDigits: 0 })}`;
 
-        const displayVAT = selectedCurrency === 'INR'
-          ? `₹ ${(vatAmountNPR * NPR_TO_INR).toLocaleString('en-IN', { maximumFractionDigits: 0 })}`
-          : `Rs. ${vatAmountNPR.toLocaleString('en-IN', { maximumFractionDigits: 0 })}`;
-
-        const extraPersonMsg = extraPersons > 0 
-          ? ` (${extraPersons} extra person(s) charged)` 
-          : '';
-
-        const kitchenMsg = Number(form.kitchenCharges) > 0 
-          ? ` 🍳 Kitchen: ${selectedCurrency === 'INR' ? `₹ ${(Number(form.kitchenCharges) * NPR_TO_INR).toLocaleString()}` : `Rs. ${Number(form.kitchenCharges).toLocaleString()}`}` 
-          : '';
-        
-        const diningMsg = Number(form.diningCharges) > 0 
-          ? ` 🍽️ Dining: ${selectedCurrency === 'INR' ? `₹ ${(Number(form.diningCharges) * NPR_TO_INR).toLocaleString()}` : `Rs. ${Number(form.diningCharges).toLocaleString()}`}` 
-          : '';
-
-        const roleMsg = isOwner ? 'Owner' : isManager ? 'Manager' : 'User';
+        const childrenMsg = childrenBelow10 > 0 ? ` 👶 ${childrenBelow10} children below 10 (FREE)` : '';
+        const breakfastMsg = Number(form.breakfastCharges) > 0 ? ` 🍳 Breakfast: ${selectedCurrency === 'INR' ? `₹ ${(Number(form.breakfastCharges) * NPR_TO_INR).toLocaleString()}` : `Rs. ${Number(form.breakfastCharges).toLocaleString()}`}` : '';
+        const extraPersonMsg = extraPersons > 0 ? ` (${extraPersons} extra person(s) charged)` : '';
 
         setSuccess(
-          booking.bookingStatus === 'Pending'
-            ? `✅ Booking request created by ${roleMsg} at ${timeStr}! Total: ${displayTotal} (incl. 13% VAT: ${displayVAT})${extraPersonMsg}${kitchenMsg}${diningMsg}`
-            : `✅ Booking confirmed by ${roleMsg} at ${timeStr}! Total: ${displayTotal} (incl. 13% VAT: ${displayVAT})${extraPersonMsg}${kitchenMsg}${diningMsg}`
+          `✅ Booking confirmed at ${timeStr}! Total: ${displayTotal} (incl. 13% VAT)${extraPersonMsg}${childrenMsg}${breakfastMsg}`
         );
 
-        // Generate Professional PDF
         generateReceiptPDF(booking);
 
-        // Clear all caches to ensure all users see the update
         localStorage.removeItem('bookings');
         localStorage.removeItem('allBookingsCache');
         localStorage.setItem('forceRefresh', Date.now().toString());
-        
-        // Dispatch event for all tabs and users
-        const eventDetail = {
-          branch: booking.branch,
-          bookingNo: booking.bookingNo,
-          agentName: booking.agentName,
-          timestamp: new Date().toISOString(),
-          notifiedUsers: notifiedUsersCount,
-          checkInTime: currentTime,
-          currency: selectedCurrency,
-          vatRate: '13%',
-          heads: payload.heads,
-          extraPersons: extraPersons,
-          kitchenCharges: payload.kitchenCharges,
-          diningCharges: payload.diningCharges,
-          createdBy: payload.createdBy,
-          createdByRole: payload.createdByRole
-        };
-        
-        // Dispatch custom event for same tab
-        window.dispatchEvent(new CustomEvent('bookingCreated', { detail: eventDetail }));
-        
-        // Store in localStorage for cross-tab communication
-        localStorage.setItem('bookingUpdated', JSON.stringify({
-          branch: booking.branch,
-          bookingNo: booking.bookingNo,
-          timestamp: Date.now(),
-          checkInTime: currentTime,
-          currency: selectedCurrency,
-          kitchenCharges: payload.kitchenCharges,
-          diningCharges: payload.diningCharges,
-          createdBy: payload.createdBy,
-          createdByRole: payload.createdByRole
-        }));
-        
-        // Force storage event for cross-tab
-        window.dispatchEvent(new StorageEvent('storage', {
-          key: 'bookingUpdated',
-          newValue: JSON.stringify({
-            branch: booking.branch,
-            bookingNo: booking.bookingNo,
-            timestamp: Date.now(),
-            checkInTime: currentTime,
-            currency: selectedCurrency,
-            kitchenCharges: payload.kitchenCharges,
-            diningCharges: payload.diningCharges,
-            createdBy: payload.createdBy,
-            createdByRole: payload.createdByRole
-          })
-        }));
 
         setBookingCreated(true);
         setRedirectCountdown(3);
@@ -887,26 +743,12 @@ export default function NewBookingPage() {
         router.push('/login');
       } else {
         let errorMessage = 'Failed to create booking. Please try again.';
-        
         try {
           const errorData = await response.json();
           errorMessage = errorData.message || errorData.error || errorMessage;
-          console.error('Server error details:', errorData);
-          
-          // Show specific error for permission issues
-          if (response.status === 403) {
-            if (errorData.userRole === 'VIEWER') {
-              errorMessage = 'Viewers cannot create bookings. Please contact the owner for permission.';
-            } else {
-              errorMessage = errorData.message || 'You do not have permission to create bookings.';
-            }
-          }
         } catch (parseError) {
           const text = await response.text();
-          if (text) {
-            errorMessage = text;
-            console.error('Server error text:', text);
-          }
+          if (text) errorMessage = text;
         }
         setError(`❌ Error ${response.status}: ${errorMessage}`);
       }
@@ -983,32 +825,13 @@ export default function NewBookingPage() {
                   👤 Created by: <strong>{currentUser?.username}</strong> ({isOwner ? 'Owner' : isManager ? 'Manager' : 'User'})
                 </p>
                 <p className="text-xs text-green-600 mt-1">
-                  💰 Currency: <strong>{selectedCurrency}</strong>
+                  👶 Children below 10: <strong>{form.childrenBelow10 || 0}</strong> (FREE)
                 </p>
-                <p className="text-xs text-green-600 mt-1">
-                  🧾 VAT: <strong>13%</strong> included in total
-                </p>
-                <p className="text-xs text-green-600 mt-1">
-                  👥 Heads: <strong>{form.heads}</strong> | Extra: <strong>{costBreakdown.extraPersons}</strong>
-                </p>
-                {Number(form.kitchenCharges) > 0 && (
+                {Number(form.breakfastCharges) > 0 && (
                   <p className="text-xs text-green-600 mt-1">
-                    🍳 Kitchen Charges: <strong>{selectedCurrency === 'INR' ? `₹ ${(Number(form.kitchenCharges) * NPR_TO_INR).toLocaleString()}` : `Rs. ${Number(form.kitchenCharges).toLocaleString()}`}</strong>
+                    🍳 Breakfast Charges: <strong>{selectedCurrency === 'INR' ? `₹ ${(Number(form.breakfastCharges) * NPR_TO_INR).toLocaleString()}` : `Rs. ${Number(form.breakfastCharges).toLocaleString()}`}</strong>
                   </p>
                 )}
-                {Number(form.diningCharges) > 0 && (
-                  <p className="text-xs text-green-600 mt-1">
-                    🍽️ Dining Charges: <strong>{selectedCurrency === 'INR' ? `₹ ${(Number(form.diningCharges) * NPR_TO_INR).toLocaleString()}` : `Rs. ${Number(form.diningCharges).toLocaleString()}`}</strong>
-                  </p>
-                )}
-                {notifiedUsers > 0 && (
-                  <p className="text-xs text-green-600 mt-1">
-                    🔔 {notifiedUsers} user(s) in this branch have been notified in real-time.
-                  </p>
-                )}
-                <p className="text-xs text-green-600 mt-1">
-                  🔄 All branch managers and owner will see this booking instantly.
-                </p>
                 <p className="text-xs text-green-600 mt-1">
                   ⏳ Redirecting to bookings list in {redirectCountdown} seconds...
                 </p>
@@ -1019,6 +842,7 @@ export default function NewBookingPage() {
 
         <form onSubmit={handleSubmit} className="bg-white rounded-xl shadow-sm p-4 sm:p-6 space-y-4">
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            {/* Guest Name */}
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
                 Guest Name <span className="text-red-500">*</span>
@@ -1034,6 +858,7 @@ export default function NewBookingPage() {
               />
             </div>
 
+            {/* Guest Email */}
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
                 Guest Email <span className="text-red-500">*</span>
@@ -1052,6 +877,7 @@ export default function NewBookingPage() {
               </p>
             </div>
 
+            {/* Contact Number */}
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
                 Contact Number <span className="text-red-500">*</span>
@@ -1078,6 +904,7 @@ export default function NewBookingPage() {
               </div>
             </div>
 
+            {/* Branch */}
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
                 Branch <span className="text-red-500">*</span>
@@ -1103,19 +930,9 @@ export default function NewBookingPage() {
                   ))}
                 </select>
               )}
-              <p className="text-[10px] text-gray-400 mt-1">
-                📍 All data will be stored in this branch only
-              </p>
-              {(isOwner || isManager) && (
-                <p className="text-[10px] text-green-600 mt-1">
-                  🔓 {isOwner ? 'Owner' : 'Manager'} can book for any branch
-                </p>
-              )}
-              <p className="text-[10px] text-green-600 mt-1">
-                🔔 All managers in this branch will be notified in real-time
-              </p>
             </div>
 
+            {/* Room Type */}
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Room Type</label>
               <select 
@@ -1129,11 +946,9 @@ export default function NewBookingPage() {
               <p className="text-[10px] text-gray-400 mt-1">
                 {pricingLoading ? 'Loading price…' : `Rate: ${fmtNPR(costBreakdown.roomPriceNPR)} / night`}
               </p>
-              <p className="text-[10px] text-gray-400 mt-1">
-                Capacity: {ROOM_CAPACITY[form.roomType] || 1} person(s) per room
-              </p>
             </div>
 
+            {/* Number of Rooms */}
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
                 Number of Rooms <span className="text-red-500">*</span>
@@ -1151,6 +966,7 @@ export default function NewBookingPage() {
               </p>
             </div>
 
+            {/* Total Heads */}
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
                 Total Heads <span className="text-red-500">*</span>
@@ -1166,19 +982,39 @@ export default function NewBookingPage() {
               <div className="text-[10px] mt-1">
                 {costBreakdown.extraPersons > 0 ? (
                   <span className="text-orange-600 font-medium">
-                    ⚠️ {costBreakdown.extraPersons} extra person(s) will be charged
+                    ⚠️ {costBreakdown.extraPersons} extra adult(s) will be charged
                   </span>
                 ) : (
                   <span className="text-green-600 font-medium">
-                    ✅ All {form.heads} person(s) accommodated in rooms
+                    ✅ All adults accommodated in rooms
                   </span>
                 )}
               </div>
-              <p className="text-[10px] text-gray-400 mt-1">
-                Extra person rate: {fmtNPR(costBreakdown.extraPersonPriceNPR)} per night
+            </div>
+
+            {/* ✅ Children Below 10 */}
+            <div className="bg-green-50 border border-green-200 rounded-lg p-3">
+              <label className="block text-sm font-medium text-green-800 mb-1">
+                👶 Children Below 10 <span className="text-green-600">(FREE)</span>
+              </label>
+              <input 
+                type="number" 
+                name="childrenBelow10" 
+                min={0} 
+                value={form.childrenBelow10} 
+                onChange={handleChange}
+                className="w-full border border-green-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-green-500 outline-none bg-white" 
+                placeholder="0" 
+              />
+              <p className="text-[10px] text-green-600 mt-1">
+                ✅ No charges for children below 10 years
+              </p>
+              <p className="text-[10px] text-green-600">
+                👶 {form.childrenBelow10 || 0} children will stay FREE
               </p>
             </div>
 
+            {/* Meal Plan */}
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Meal Plan</label>
               <select 
@@ -1191,6 +1027,7 @@ export default function NewBookingPage() {
               </select>
             </div>
 
+            {/* Check In Date */}
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
                 Check In Date <span className="text-red-500">*</span>
@@ -1203,20 +1040,12 @@ export default function NewBookingPage() {
                 required
                 className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-indigo-500 outline-none" 
               />
-              <div className="text-[10px] mt-1">
-                <span className="text-green-600 font-medium">
-                  🕐 Booking will be recorded at: {new Date().toLocaleTimeString('en-US', {
-                    hour: '2-digit',
-                    minute: '2-digit',
-                    hour12: true
-                  })}
-                </span>
-              </div>
               <p className="text-[10px] text-gray-400 mt-1">
                 📅 System will auto-checkin on this date
               </p>
             </div>
 
+            {/* Check Out Date */}
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
                 Check Out <span className="text-red-500">*</span>
@@ -1229,9 +1058,6 @@ export default function NewBookingPage() {
                 required
                 className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-indigo-500 outline-none" 
               />
-              <p className="text-[10px] text-gray-400 mt-1">
-                📅 System will send reminders and auto-checkout on this date
-              </p>
               {form.checkIn && form.checkOut && (
                 <p className="text-[10px] text-green-600 mt-1">
                   ✅ {costBreakdown.nights} night(s) stay
@@ -1239,6 +1065,7 @@ export default function NewBookingPage() {
               )}
             </div>
 
+            {/* Booking Status */}
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Booking Status</label>
               <select 
@@ -1252,6 +1079,7 @@ export default function NewBookingPage() {
               </select>
             </div>
 
+            {/* Facility */}
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Facility</label>
               <input 
@@ -1265,7 +1093,7 @@ export default function NewBookingPage() {
             </div>
           </div>
 
-          {/* ✅ Kitchen and Dining Charges */}
+          {/* Kitchen & Dining Charges */}
           <div className="border border-gray-200 rounded-lg p-4 bg-gray-50">
             <h4 className="text-sm font-semibold text-gray-700 mb-3">🍳 Kitchen & Dining Charges</h4>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -1282,9 +1110,6 @@ export default function NewBookingPage() {
                   className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-indigo-500 outline-none" 
                   placeholder="0" 
                 />
-                <p className="text-[10px] text-gray-400 mt-1">
-                  Additional charges for kitchen usage
-                </p>
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
@@ -1299,22 +1124,36 @@ export default function NewBookingPage() {
                   className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-indigo-500 outline-none" 
                   placeholder="0" 
                 />
-                <p className="text-[10px] text-gray-400 mt-1">
-                  Additional charges for dining services
-                </p>
               </div>
             </div>
-            {costBreakdown.kitchenChargesNPR > 0 || costBreakdown.diningChargesNPR > 0 ? (
-              <div className="mt-2 text-[10px] text-green-600">
-                ✅ Additional charges applied: 
-                {costBreakdown.kitchenChargesNPR > 0 && ` Kitchen: ${fmtNPR(costBreakdown.kitchenChargesNPR)}`}
-                {costBreakdown.diningChargesNPR > 0 && ` Dining: ${fmtNPR(costBreakdown.diningChargesNPR)}`}
-              </div>
-            ) : (
-              <div className="mt-2 text-[10px] text-gray-400">
-                💡 Add kitchen or dining charges if applicable
-              </div>
-            )}
+          </div>
+
+          {/* ✅ Breakfast Charges */}
+          <div className="border border-orange-200 rounded-lg p-4 bg-orange-50">
+            <h4 className="text-sm font-semibold text-orange-800 mb-2">🍳 Breakfast Charges</h4>
+            <p className="text-[10px] text-orange-600 mb-3">
+              Add breakfast charges if breakfast is provided to guests
+            </p>
+            <div>
+              <label className="block text-sm font-medium text-orange-700 mb-1">
+                Breakfast Charges (Total)
+              </label>
+              <input 
+                type="number" 
+                name="breakfastCharges" 
+                min={0} 
+                value={form.breakfastCharges} 
+                onChange={handleChange}
+                className="w-full border border-orange-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-orange-500 outline-none bg-white" 
+                placeholder="0" 
+              />
+              <p className="text-[10px] text-orange-600 mt-1">
+                💡 Enter total breakfast charges for all guests
+              </p>
+              <p className="text-[10px] text-orange-600">
+                👶 Children below 10 are FREE for breakfast (no charges)
+              </p>
+            </div>
           </div>
 
           {/* Currency Selection */}
@@ -1348,16 +1187,9 @@ export default function NewBookingPage() {
                 ))}
               </div>
             </div>
-            <div className="mt-2 text-[10px] text-purple-600">
-              {selectedCurrency === 'INR' ? (
-                <span>💱 Exchange rate: 1 NPR = {NPR_TO_INR} INR</span>
-              ) : (
-                <span>💱 Showing prices in Nepalese Rupees (NPR)</span>
-              )}
-            </div>
           </div>
 
-          {/* Price Summary with VAT and Head Count */}
+          {/* Price Summary */}
           <div className="bg-indigo-50 border border-indigo-100 rounded-lg p-4">
             <h4 className="text-sm font-semibold text-indigo-900 mb-2">💰 Price Summary (Auto-calculated)</h4>
             <div className="grid grid-cols-2 gap-y-1 text-xs text-gray-700">
@@ -1367,15 +1199,13 @@ export default function NewBookingPage() {
               <span className="text-right font-medium">{form.roomType}</span>
               <span>Rooms</span>
               <span className="text-right font-medium">{form.roomsCount}</span>
-              <span>Room Capacity</span>
-              <span className="text-right font-medium">{costBreakdown.roomCapacity} per room</span>
-              <span>Total Capacity</span>
-              <span className="text-right font-medium">{costBreakdown.totalCapacity}</span>
               <span>Total Heads</span>
               <span className="text-right font-medium">{form.heads}</span>
-              <span className="text-orange-600 font-medium">Extra Persons</span>
+              <span className="text-green-600 font-medium">👶 Children Below 10</span>
+              <span className="text-right text-green-600 font-medium">{costBreakdown.childrenBelow10} (FREE)</span>
+              <span className="text-orange-600 font-medium">Extra Adults</span>
               <span className="text-right text-orange-600 font-medium">{costBreakdown.extraPersons}</span>
-              <span>Room Charges ({form.roomsCount} × {costBreakdown.nights} nights)</span>
+              <span>Room Charges</span>
               <span className="text-right font-medium">
                 {selectedCurrency === 'INR' 
                   ? fmtNPR(costBreakdown.baseCostNPR * NPR_TO_INR)
@@ -1383,7 +1213,7 @@ export default function NewBookingPage() {
               </span>
               {costBreakdown.extraPersons > 0 && (
                 <>
-                  <span>Extra Person Charge ({costBreakdown.extraPersons} × {costBreakdown.nights} nights)</span>
+                  <span>Extra Person Charges</span>
                   <span className="text-right font-medium text-orange-600">
                     {selectedCurrency === 'INR'
                       ? fmtNPR(costBreakdown.extraCostNPR * NPR_TO_INR)
@@ -1393,7 +1223,7 @@ export default function NewBookingPage() {
               )}
               {costBreakdown.kitchenChargesNPR > 0 && (
                 <>
-                  <span>🍳 Kitchen Charges</span>
+                  <span>Kitchen Charges</span>
                   <span className="text-right font-medium">
                     {selectedCurrency === 'INR'
                       ? fmtNPR(costBreakdown.kitchenChargesNPR * NPR_TO_INR)
@@ -1403,11 +1233,21 @@ export default function NewBookingPage() {
               )}
               {costBreakdown.diningChargesNPR > 0 && (
                 <>
-                  <span>🍽️ Dining Charges</span>
+                  <span>Dining Charges</span>
                   <span className="text-right font-medium">
                     {selectedCurrency === 'INR'
                       ? fmtNPR(costBreakdown.diningChargesNPR * NPR_TO_INR)
                       : fmtNPR(costBreakdown.diningChargesNPR)}
+                  </span>
+                </>
+              )}
+              {costBreakdown.breakfastChargesNPR > 0 && (
+                <>
+                  <span>🍳 Breakfast Charges</span>
+                  <span className="text-right font-medium">
+                    {selectedCurrency === 'INR'
+                      ? fmtNPR(costBreakdown.breakfastChargesNPR * NPR_TO_INR)
+                      : fmtNPR(costBreakdown.breakfastChargesNPR)}
                   </span>
                 </>
               )}
@@ -1432,39 +1272,9 @@ export default function NewBookingPage() {
                   : fmtNPR(costBreakdown.totalNPR)}
               </span>
             </div>
-            <p className="text-[10px] text-gray-400 mt-2">Exchange rate used: 1 NPR = {NPR_TO_INR} INR</p>
-            
-            <div className="mt-3 pt-3 border-t border-indigo-200">
-              <p className="text-[10px] text-indigo-600 flex items-center gap-1">
-                <span>📍</span>
-                <span>This booking will be stored in: <strong>{displayBranchName}</strong></span>
-              </p>
-              <p className="text-[10px] text-indigo-600 flex items-center gap-1 mt-1">
-                <span>👤</span>
-                <span>Created by: <strong>{currentUser?.username}</strong> ({isOwner ? 'Owner' : isManager ? 'Manager' : 'User'})</span>
-              </p>
-              <p className="text-[10px] text-indigo-600 flex items-center gap-1 mt-1">
-                <span>🕐</span>
-                <span>Booking time: <strong>{new Date().toLocaleString('en-US', {
-                  month: 'short',
-                  day: 'numeric',
-                  year: 'numeric',
-                  hour: '2-digit',
-                  minute: '2-digit',
-                  hour12: true
-                })}</strong></span>
-              </p>
-              <p className="text-[10px] text-green-600 flex items-center gap-1 mt-1">
-                <span>🔔</span>
-                <span>Real-time: All managers in this branch will be notified instantly</span>
-              </p>
-              <p className="text-[10px] text-green-600 flex items-center gap-1 mt-1">
-                <span>🔄</span>
-                <span>All users will see this booking updated in real-time</span>
-              </p>
-            </div>
           </div>
 
+          {/* Remark */}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">Remark</label>
             <textarea 
