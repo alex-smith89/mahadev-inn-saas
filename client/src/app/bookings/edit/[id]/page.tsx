@@ -301,7 +301,7 @@ export default function EditBookingPage() {
     return '';
   };
 
-  // ✅ Format time for display
+  //  Format time for display
   const formatTimeDisplay = (dateString: string) => {
     if (!dateString) return 'N/A';
     const date = new Date(dateString);
@@ -316,7 +316,7 @@ export default function EditBookingPage() {
     });
   };
 
-  // ✅ Handle Submit - Updates time to current time
+  //  Handle Submit - Updates time to current time
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
@@ -337,7 +337,7 @@ export default function EditBookingPage() {
         return;
       }
 
-      // ✅ Get current time - THIS UPDATES THE BOOKING TIME
+      //  Get current time - THIS UPDATES THE BOOKING TIME
       const currentTime = new Date().toISOString();
 
       const payload = {
@@ -350,7 +350,7 @@ export default function EditBookingPage() {
         extraPersons: Number(form.extraPersons) || 0,
         mealPlan: form.mealPlan,
         facility: form.facility.trim() || undefined,
-        checkIn: currentTime, // ✅ Update to current time on edit
+        checkIn: currentTime, //  Update to current time on edit
         checkOut: form.checkOut,
         bookingStatus: form.bookingStatus,
         roomCharges: costBreakdown.baseCostNPR,
@@ -513,7 +513,7 @@ export default function EditBookingPage() {
           </div>
         )}
 
-        {/* ✅ Show current booking time */}
+        {/*  Show current booking time */}
         <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 mb-4">
           <div className="flex items-center gap-2 text-sm text-blue-700">
             <span>🕐</span>
