@@ -13,7 +13,7 @@ import {
   FiEdit2, FiUserCheck, FiBarChart2, FiActivity, FiGrid,
   FiInfo, FiBell, FiAlertCircle, FiCheck, FiCalendar, FiMail,
   FiCpu, FiSettings, FiZap, FiBellOff, FiEye, FiEyeOff,
-  FiMapPin, FiBriefcase, FiRadio, FiWatch
+  FiMapPin, FiBriefcase, FiRadio, FiWatch, FiSearch
 } from 'react-icons/fi';
 import {
   Chart as ChartJS,
@@ -62,6 +62,8 @@ export default function DashboardPage() {
   const [updateInterval, setUpdateInterval] = useState<NodeJS.Timeout | null>(null);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [toastType, setToastType] = useState<'success' | 'info' | 'warning'>('info');
+  
+  // ✅ Stats state
   const [stats, setStats] = useState({
     totalCustomers: 0,
     totalBookings: 0,
@@ -76,7 +78,15 @@ export default function DashboardPage() {
     pendingBookings: 0,
     confirmedBookings: 0,
   });
+
+  // ✅ Recent Bookings with search
   const [recentBookings, setRecentBookings] = useState<any[]>([]);
+  const [filteredBookings, setFilteredBookings] = useState<any[]>([]);
+  const [searchTerm, setSearchTerm] = useState('');
+  const [processingBookingId, setProcessingBookingId] = useState<string | null>(null);
+  const [successMessage, setSuccessMessage] = useState<string>('');
+  const [errorMessage, setErrorMessage] = useState<string>('');
+
   const [showProfileModal, setShowProfileModal] = useState(false);
   const [branchStats, setBranchStats] = useState<{[key: string]: {bookings: number, revenue: number, rooms: number}}>({});
   const [branches, setBranches] = useState<string[]>([]);
@@ -129,6 +139,43 @@ export default function DashboardPage() {
     setTimeout(() => setToastMessage(null), 5000);
   };
 
+  // ✅ Clear messages after timeout
+  useEffect(() => {
+    if (successMessage) {
+      const timer = setTimeout(() => setSuccessMessage(''), 5000);
+      return () => clearTimeout(timer);
+    }
+    if (errorMessage) {
+      const timer = setTimeout(() => setErrorMessage(''), 5000);
+      return () => clearTimeout(timer);
+    }
+  }, [successMessage, errorMessage]);
+
+  // ✅ Apply search filter
+  const applySearchFilter = () => {
+    if (!searchTerm || searchTerm.trim() === '') {
+      setFilteredBookings(recentBookings);
+      return;
+    }
+
+    const searchLower = searchTerm.toLowerCase().trim();
+    const filtered = recentBookings.filter((booking: any) => {
+      return (
+        booking.agentName?.toLowerCase().includes(searchLower) ||
+        booking.bookingNo?.toLowerCase().includes(searchLower) ||
+        booking.email?.toLowerCase().includes(searchLower) ||
+        booking.agentContact?.includes(searchLower) ||
+        booking.branch?.toLowerCase().includes(searchLower)
+      );
+    });
+    setFilteredBookings(filtered);
+  };
+
+  // ✅ Update filtered bookings when search term or recent bookings change
+  useEffect(() => {
+    applySearchFilter();
+  }, [searchTerm, recentBookings]);
+
   // ✅ Format check-in display
   const formatCheckInDisplay = (booking: any) => {
     if (!booking || !booking.checkIn) return 'N/A';
@@ -172,68 +219,99 @@ export default function DashboardPage() {
     return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
   };
 
-  // ✅ Get check-in time color
-  const getCheckInTimeColor = (booking: any) => {
-    if (!booking || !booking.checkIn) return 'text-gray-400';
-    
-    const checkInDate = new Date(booking.checkIn);
-    if (isNaN(checkInDate.getTime())) return 'text-gray-400';
-    
-    const now = new Date();
-    const diffMs = now.getTime() - checkInDate.getTime();
-    const diffMinutes = diffMs / (1000 * 60);
-    const isToday = checkInDate.toDateString() === now.toDateString();
-    
-    if (diffMinutes < 60) return 'text-green-600 font-semibold';
-    if (isToday) return 'text-blue-600 font-medium';
-    
-    return 'text-gray-600';
+  // ✅ Check if check-in button should be visible
+  const canCheckIn = (booking: any): boolean => {
+    return booking.bookingStatus === 'Confirm' || 
+           booking.bookingStatus === 'Confirmed' || 
+           booking.bookingStatus === 'New' ||
+           booking.bookingStatus === 'Pending';
   };
 
-  // ✅ Check if booking is recent (within last hour)
-  const isRecentBooking = (dateString: string) => {
-    if (!dateString) return false;
-    const date = new Date(dateString);
-    if (isNaN(date.getTime())) return false;
-    const now = new Date();
-    const diffMs = now.getTime() - date.getTime();
-    return diffMs < (1000 * 60 * 60);
+  // ✅ Check if check-out button should be visible
+  const canCheckOut = (booking: any): boolean => {
+    return booking.bookingStatus === 'CheckedIn';
   };
 
-  // ✅ Check if booking is from today
-  const isTodayBooking = (dateString: string) => {
-    if (!dateString) return false;
-    const date = new Date(dateString);
-    if (isNaN(date.getTime())) return false;
-    const now = new Date();
-    return date.toDateString() === now.toDateString();
+  // ✅ ✅ INDIVIDUAL AUTO CHECK-IN
+  const handleIndividualCheckIn = async (bookingId: string) => {
+    if (!confirm('Are you sure you want to check in this guest?')) return;
+    
+    setProcessingBookingId(bookingId);
+    setErrorMessage('');
+    setSuccessMessage('');
+
+    try {
+      const token = localStorage.getItem('token');
+      const response = await fetch(`${API_URL}/bookings/${bookingId}/checkin`, {
+        method: 'PATCH',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.message || 'Failed to check in guest');
+      }
+
+      const data = await response.json();
+      console.log('✅ Guest checked in:', data);
+      
+      setSuccessMessage(`✅ ${data.data?.agentName || 'Guest'} checked in successfully!`);
+      showNotification(`✅ Guest checked in successfully!`, 'success');
+      
+      // Refresh all data
+      await refreshAllData();
+      
+    } catch (err: any) {
+      console.error('❌ Failed to check in guest:', err);
+      setErrorMessage(`❌ Failed to check in guest: ${err.message}`);
+      showNotification(`❌ Check-in failed: ${err.message}`, 'warning');
+    } finally {
+      setProcessingBookingId(null);
+    }
   };
 
-  // ✅ Sort today's check-ins by time
-  const getSortedTodayCheckins = (bookings: any[]) => {
-    return [...bookings].sort((a, b) => {
-      const timeA = new Date(a.checkIn).getTime();
-      const timeB = new Date(b.checkIn).getTime();
-      return timeA - timeB;
-    });
-  };
+  // ✅ ✅ INDIVIDUAL AUTO CHECK-OUT
+  const handleIndividualCheckOut = async (bookingId: string) => {
+    if (!confirm('Are you sure you want to check out this guest?')) return;
+    
+    setProcessingBookingId(bookingId);
+    setErrorMessage('');
+    setSuccessMessage('');
 
-  // ✅ Get full date and time string
-  const getFullDateTime = (dateString: string) => {
-    if (!dateString) return 'N/A';
-    const date = new Date(dateString);
-    const hasTime = date.getHours() !== 0 || date.getMinutes() !== 0;
-    const dateStr = date.toLocaleDateString('en-US', {
-      month: 'short',
-      day: 'numeric',
-      year: 'numeric'
-    });
-    const timeStr = hasTime ? date.toLocaleTimeString('en-US', {
-      hour: '2-digit',
-      minute: '2-digit',
-      hour12: true
-    }) : '';
-    return hasTime ? `${dateStr} ${timeStr}` : dateStr;
+    try {
+      const token = localStorage.getItem('token');
+      const response = await fetch(`${API_URL}/bookings/${bookingId}/checkout`, {
+        method: 'PATCH',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.message || 'Failed to check out guest');
+      }
+
+      const data = await response.json();
+      console.log('✅ Guest checked out:', data);
+      
+      setSuccessMessage(`✅ ${data.data?.agentName || 'Guest'} checked out successfully!`);
+      showNotification(`✅ Guest checked out successfully!`, 'success');
+      
+      // Refresh all data
+      await refreshAllData();
+      
+    } catch (err: any) {
+      console.error('❌ Failed to check out guest:', err);
+      setErrorMessage(`❌ Failed to check out guest: ${err.message}`);
+      showNotification(`❌ Check-out failed: ${err.message}`, 'warning');
+    } finally {
+      setProcessingBookingId(null);
+    }
   };
 
   // ✅ Normalize branch name function
@@ -329,7 +407,7 @@ export default function DashboardPage() {
     }
   };
 
-  // ✅ Load Today's Check-ins with time sorting
+  // ✅ Load Today's Check-ins
   const loadTodayCheckins = async () => {
     try {
       const token = localStorage.getItem('token');
@@ -379,165 +457,6 @@ export default function DashboardPage() {
       return;
     }
     router.push('/bookings/new');
-  };
-
-  // ✅ Run Auto Check-in Only
-  const runAutoCheckin = async () => {
-    try {
-      setAutomationRunning(true);
-      const token = localStorage.getItem('token');
-      
-      if (!token) {
-        alert('Please login first');
-        return;
-      }
-
-      const currentBranch = selectedBranch || user?.branches?.[0] || '';
-      
-      if (!currentBranch || currentBranch === 'all') {
-        alert('Please select a specific branch for auto check-in');
-        return;
-      }
-
-      console.log(`🔄 Running auto check-in for branch: ${currentBranch}`);
-
-      const response = await fetch(`${API_URL}/automation/checkin`, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ 
-          branch: currentBranch
-        }),
-      });
-
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.message || 'Failed to run check-in automation');
-      }
-
-      const data = await response.json();
-      console.log('Auto check-in response:', data);
-      
-      if (data.success) {
-        const checkedInCount = data.data?.checkedIn || 0;
-        const bookings = data.data?.bookings || [];
-        
-        let message = `✅ Auto Check-in Complete!\n\n`;
-        message += `Branch: ${currentBranch}\n`;
-        message += `Checked in: ${checkedInCount} guests\n`;
-        
-        if (bookings.length > 0) {
-          message += `\n📋 Checked-in guests:\n`;
-          bookings.forEach((b: any) => {
-            const checkInTime = new Date(b.checkIn).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true });
-            const checkInDate = new Date(b.checkIn).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
-            message += `  • ${b.agentName} (${b.bookingNo}) - ${b.branch} on ${checkInDate} at ${checkInTime}\n`;
-          });
-        }
-        
-        if (checkedInCount === 0) {
-          message += `\n📌 No guests to check in today at ${currentBranch}`;
-        }
-        
-        alert(message);
-        await refreshAllData();
-        
-        if (checkedInCount > 0) {
-          showNotification(`✅ ${checkedInCount} guest(s) checked in at ${currentBranch}`, 'success');
-        } else {
-          showNotification(`ℹ️ No guests to check in at ${currentBranch} today`, 'info');
-        }
-      } else {
-        throw new Error(data.message || 'Check-in automation failed');
-      }
-    } catch (err: any) {
-      console.error('Error running check-in:', err);
-      alert(`❌ Error: ${err.message}`);
-      showNotification(`❌ Check-in failed: ${err.message}`, 'warning');
-    } finally {
-      setAutomationRunning(false);
-    }
-  };
-
-  // ✅ Run Auto Check-out Only
-  const runAutoCheckout = async () => {
-    try {
-      setAutomationRunning(true);
-      const token = localStorage.getItem('token');
-      
-      if (!token) {
-        alert('Please login first');
-        return;
-      }
-
-      const currentBranch = selectedBranch || user?.branches?.[0] || '';
-      
-      if (!currentBranch || currentBranch === 'all') {
-        alert('Please select a specific branch for auto check-out');
-        return;
-      }
-
-      console.log(`🔄 Running auto check-out for branch: ${currentBranch}`);
-
-      const response = await fetch(`${API_URL}/automation/checkout`, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ 
-          branch: currentBranch
-        }),
-      });
-
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.message || 'Failed to run check-out automation');
-      }
-
-      const data = await response.json();
-      console.log('Auto check-out response:', data);
-      
-      if (data.success) {
-        const checkedOutCount = data.data?.checkedOut || 0;
-        const bookings = data.data?.bookings || [];
-        
-        let message = `✅ Auto Check-out Complete!\n\n`;
-        message += `Branch: ${currentBranch}\n`;
-        message += `Checked out: ${checkedOutCount} guests\n`;
-        
-        if (bookings.length > 0) {
-          message += `\n📋 Checked-out guests:\n`;
-          bookings.forEach((b: any) => {
-            const checkOutDate = new Date(b.checkOut).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
-            message += `  • ${b.agentName} (${b.bookingNo}) - ${b.branch} on ${checkOutDate}\n`;
-          });
-        }
-        
-        if (checkedOutCount === 0) {
-          message += `\n📌 No guests to check out today at ${currentBranch}`;
-        }
-        
-        alert(message);
-        await refreshAllData();
-        
-        if (checkedOutCount > 0) {
-          showNotification(`✅ ${checkedOutCount} guest(s) checked out at ${currentBranch}`, 'success');
-        } else {
-          showNotification(`ℹ️ No guests to check out at ${currentBranch} today`, 'info');
-        }
-      } else {
-        throw new Error(data.message || 'Check-out automation failed');
-      }
-    } catch (err: any) {
-      console.error('Error running check-out:', err);
-      alert(`❌ Error: ${err.message}`);
-      showNotification(`❌ Check-out failed: ${err.message}`, 'warning');
-    } finally {
-      setAutomationRunning(false);
-    }
   };
 
   // ✅ Refresh All Data
@@ -814,7 +733,62 @@ export default function DashboardPage() {
     };
   }, [selectedBranch, user]);
 
-  // ✅ loadDashboardData - FIXED for "All Branches"
+  // ✅ Get full date and time string
+  const getFullDateTime = (dateString: string) => {
+    if (!dateString) return 'N/A';
+    const date = new Date(dateString);
+    const hasTime = date.getHours() !== 0 || date.getMinutes() !== 0;
+    const dateStr = date.toLocaleDateString('en-US', {
+      month: 'short',
+      day: 'numeric',
+      year: 'numeric'
+    });
+    const timeStr = hasTime ? date.toLocaleTimeString('en-US', {
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: true
+    }) : '';
+    return hasTime ? `${dateStr} ${timeStr}` : dateStr;
+  };
+
+  // ✅ Get check-in time color
+  const getCheckInTimeColor = (booking: any) => {
+    if (!booking || !booking.checkIn) return 'text-gray-400';
+    
+    const checkInDate = new Date(booking.checkIn);
+    if (isNaN(checkInDate.getTime())) return 'text-gray-400';
+    
+    const now = new Date();
+    const diffMs = now.getTime() - checkInDate.getTime();
+    const diffMinutes = diffMs / (1000 * 60);
+    const isToday = checkInDate.toDateString() === now.toDateString();
+    
+    if (diffMinutes < 60) return 'text-green-600 font-semibold';
+    if (isToday) return 'text-blue-600 font-medium';
+    
+    return 'text-gray-600';
+  };
+
+  // ✅ Get sorted today's check-ins
+  const getSortedTodayCheckins = (bookings: any[]) => {
+    return [...bookings].sort((a, b) => {
+      const timeA = new Date(a.checkIn).getTime();
+      const timeB = new Date(b.checkIn).getTime();
+      return timeA - timeB;
+    });
+  };
+
+  // ✅ Check if booking is recent (within last hour)
+  const isRecentBooking = (dateString: string) => {
+    if (!dateString) return false;
+    const date = new Date(dateString);
+    if (isNaN(date.getTime())) return false;
+    const now = new Date();
+    const diffMs = now.getTime() - date.getTime();
+    return diffMs < (1000 * 60 * 60);
+  };
+
+  // ✅ loadDashboardData
   const loadDashboardData = async (forceRefresh = false) => {
     try {
       setRefreshing(true);
@@ -837,16 +811,15 @@ export default function DashboardPage() {
       // ✅ Determine branch to fetch
       let branchToFetch = '';
       
-      // ✅ For OWNER with 'all' selected, don't send any branch parameter
       if (selectedBranch && selectedBranch !== 'all' && selectedBranch !== 'undefined') {
         branchToFetch = selectedBranch;
       }
       
-      // For VIEWER, restrict to their branches
       if (isViewer) {
         const userBranches = user?.branches || [];
         if (userBranches.length === 0) {
           setRecentBookings([]);
+          setFilteredBookings([]);
           setStats({
             totalCustomers: 0,
             totalBookings: 0,
@@ -875,7 +848,6 @@ export default function DashboardPage() {
       let branchInfoData = null;
 
       try {
-        // ✅ Build URL - if branchToFetch is empty, don't add branch param (gets ALL bookings)
         let url = `${API_URL}/bookings`;
         if (branchToFetch) {
           url += `?branch=${branchToFetch}`;
@@ -895,9 +867,6 @@ export default function DashboardPage() {
         if (allBookingsResponse.ok) {
           const data = await allBookingsResponse.json();
           console.log('📥 Full API response received');
-          console.log('📥 Data structure:', Object.keys(data));
-          console.log('📥 Data.bookings count:', data.bookings?.length || 0);
-          console.log('📥 Data.data count:', data.data?.length || 0);
           
           if (data.branchInfo) {
             branchInfoData = data.branchInfo;
@@ -915,11 +884,9 @@ export default function DashboardPage() {
             console.log('📊 Branch status summary:', data.branchStatusSummary);
           }
           
-          // ✅ Get bookings from either 'bookings' or 'data' field
           let allBookings = data.bookings || data.data || [];
           console.log(`📋 Raw bookings from API:`, allBookings.length);
           
-          // ✅ If allBookings is empty, try to get from different response structure
           if (allBookings.length === 0 && data) {
             if (Array.isArray(data)) {
               allBookings = data;
@@ -1044,7 +1011,6 @@ export default function DashboardPage() {
       // ✅ If no bookings from API, try local storage
       if (bookings.length === 0) {
         try {
-          // Try to get from allBookingsCache first
           const cachedAllBookings = localStorage.getItem('allBookingsCache');
           if (cachedAllBookings) {
             const parsedCache = JSON.parse(cachedAllBookings);
@@ -1080,7 +1046,6 @@ export default function DashboardPage() {
             }
           }
           
-          // If still no bookings, try regular bookings cache
           if (bookings.length === 0) {
             const localBookings = JSON.parse(localStorage.getItem('bookings') || '[]');
             if (localBookings.length > 0) {
@@ -1186,7 +1151,6 @@ export default function DashboardPage() {
           setTotalRooms(65);
         }
       } else {
-        // For 'all branches' or when no branch selected
         let branchesToCheck: string[] = [];
         
         if (user?.role === 'OWNER') {
@@ -1232,6 +1196,7 @@ export default function DashboardPage() {
         return new Date(b.checkIn).getTime() - new Date(a.checkIn).getTime();
       });
       setRecentBookings(sortedBookings.slice(0, 10));
+      setFilteredBookings(sortedBookings.slice(0, 10));
       
       calculateChartData(bookings);
       calculateBranchStats(bookings);
@@ -1511,7 +1476,7 @@ export default function DashboardPage() {
     }
   };
 
-  // ✅ Format currency with NO decimals
+  // ✅ Format currency
   const formatCurrency = (amount: number) => {
     if (!amount || amount === 0) return 'Rs. 0';
     if (amount >= 100000) {
@@ -1725,31 +1690,6 @@ export default function DashboardPage() {
 
   const unreadCount = notifications.filter(n => !n.isRead).length;
 
-  if (loading) {
-    return (
-      <div className="flex justify-center items-center h-screen">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-indigo-600"></div>
-      </div>
-    );
-  }
-
-  if (!branches || branches.length === 0) {
-    return (
-      <div className="flex justify-center items-center h-screen">
-        <div className="text-center">
-          <h2 className="text-2xl font-bold text-red-600">No Branches Assigned</h2>
-          <p className="text-gray-600 mt-2">You don't have any branches assigned to your account.</p>
-          <button onClick={handleLogout} className="mt-4 bg-indigo-600 text-white px-4 py-2 rounded-lg hover:bg-indigo-700">
-            Logout
-          </button>
-        </div>
-      </div>
-    );
-  }
-
-  const displayBranchName = selectedBranch === 'all' ? 'All Branches' : selectedBranch;
-  const availableRoomsCount = stats.availableRooms || 0;
-
   // ✅ Calculate branch-wise monthly revenue
   const calculateBranchMonthlyRevenue = (branchName: string) => {
     const currentMonth = new Date().getMonth();
@@ -1810,15 +1750,41 @@ export default function DashboardPage() {
     return branches;
   };
 
+  if (loading) {
+    return (
+      <div className="flex justify-center items-center h-screen">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-indigo-600"></div>
+      </div>
+    );
+  }
+
+  if (!branches || branches.length === 0) {
+    return (
+      <div className="flex justify-center items-center h-screen">
+        <div className="text-center">
+          <h2 className="text-2xl font-bold text-red-600">No Branches Assigned</h2>
+          <p className="text-gray-600 mt-2">You don't have any branches assigned to your account.</p>
+          <button onClick={handleLogout} className="mt-4 bg-indigo-600 text-white px-4 py-2 rounded-lg hover:bg-indigo-700">
+            Logout
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  const displayBranchName = selectedBranch === 'all' ? 'All Branches' : selectedBranch;
+  const availableRoomsCount = stats.availableRooms || 0;
+
   return (
     <div className="flex h-screen bg-gray-50 overflow-hidden">
-      {/* Sidebar */}
+      {/* ✅ Sidebar - COMPLETE */}
       <div 
         className={`fixed inset-y-0 left-0 z-50 w-64 sm:w-72 bg-indigo-800 text-white transform transition-transform duration-300 ease-in-out ${
           sidebarOpen ? 'translate-x-0' : '-translate-x-full'
         } lg:translate-x-0 lg:relative lg:flex-shrink-0 overflow-y-auto`}
       >
         <div className="flex flex-col h-full">
+          {/* Sidebar Header */}
           <div className="flex items-center justify-between p-4 border-b border-indigo-700 bg-indigo-900/30">
             <div className="flex items-center space-x-3">
               <div className="relative w-10 h-10 sm:w-12 sm:h-12 flex-shrink-0">
@@ -1844,6 +1810,7 @@ export default function DashboardPage() {
             </button>
           </div>
 
+          {/* User Profile Section */}
           <div className="p-3 sm:p-4 border-b border-indigo-700">
             <div className="flex items-center space-x-3">
               <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-full bg-indigo-600 flex items-center justify-center flex-shrink-0">
@@ -1867,6 +1834,7 @@ export default function DashboardPage() {
             </div>
           </div>
 
+          {/* Navigation */}
           <nav className="flex-1 overflow-y-auto p-3 sm:p-4 space-y-1">
             <Link href="/dashboard" className="flex items-center space-x-3 px-3 sm:px-4 py-2.5 sm:py-3 rounded-lg bg-indigo-700 text-white transition-colors text-sm sm:text-base">
               <FiHome className="w-4 h-4 sm:w-5 sm:h-5 flex-shrink-0" />
@@ -1888,18 +1856,19 @@ export default function DashboardPage() {
               <span className="truncate">Download History</span>
             </Link>
 
+            {/* Owner-only links */}
             {user?.role === 'OWNER' && (
-              <Link href="/dashboard/room-pricing" className="flex items-center space-x-3 px-3 sm:px-4 py-2.5 sm:py-3 rounded-lg hover:bg-indigo-700 transition-colors text-sm sm:text-base">
-                <FiDollarSign className="w-4 h-4 sm:w-5 sm:h-5 flex-shrink-0" />
-                <span className="truncate">Room Pricing</span>
-              </Link>
-            )}
+              <>
+                <Link href="/dashboard/room-pricing" className="flex items-center space-x-3 px-3 sm:px-4 py-2.5 sm:py-3 rounded-lg hover:bg-indigo-700 transition-colors text-sm sm:text-base">
+                  <FiDollarSign className="w-4 h-4 sm:w-5 sm:h-5 flex-shrink-0" />
+                  <span className="truncate">Room Pricing</span>
+                </Link>
 
-            {user?.role === 'OWNER' && (
-              <Link href="/dashboard/room-capacity" className="flex items-center space-x-3 px-3 sm:px-4 py-2.5 sm:py-3 rounded-lg hover:bg-indigo-700 transition-colors text-sm sm:text-base">
-                <FiGrid className="w-4 h-4 sm:w-5 sm:h-5 flex-shrink-0" />
-                <span className="truncate">Room Capacity</span>
-              </Link>
+                <Link href="/dashboard/room-capacity" className="flex items-center space-x-3 px-3 sm:px-4 py-2.5 sm:py-3 rounded-lg hover:bg-indigo-700 transition-colors text-sm sm:text-base">
+                  <FiGrid className="w-4 h-4 sm:w-5 sm:h-5 flex-shrink-0" />
+                  <span className="truncate">Room Capacity</span>
+                </Link>
+              </>
             )}
             
             <Link href="/dashboard/reports" className="flex items-center space-x-3 px-3 sm:px-4 py-2.5 sm:py-3 rounded-lg hover:bg-indigo-700 transition-colors text-sm sm:text-base">
@@ -1908,6 +1877,7 @@ export default function DashboardPage() {
             </Link>
           </nav>
 
+          {/* Logout Button */}
           <div className="p-3 sm:p-4 border-t border-indigo-700">
             <button onClick={handleLogout} className="flex items-center space-x-3 px-3 sm:px-4 py-2.5 sm:py-3 w-full rounded-lg hover:bg-indigo-700 transition-colors text-sm sm:text-base">
               <FiLogOut className="w-4 h-4 sm:w-5 sm:h-5 flex-shrink-0" />
@@ -1960,19 +1930,16 @@ export default function DashboardPage() {
               </div>
             </div>
             <div className="flex items-center space-x-1 sm:space-x-4 flex-shrink-0">
-              {/* Branch Dropdown with viewer filtering */}
+              {/* Branch Dropdown */}
               <div className="relative">
                 <select
                   value={selectedBranch || (getAvailableBranches().length > 0 ? getAvailableBranches()[0] : '')}
                   onChange={(e) => handleBranchChange(e.target.value)}
                   className="text-xs sm:text-sm border-2 border-indigo-300 rounded-lg px-3 sm:px-4 py-1.5 sm:py-2 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition bg-white min-w-[120px] sm:min-w-[160px] font-medium text-gray-700 hover:border-indigo-400 cursor-pointer shadow-sm"
                 >
-                  {/* Owner and Manager can see "All Branches" option */}
                   {(isOwner || isManager) && (
                     <option value="all" className="font-bold text-indigo-600">🌐 All Branches</option>
                   )}
-                  
-                  {/* Branches - filtered for viewers */}
                   {getAvailableBranches().map((branch) => {
                     return (
                       <option key={branch} value={branch} className="py-1">
@@ -1984,11 +1951,6 @@ export default function DashboardPage() {
                     );
                   })}
                 </select>
-                <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-2 text-gray-700">
-                  <svg className="fill-current h-4 w-4" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20">
-                    <path d="M9.293 12.95l.707.707L15.657 8l-1.414-1.414L10 10.828 5.757 6.586 4.343 8z"/>
-                  </svg>
-                </div>
               </div>
 
               {/* Notification Bell */}
@@ -2087,11 +2049,7 @@ export default function DashboardPage() {
               </div>
 
               <button
-                onClick={() => {
-                  localStorage.removeItem('bookings');
-                  localStorage.removeItem('allBookingsCache');
-                  refreshAllData();
-                }}
+                onClick={refreshAllData}
                 disabled={refreshing}
                 className="bg-indigo-100 text-indigo-700 px-2 sm:px-3 py-1.5 sm:py-2 rounded-lg hover:bg-indigo-200 transition-colors flex items-center space-x-1 disabled:opacity-50"
               >
@@ -2290,7 +2248,7 @@ export default function DashboardPage() {
             </div>
           </div>
 
-          {/* Today's Check-ins with Full Date and Time */}
+          {/* Today's Check-ins */}
           {todayCheckins.length > 0 && (
             <div className="bg-white rounded-xl shadow-sm p-4 mb-4 border-l-4 border-green-500">
               <h3 className="text-sm font-semibold text-gray-800 mb-3 flex items-center">
@@ -2352,74 +2310,6 @@ export default function DashboardPage() {
             </div>
           )}
 
-          {/* Checkout Information Section */}
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
-            <div className="bg-white rounded-xl shadow-sm p-4 border-l-4 border-green-500">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm text-gray-500">Available Rooms</p>
-                  <p className="text-3xl font-bold text-green-600">{availableRoomsCount}</p>
-                  <p className="text-xs text-gray-400">Out of {totalRooms} total rooms</p>
-                </div>
-                <div className="w-12 h-12 bg-green-100 rounded-lg flex items-center justify-center">
-                  <FiHome className="w-6 h-6 text-green-500" />
-                </div>
-              </div>
-              <div className="mt-2 w-full bg-gray-200 rounded-full h-2">
-                <div 
-                  className="bg-green-500 h-2 rounded-full transition-all duration-500" 
-                  style={{ width: `${(availableRoomsCount / totalRooms) * 100}%` }}
-                />
-              </div>
-            </div>
-
-            <div className="bg-white rounded-xl shadow-sm p-4 border-l-4 border-blue-500">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm text-gray-500">Today's Checkouts</p>
-                  <p className="text-3xl font-bold text-blue-600">{checkedOutGuests.length}</p>
-                  <p className="text-xs text-gray-400">Guests checking out today</p>
-                </div>
-                <div className="w-12 h-12 bg-blue-100 rounded-lg flex items-center justify-center">
-                  <FiCheck className="w-6 h-6 text-blue-500" />
-                </div>
-              </div>
-              {checkedOutGuests.length > 0 && (
-                <div className="mt-2 text-xs text-gray-600">
-                  {checkedOutGuests.slice(0, 3).map((guest, index) => {
-                    const checkOutDate = new Date(guest.checkOut);
-                    const dateStr = checkOutDate.toLocaleDateString('en-US', {
-                      month: 'short',
-                      day: 'numeric',
-                      year: 'numeric'
-                    });
-                    return (
-                      <span key={index} className="inline-block bg-blue-50 px-2 py-1 rounded mr-1 mb-1">
-                        {guest.agentName} ({guest.roomType}) - {dateStr}
-                      </span>
-                    );
-                  })}
-                  {checkedOutGuests.length > 3 && (
-                    <span className="text-blue-500">+{checkedOutGuests.length - 3} more</span>
-                  )}
-                </div>
-              )}
-            </div>
-
-            <div className="bg-gradient-to-r from-purple-50 to-pink-50 rounded-xl shadow-sm p-4 border-l-4 border-purple-500">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm text-gray-500">Automation Status</p>
-                  <p className="text-2xl font-bold text-purple-600 flex items-center gap-2">
-                    <FiCpu className="w-5 h-5" />
-                    Active
-                  </p>
-                  <p className="text-xs text-gray-400">Auto check-in/out enabled</p>
-                </div>
-              </div>
-            </div>
-          </div>
-
           {/* Stats Cards */}
           <div className="grid grid-cols-1 xs:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-6 mb-4 sm:mb-6">
             <div className="bg-white rounded-xl shadow-sm p-3 sm:p-6 border-l-4 border-blue-500 hover:shadow-md transition-shadow">
@@ -2475,7 +2365,6 @@ export default function DashboardPage() {
               </div>
             </div>
 
-            {/* Revenue Card - Shows BRANCH-WISE monthly revenue */}
             <div className="bg-white rounded-xl shadow-sm p-3 sm:p-6 border-l-4 border-purple-500 hover:shadow-md transition-shadow">
               <div className="flex items-center justify-between">
                 <div className="min-w-0">
@@ -2593,22 +2482,67 @@ export default function DashboardPage() {
             </div>
           </div>
 
-          {/* Recent Bookings */}
+          {/* ✅ Updated Recent Bookings with Search Bar and Individual Check-In/Out */}
           {recentBookings.length > 0 && (
             <div className="bg-white rounded-xl shadow-sm p-3 sm:p-6 mb-4 sm:mb-6">
-              <div className="flex items-center justify-between mb-3 sm:mb-4 flex-wrap gap-2">
-                <h3 className="text-sm sm:text-lg font-semibold text-gray-800">📋 Recent Bookings</h3>
-                <div className="flex items-center gap-3 text-[10px] text-gray-400">
-                  <span className="flex items-center gap-1">
-                    <span className="w-2 h-2 bg-green-500 rounded-full inline-block animate-pulse"></span>
-                    Live: {lastUpdate || 'Waiting...'}
+              <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between mb-3 sm:mb-4 gap-3">
+                <h3 className="text-sm sm:text-lg font-semibold text-gray-800 flex items-center gap-2">
+                  📋 Recent Bookings
+                  <span className="text-xs font-normal text-gray-400">
+                    ({filteredBookings.length} shown)
                   </span>
-                  <span className="text-gray-300">|</span>
-                  <span className="text-green-600 font-medium">
-                    🕐 Latest: {recentBookings.length > 0 ? formatCheckInDisplay(recentBookings[0]) : 'No bookings'}
-                  </span>
+                </h3>
+                <div className="flex flex-col xs:flex-row items-start xs:items-center gap-2 w-full sm:w-auto">
+                  {/* ✅ Search Bar */}
+                  <div className="relative w-full sm:w-64">
+                    <FiSearch className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
+                    <input
+                      type="text"
+                      placeholder="🔍 Search guest, booking no..."
+                      value={searchTerm}
+                      onChange={(e) => setSearchTerm(e.target.value)}
+                      className="w-full pl-9 pr-3 py-1.5 sm:py-2 text-xs sm:text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition bg-white"
+                    />
+                    {searchTerm && (
+                      <button
+                        onClick={() => setSearchTerm('')}
+                        className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                      >
+                        <FiX className="w-4 h-4" />
+                      </button>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-3 text-[10px] text-gray-400 flex-shrink-0">
+                    <span className="flex items-center gap-1">
+                      <span className="w-2 h-2 bg-green-500 rounded-full inline-block animate-pulse"></span>
+                      Live: {lastUpdate || 'Waiting...'}
+                    </span>
+                    <span className="text-gray-300 hidden sm:inline">|</span>
+                    <span className="text-green-600 font-medium hidden sm:inline">
+                      🕐 Latest: {recentBookings.length > 0 ? formatCheckInDisplay(recentBookings[0]) : 'No bookings'}
+                    </span>
+                  </div>
                 </div>
               </div>
+
+              {/* Success/Error Messages */}
+              {successMessage && (
+                <div className="bg-green-50 border border-green-200 text-green-700 px-4 py-2 rounded-lg mb-3 text-sm flex items-center justify-between">
+                  <span>{successMessage}</span>
+                  <button onClick={() => setSuccessMessage('')} className="text-green-500 hover:text-green-700">
+                    <FiX className="w-4 h-4" />
+                  </button>
+                </div>
+              )}
+              {errorMessage && (
+                <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-2 rounded-lg mb-3 text-sm flex items-center justify-between">
+                  <span>{errorMessage}</span>
+                  <button onClick={() => setErrorMessage('')} className="text-red-500 hover:text-red-700">
+                    <FiX className="w-4 h-4" />
+                  </button>
+                </div>
+              )}
+
               <div className="overflow-x-auto -mx-3 sm:mx-0">
                 <table className="min-w-full divide-y divide-gray-200">
                   <thead className="bg-gray-50">
@@ -2618,11 +2552,12 @@ export default function DashboardPage() {
                       <th className="px-2 sm:px-4 py-1.5 sm:py-2 text-left text-[8px] sm:text-xs font-medium text-gray-500 uppercase hidden xs:table-cell">Branch</th>
                       <th className="px-2 sm:px-4 py-1.5 sm:py-2 text-left text-[8px] sm:text-xs font-medium text-gray-500 uppercase hidden sm:table-cell">Check-in Date & Time</th>
                       <th className="px-2 sm:px-4 py-1.5 sm:py-2 text-left text-[8px] sm:text-xs font-medium text-gray-500 uppercase">Status</th>
+                      <th className="px-2 sm:px-4 py-1.5 sm:py-2 text-left text-[8px] sm:text-xs font-medium text-gray-500 uppercase">Actions</th>
                       <th className="px-2 sm:px-4 py-1.5 sm:py-2 text-left text-[8px] sm:text-xs font-medium text-gray-500 uppercase hidden md:table-cell">Booked At</th>
                     </tr>
                   </thead>
                   <tbody className="bg-white divide-y divide-gray-200">
-                    {recentBookings.map((booking) => {
+                    {filteredBookings.map((booking) => {
                       const checkInDate = new Date(booking.checkIn);
                       const now = new Date();
                       const diffMs = now.getTime() - checkInDate.getTime();
@@ -2651,10 +2586,20 @@ export default function DashboardPage() {
                         hour12: true
                       });
                       
+                      // ✅ Show search match highlight
+                      const isMatch = searchTerm && (
+                        booking.agentName?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                        booking.bookingNo?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                        booking.email?.toLowerCase().includes(searchTerm.toLowerCase())
+                      );
+                      
                       return (
-                        <tr key={booking.id} className={`hover:bg-gray-50 transition-colors ${isRecent ? 'bg-green-50' : ''}`}>
+                        <tr key={booking.id} className={`hover:bg-gray-50 transition-colors ${isRecent ? 'bg-green-50' : ''} ${isMatch ? 'bg-yellow-50 border-l-4 border-yellow-400' : ''}`}>
                           <td className="px-2 sm:px-4 py-1.5 sm:py-2 text-[8px] sm:text-sm font-medium text-indigo-600 truncate max-w-[60px] sm:max-w-none">{booking.bookingNo}</td>
-                          <td className="px-2 sm:px-4 py-1.5 sm:py-2 text-[8px] sm:text-sm text-gray-900 truncate max-w-[60px] sm:max-w-none">{booking.agentName}</td>
+                          <td className="px-2 sm:px-4 py-1.5 sm:py-2 text-[8px] sm:text-sm text-gray-900 truncate max-w-[60px] sm:max-w-none">
+                            {booking.agentName}
+                            {isMatch && <span className="ml-1 text-[8px] text-yellow-600 bg-yellow-100 px-1 py-0.5 rounded">🔍</span>}
+                          </td>
                           <td className="px-2 sm:px-4 py-1.5 sm:py-2 text-[8px] sm:text-sm text-gray-500 hidden xs:table-cell truncate max-w-[60px]">{booking.branch || 'N/A'}</td>
                           <td className="px-2 sm:px-4 py-1.5 sm:py-2 text-[8px] sm:text-sm hidden sm:table-cell">
                             <span className={`${isRecent ? 'text-green-600 font-semibold' : isToday ? 'text-blue-600 font-medium' : 'text-gray-600'}`}>
@@ -2672,6 +2617,68 @@ export default function DashboardPage() {
                               {booking.bookingStatus === 'CheckedOut' ? '📤 CheckedOut' : booking.bookingStatus}
                             </span>
                           </td>
+                          <td className="px-2 sm:px-4 py-1.5 sm:py-2">
+                            <div className="flex items-center gap-1 sm:gap-2">
+                              {/* ✅ Individual Check-In Button */}
+                              {canCheckIn(booking) && (
+                                <button
+                                  onClick={() => handleIndividualCheckIn(booking.id)}
+                                  disabled={processingBookingId === booking.id}
+                                  className={`px-1.5 sm:px-3 py-0.5 sm:py-1 text-[8px] sm:text-xs font-medium rounded transition-colors flex items-center gap-0.5 sm:gap-1 whitespace-nowrap ${
+                                    processingBookingId === booking.id
+                                      ? 'bg-gray-400 cursor-not-allowed'
+                                      : 'bg-green-500 hover:bg-green-600 text-white'
+                                  }`}
+                                  title="Check in this guest"
+                                >
+                                  {processingBookingId === booking.id ? (
+                                    <>
+                                      <span className="animate-spin rounded-full h-2 w-2 sm:h-3 sm:w-3 border-b-2 border-white"></span>
+                                      <span className="hidden xs:inline">Processing...</span>
+                                    </>
+                                  ) : (
+                                    <>
+                                      <FiCheckCircle className="w-3 h-3 sm:w-4 sm:h-4" />
+                                      <span className="hidden xs:inline">Check-In</span>
+                                    </>
+                                  )}
+                                </button>
+                              )}
+
+                              {/* ✅ Individual Check-Out Button */}
+                              {canCheckOut(booking) && (
+                                <button
+                                  onClick={() => handleIndividualCheckOut(booking.id)}
+                                  disabled={processingBookingId === booking.id}
+                                  className={`px-1.5 sm:px-3 py-0.5 sm:py-1 text-[8px] sm:text-xs font-medium rounded transition-colors flex items-center gap-0.5 sm:gap-1 whitespace-nowrap ${
+                                    processingBookingId === booking.id
+                                      ? 'bg-gray-400 cursor-not-allowed'
+                                      : 'bg-blue-500 hover:bg-blue-600 text-white'
+                                  }`}
+                                  title="Check out this guest"
+                                >
+                                  {processingBookingId === booking.id ? (
+                                    <>
+                                      <span className="animate-spin rounded-full h-2 w-2 sm:h-3 sm:w-3 border-b-2 border-white"></span>
+                                      <span className="hidden xs:inline">Processing...</span>
+                                    </>
+                                  ) : (
+                                    <>
+                                      <FiClock className="w-3 h-3 sm:w-4 sm:h-4" />
+                                      <span className="hidden xs:inline">Check-Out</span>
+                                    </>
+                                  )}
+                                </button>
+                              )}
+
+                              {/* Status indicator for already checked out/cancelled */}
+                              {!canCheckIn(booking) && !canCheckOut(booking) && (
+                                <span className="text-[8px] sm:text-xs text-gray-400">
+                                  {booking.bookingStatus === 'CheckedOut' ? '✅ Done' : booking.bookingStatus === 'Cancelled' ? '❌ Cancelled' : '—'}
+                                </span>
+                              )}
+                            </div>
+                          </td>
                           <td className="px-2 sm:px-4 py-1.5 sm:py-2 text-[8px] sm:text-xs text-gray-400 hidden md:table-cell">
                             <span className="flex items-center gap-1">
                               {relativeTime}
@@ -2685,6 +2692,20 @@ export default function DashboardPage() {
                   </tbody>
                 </table>
               </div>
+
+              {/* Search results summary */}
+              {searchTerm && (
+                <div className="mt-3 text-center text-xs text-gray-500">
+                  Found {filteredBookings.length} booking(s) matching "{searchTerm}"
+                  <button
+                    onClick={() => setSearchTerm('')}
+                    className="ml-2 text-indigo-600 hover:text-indigo-800 font-medium"
+                  >
+                    Clear search
+                  </button>
+                </div>
+              )}
+
               {stats.totalBookings > 10 && (
                 <div className="mt-3 sm:mt-4 text-center">
                   <Link href="/bookings" className="text-indigo-600 hover:underline text-[10px] sm:text-sm">
@@ -2695,52 +2716,16 @@ export default function DashboardPage() {
             </div>
           )}
 
-          {/* Quick Actions */}
+          {/* ✅ QUICK ACTIONS - Only New Booking button remains */}
           <div className="grid grid-cols-2 xs:grid-cols-4 gap-2 sm:gap-4">
             {isOwner || isManager ? (
-              <>
-                <button
-                  onClick={handleNewBooking}
-                  className="bg-indigo-600 text-white rounded-xl shadow-sm p-2 sm:p-4 hover:bg-indigo-700 transition-colors text-center"
-                >
-                  <FiPlus className="w-4 h-4 sm:w-6 sm:h-6 mx-auto mb-1 sm:mb-2" />
-                  <p className="text-[10px] sm:text-sm font-medium">New Booking</p>
-                </button>
-                
-                <button
-                  onClick={runAutoCheckin}
-                  disabled={automationRunning || selectedBranch === 'all'}
-                  className={`text-white rounded-xl shadow-sm p-2 sm:p-4 transition-colors text-center ${
-                    selectedBranch === 'all' 
-                      ? 'bg-gray-400 cursor-not-allowed' 
-                      : 'bg-green-600 hover:bg-green-700'
-                  } disabled:opacity-50`}
-                  title={selectedBranch === 'all' ? 'Please select a specific branch' : `Process check-ins for ${displayBranchName}`}
-                >
-                  <FiCheckCircle className="w-4 h-4 sm:w-6 sm:h-6 mx-auto mb-1 sm:mb-2" />
-                  <p className="text-[10px] sm:text-sm font-medium">Auto Check-in</p>
-                  <p className="text-[8px] opacity-75">
-                    {selectedBranch === 'all' ? 'Select branch first' : displayBranchName}
-                  </p>
-                </button>
-                
-                <button
-                  onClick={runAutoCheckout}
-                  disabled={automationRunning || selectedBranch === 'all'}
-                  className={`text-white rounded-xl shadow-sm p-2 sm:p-4 transition-colors text-center ${
-                    selectedBranch === 'all' 
-                      ? 'bg-gray-400 cursor-not-allowed' 
-                      : 'bg-blue-600 hover:bg-blue-700'
-                  } disabled:opacity-50`}
-                  title={selectedBranch === 'all' ? 'Please select a specific branch' : `Process check-outs for ${displayBranchName}`}
-                >
-                  <FiClock className="w-4 h-4 sm:w-6 sm:h-6 mx-auto mb-1 sm:mb-2" />
-                  <p className="text-[10px] sm:text-sm font-medium">Auto Checkout</p>
-                  <p className="text-[8px] opacity-75">
-                    {selectedBranch === 'all' ? 'Select branch first' : displayBranchName}
-                  </p>
-                </button>
-              </>
+              <button
+                onClick={handleNewBooking}
+                className="bg-indigo-600 text-white rounded-xl shadow-sm p-2 sm:p-4 hover:bg-indigo-700 transition-colors text-center"
+              >
+                <FiPlus className="w-4 h-4 sm:w-6 sm:h-6 mx-auto mb-1 sm:mb-2" />
+                <p className="text-[10px] sm:text-sm font-medium">New Booking</p>
+              </button>
             ) : (
               <Link href="/dashboard/reports" className="bg-purple-600 text-white rounded-xl shadow-sm p-2 sm:p-4 hover:bg-purple-700 transition-colors text-center col-span-4">
                 <FiFileText className="w-4 h-4 sm:w-6 sm:h-6 mx-auto mb-1 sm:mb-2" />

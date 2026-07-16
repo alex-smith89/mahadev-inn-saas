@@ -81,13 +81,12 @@ export class BookingsController {
 
       this.logger.log(`✅ Booking created with ID: ${booking.id}, Booking No: ${booking.bookingNo}`);
 
-      // ✅ Send email confirmation to guest - FIXED duplicate condition
+      // ✅ Send email confirmation to guest
       let emailSent = false;
       let emailStatus = 'no_email';
       
       if (booking && booking.email) {
         try {
-          // ✅ Check if booking status is Pending
           if (booking.bookingStatus === 'Pending') {
             await this.emailService.sendBookingRequest(booking.email, booking);
             emailSent = true;
@@ -100,10 +99,8 @@ export class BookingsController {
             this.logger.log(`📧 Booking confirmation email sent to: ${booking.email}`);
           }
         } catch (emailError) {
-          // ✅ Don't fail the booking creation if email fails
           this.logger.error(`❌ Email sending failed: ${emailError.message}`);
           emailStatus = 'email_failed';
-          // You can optionally store the error for retry
         }
       } else {
         this.logger.warn(`⚠️ No email provided for booking ${booking.bookingNo}, skipping email`);
@@ -126,7 +123,6 @@ export class BookingsController {
         this.logger.error('❌ Audit log error:', auditError);
       }
 
-      // ✅ Return response with email status
       return {
         success: true,
         data: booking,
@@ -140,6 +136,122 @@ export class BookingsController {
     } catch (error) {
       this.logger.error('❌ Error creating booking:', error);
       throw error;
+    }
+  }
+
+  // ✅ ✅ INDIVIDUAL CHECK-IN - NEW ENDPOINT
+  @Patch(':id/checkin')
+  async checkInGuest(@Req() req: any, @Param('id') id: string) {
+    try {
+      const user = req.user;
+      
+      const existingBooking = await this.svc.prisma.booking.findUnique({
+        where: { id },
+      });
+
+      if (!existingBooking) {
+        throw new NotFoundException('Booking not found');
+      }
+
+      // Check permission
+      if (user.role === 'VIEWER') {
+        const userBranch = user.branches?.[0];
+        if (existingBooking.branch !== userBranch) {
+          throw new ForbiddenException('You cannot check in guest in this branch');
+        }
+      }
+
+      const booking = await this.svc.checkInGuest(id);
+
+      // Audit log
+      try {
+        await this.audit.log({
+          username: user.username || 'system',
+          branch: booking.branch,
+          action: 'CHECK_IN',
+          entity: 'Booking',
+          entityId: booking.id,
+          details: { 
+            guestName: booking.agentName, 
+            bookingNo: booking.bookingNo 
+          },
+          ip: req.ip || null,
+          userAgent: req.headers?.['user-agent'] || null,
+        });
+        this.logger.log(`✅ Audit log created for check-in: ${booking.bookingNo}`);
+      } catch (auditError) {
+        this.logger.error(`❌ Audit log error: ${auditError.message}`);
+      }
+
+      return {
+        success: true,
+        data: booking,
+        message: `Guest checked in successfully: ${booking.agentName} (${booking.bookingNo})`,
+      };
+    } catch (error) {
+      this.logger.error('❌ Error checking in guest:', error);
+      if (error instanceof NotFoundException || error instanceof ForbiddenException) {
+        throw error;
+      }
+      throw new InternalServerErrorException('Failed to check in guest');
+    }
+  }
+
+  // ✅ ✅ INDIVIDUAL CHECK-OUT - NEW ENDPOINT
+  @Patch(':id/checkout')
+  async checkOutGuest(@Req() req: any, @Param('id') id: string) {
+    try {
+      const user = req.user;
+      
+      const existingBooking = await this.svc.prisma.booking.findUnique({
+        where: { id },
+      });
+
+      if (!existingBooking) {
+        throw new NotFoundException('Booking not found');
+      }
+
+      // Check permission
+      if (user.role === 'VIEWER') {
+        const userBranch = user.branches?.[0];
+        if (existingBooking.branch !== userBranch) {
+          throw new ForbiddenException('You cannot check out guest in this branch');
+        }
+      }
+
+      const booking = await this.svc.checkOutGuest(id);
+
+      // Audit log
+      try {
+        await this.audit.log({
+          username: user.username || 'system',
+          branch: booking.branch,
+          action: 'CHECK_OUT',
+          entity: 'Booking',
+          entityId: booking.id,
+          details: { 
+            guestName: booking.agentName, 
+            bookingNo: booking.bookingNo 
+          },
+          ip: req.ip || null,
+          userAgent: req.headers?.['user-agent'] || null,
+        });
+        this.logger.log(`✅ Audit log created for check-out: ${booking.bookingNo}`);
+      } catch (auditError) {
+        this.logger.error(`❌ Audit log error: ${auditError.message}`);
+      }
+
+      return {
+        success: true,
+        data: booking,
+        message: `Guest checked out successfully: ${booking.agentName} (${booking.bookingNo})`,
+      };
+    } catch (error) {
+      this.logger.error('❌ Error checking out guest:', error);
+      if (error instanceof NotFoundException || error instanceof ForbiddenException) {
+        throw error;
+      }
+      throw new InternalServerErrorException('Failed to check out guest');
     }
   }
 

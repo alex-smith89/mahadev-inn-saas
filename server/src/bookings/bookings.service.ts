@@ -3,12 +3,16 @@ import { Injectable, BadRequestException, NotFoundException, ForbiddenException,
 import { Branch, Booking, BookingStatus, MealPlan } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { RoomTypeEnum } from '@prisma/client';
+import { NotificationService } from '../notification/notification.service';
 
 @Injectable()
 export class BookingsService {
   private readonly logger = new Logger(BookingsService.name);
 
-  constructor(public prisma: PrismaService) {}
+  constructor(
+    public prisma: PrismaService,
+    private notificationService: NotificationService,
+  ) {}
 
   private bookingNo(branch: Branch) {
     return `BKG-${Math.floor(10000 + Math.random() * 90000)}`;
@@ -42,6 +46,7 @@ export class BookingsService {
       roomsCount: data.roomsCount,
       checkIn: data.checkIn,
       checkOut: data.checkOut,
+      bookingStatus: data.bookingStatus || 'New',
     });
 
     // Validate contact format
@@ -68,12 +73,11 @@ export class BookingsService {
       if (!capacity) {
         this.logger.warn(`⚠️ No capacity record found for branch: ${data.branch}, skipping capacity check`);
       } else {
-        // Check overlapping bookings
         const overlapping = await this.prisma.booking.findMany({
           where: {
             branch: data.branch,
             roomType: data.roomType,
-            bookingStatus: { in: ['Confirm', 'Confirmed'] },
+            bookingStatus: { in: ['Confirm', 'Confirmed', 'CheckedIn'] },
             OR: [
               {
                 checkIn: { lte: checkOut },
@@ -114,7 +118,10 @@ export class BookingsService {
     const roomCharges = data.roomCharges || data.price || 0;
     const totalPrice = roomCharges * data.roomsCount * nights;
 
-    // ✅ Create booking with only fields that exist in schema
+    // ✅ Set default status to 'New' if not provided
+    const bookingStatus = data.bookingStatus || 'New';
+
+    // ✅ Create booking
     const booking = await this.prisma.booking.create({
       data: {
         bookingNo: this.bookingNo(data.branch),
@@ -131,7 +138,7 @@ export class BookingsService {
         nights,
         remark: data.remark ?? null,
         branch: data.branch,
-        bookingStatus: data.bookingStatus ?? 'Confirm',
+        bookingStatus: bookingStatus as BookingStatus,
         roomCharges: roomCharges,
         kitchenCharges: data.kitchenCharges || 0,
         diningCharges: data.diningCharges || 0,
@@ -144,7 +151,86 @@ export class BookingsService {
     });
 
     this.logger.log(`✅ Booking created with ID: ${booking.id} for branch: ${booking.branch}`);
+
+    // ✅ Create notification for the booking
+    await this.createBookingNotification(booking);
+
     return booking;
+  }
+
+  // ---------- CREATE NOTIFICATION FOR BOOKING ----------
+  private async createBookingNotification(booking: any) {
+    try {
+      this.logger.log(`📝 Creating notification for booking: ${booking.bookingNo}`);
+      this.logger.log(`   Status: ${booking.bookingStatus}`);
+      this.logger.log(`   Branch: ${booking.branch}`);
+
+      let title: string;
+      let message: string;
+      let type: string;
+
+      // Determine notification based on booking status
+      switch (booking.bookingStatus) {
+        case 'CheckedIn':
+          title = '✅ Guest Checked In';
+          message = `${booking.agentName} (${booking.bookingNo}) has checked in at ${booking.branch}.`;
+          type = 'checkin_success';
+          break;
+        case 'CheckedOut':
+          title = '📤 Guest Checked Out';
+          message = `${booking.agentName} (${booking.bookingNo}) has checked out from ${booking.branch}. Room is now vacant.`;
+          type = 'checkout_success';
+          break;
+        case 'New':
+          title = '📋 New Booking Created';
+          message = `${booking.agentName} (${booking.bookingNo}) has made a new booking at ${booking.branch}. Check-in: ${new Date(booking.checkIn).toLocaleDateString()}`;
+          type = 'booking_created';
+          break;
+        case 'Confirm':
+        case 'Confirmed':
+          title = '✅ Booking Confirmed';
+          message = `${booking.agentName} (${booking.bookingNo}) has confirmed booking at ${booking.branch}. Check-in: ${new Date(booking.checkIn).toLocaleDateString()}`;
+          type = 'booking_confirmed';
+          break;
+        case 'Pending':
+          title = '⏳ Booking Pending';
+          message = `${booking.agentName} (${booking.bookingNo}) has a pending booking at ${booking.branch}.`;
+          type = 'booking_pending';
+          break;
+        case 'Cancelled':
+          title = '❌ Booking Cancelled';
+          message = `${booking.agentName} (${booking.bookingNo}) has cancelled booking at ${booking.branch}.`;
+          type = 'booking_cancelled';
+          break;
+        default:
+          title = '📋 Booking Update';
+          message = `${booking.agentName} (${booking.bookingNo}) has a booking at ${booking.branch}.`;
+          type = 'booking_update';
+      }
+
+      // Create the notification
+      const notification = await this.prisma.notification.create({
+        data: {
+          title,
+          message,
+          branch: booking.branch,
+          bookingId: booking.id,
+          type,
+          isRead: false,
+          createdAt: new Date(),
+        },
+      });
+
+      this.logger.log(`✅ Notification created for ${booking.bookingNo}: ${type}`);
+      this.logger.log(`   Notification ID: ${notification.id}`);
+      this.logger.log(`   Title: ${notification.title}`);
+      this.logger.log(`   Message: ${notification.message}`);
+
+      return notification;
+    } catch (error) {
+      this.logger.error(`❌ Failed to create notification for ${booking.bookingNo}: ${error.message}`);
+      return null;
+    }
   }
 
   // ---------- UPDATE BOOKING ----------
@@ -160,7 +246,7 @@ export class BookingsService {
         throw new BadRequestException('Booking not found');
       }
 
-      // ✅ If only status update, skip all validation
+      // ✅ If only status update
       const keys = Object.keys(data);
       const isOnlyStatusUpdate = keys.length === 1 && keys[0] === 'bookingStatus';
       
@@ -172,6 +258,10 @@ export class BookingsService {
             bookingStatus: data.bookingStatus,
           },
         });
+
+        // ✅ Create notification for status change
+        await this.createBookingNotification(updated);
+
         return updated;
       }
 
@@ -272,9 +362,86 @@ export class BookingsService {
         },
       });
 
+      // ✅ Create notification for updated booking
+      await this.createBookingNotification(updated);
+
       return updated;
     } catch (error) {
       this.logger.error('❌ Error updating booking:', error);
+      throw error;
+    }
+  }
+
+  // ✅ ✅ MANUAL CHECK-IN
+  async checkInGuest(id: string): Promise<Booking> {
+    try {
+      const booking = await this.prisma.booking.findUnique({
+        where: { id },
+      });
+
+      if (!booking) {
+        throw new NotFoundException('Booking not found');
+      }
+
+      if (booking.bookingStatus === 'CheckedIn') {
+        throw new BadRequestException('Guest is already checked in');
+      }
+
+      if (booking.bookingStatus === 'CheckedOut') {
+        throw new BadRequestException('Guest has already checked out');
+      }
+
+      const updated = await this.prisma.booking.update({
+        where: { id },
+        data: {
+          bookingStatus: 'CheckedIn',
+          actualCheckIn: new Date(),
+          updatedAt: new Date(),
+        },
+      });
+
+      // Create check-in notification
+      await this.notificationService.createCheckinNotification(updated);
+      this.logger.log(`✅ Guest checked in: ${updated.bookingNo} - ${updated.agentName}`);
+
+      return updated;
+    } catch (error) {
+      this.logger.error('❌ Error checking in guest:', error);
+      throw error;
+    }
+  }
+
+  // ✅ ✅ MANUAL CHECK-OUT
+  async checkOutGuest(id: string): Promise<Booking> {
+    try {
+      const booking = await this.prisma.booking.findUnique({
+        where: { id },
+      });
+
+      if (!booking) {
+        throw new NotFoundException('Booking not found');
+      }
+
+      if (booking.bookingStatus === 'CheckedOut') {
+        throw new BadRequestException('Guest has already checked out');
+      }
+
+      const updated = await this.prisma.booking.update({
+        where: { id },
+        data: {
+          bookingStatus: 'CheckedOut',
+          actualCheckOut: new Date(),
+          updatedAt: new Date(),
+        },
+      });
+
+      // Create check-out notification
+      await this.notificationService.createCheckoutNotification(updated);
+      this.logger.log(`✅ Guest checked out: ${updated.bookingNo} - ${updated.agentName}`);
+
+      return updated;
+    } catch (error) {
+      this.logger.error('❌ Error checking out guest:', error);
       throw error;
     }
   }
@@ -324,20 +491,26 @@ export class BookingsService {
 
   // ---------- REMOVE BOOKING ----------
   async remove(id: string) {
-    const booking = await this.prisma.booking.findUnique({
-      where: { id },
-    });
+    try {
+      const booking = await this.prisma.booking.findUnique({
+        where: { id },
+      });
 
-    if (!booking) {
-      throw new NotFoundException('Booking not found');
+      if (!booking) {
+        throw new NotFoundException('Booking not found');
+      }
+
+      await this.prisma.booking.delete({ where: { id } });
+      this.logger.log(`🗑️ Booking deleted: ${booking.bookingNo}`);
+      return { message: 'Booking deleted successfully' };
+    } catch (error) {
+      this.logger.error('Error removing booking:', error);
+      throw error;
     }
-
-    await this.prisma.booking.delete({ where: { id } });
-    return { message: 'Booking deleted successfully' };
   }
 
   // ============================================================
-  // ✅ GET BOOKING STATS - With viewer branch filtering
+  // ✅ GET BOOKING STATS
   // ============================================================
   async getBookingStats(branch: string, user?: any) {
     try {
@@ -346,7 +519,6 @@ export class BookingsService {
       
       let where: any = {};
       
-      // ✅ If user is VIEWER, restrict to their branches
       if (user && user.role === 'VIEWER') {
         const userBranches = user.branches || [];
         if (userBranches.length === 0) {
@@ -416,12 +588,21 @@ export class BookingsService {
       };
     } catch (error) {
       this.logger.error('Error in getBookingStats:', error);
-      throw error;
+      return {
+        confirmed: 0,
+        pending: 0,
+        todayCheckIns: 0,
+        tomorrowCheckOuts: 0,
+        totalRevenue: 0,
+        totalCustomers: 0,
+        totalBookings: 0,
+        branch: branch || 'all',
+      };
     }
   }
 
   // ============================================================
-  // ✅ GET DASHBOARD STATS - With viewer branch filtering
+  // ✅ GET DASHBOARD STATS
   // ============================================================
   async getDashboardStats(branch: string, user?: any) {
     try {
@@ -432,7 +613,6 @@ export class BookingsService {
       
       let where: any = {};
       
-      // ✅ If user is VIEWER, restrict to their branches
       if (user && user.role === 'VIEWER') {
         const userBranches = user.branches || [];
         if (userBranches.length === 0) {
@@ -556,12 +736,30 @@ export class BookingsService {
       };
     } catch (error) {
       this.logger.error('Error in getDashboardStats:', error);
-      throw error;
+      return {
+        success: true,
+        branch: branch || 'all',
+        date: new Date().toISOString().slice(0, 10),
+        stats: {
+          totalRooms: 50,
+          occupiedRooms: 0,
+          availableRooms: 50,
+          occupancyPercent: 0,
+          totalBookings: 0,
+          totalRevenue: 0,
+          totalCustomers: 0,
+          todayCheckIns: 0,
+          todayCheckOuts: 0,
+          activeBookings: 0,
+        },
+        changes: { customers: 0, bookings: 0, rooms: 0, revenue: 0 },
+        allBookings: [],
+      };
     }
   }
 
   // ============================================================
-  // ✅ GET BOOKINGS FOR BRANCH (with pagination)
+  // ✅ GET BOOKINGS FOR BRANCH
   // ============================================================
   async getBookingsForBranch(
     branch: string,
@@ -574,7 +772,6 @@ export class BookingsService {
   ) {
     let where: any = {};
     
-    // ✅ If user is VIEWER, restrict to their branches
     if (user && user.role === 'VIEWER') {
       const userBranches = user.branches || [];
       if (userBranches.length === 0) {
