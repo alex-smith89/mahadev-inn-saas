@@ -10,30 +10,32 @@ const API_URL = 'http://localhost:4000/api';
 const NPR_TO_INR = 1.6;
 const VAT_RATE = 0.13; // 13% VAT
 
+// ✅ ROOM_TYPES - Includes Triple and Quard
 const ROOM_TYPES = ['Single', 'Double', 'Triple', 'Quard'];
 const MEAL_PLANS = ['EP', 'CP', 'MAP', 'AP'];
 const CURRENCIES = ['NPR', 'INR'];
 
-// Room capacity mapping
+// ✅ Room capacity mapping - Updated with correct capacities
 const ROOM_CAPACITY: Record<string, number> = {
   Single: 1,
   Double: 2,
-  Triple: 3,
-  Quard: 4,
+  Triple: 3,   // ✅ Triple room capacity
+  Quard: 4,    // ✅ Quadra room capacity
 };
 
 const ROOM_TYPE_PRICE_KEY: Record<string, string> = {
   Single: 'singlePrice',
   Double: 'doublePrice',
-  Triple: 'triplePrice',
-  Quard: 'quardPrice',
+  Triple: 'triplePrice',   // ✅ Triple price key
+  Quard: 'quardPrice',     // ✅ Quadra price key
 };
 
+// ✅ DEFAULT_PRICES - Added Triple and Quard prices
 const DEFAULT_PRICES = {
   singlePrice: 2000,
   doublePrice: 3000,
-  triplePrice: 4000,
-  quardPrice: 5000,
+  triplePrice: 4500,   // ✅ Triple room price
+  quardPrice: 5500,    // ✅ Quadra room price
   extraPersonPrice: 500,
 };
 
@@ -64,7 +66,7 @@ export default function NewBookingPage() {
     roomType: 'Single',
     roomsCount: 1,
     heads: 1,
-    childrenBelow10: 0, // ✅ Children below 10 (no charges by default)
+    childrenBelow10: 0,
     mealPlan: MEAL_PLANS[0],
     facility: '',
     checkIn: '',
@@ -73,7 +75,7 @@ export default function NewBookingPage() {
     remark: '',
     kitchenCharges: 0,
     diningCharges: 0,
-    breakfastCharges: 0, // ✅ Breakfast charges (if made)
+    breakfastCharges: 0,
   });
 
   const [costBreakdown, setCostBreakdown] = useState({
@@ -232,6 +234,7 @@ export default function NewBookingPage() {
     }
   };
 
+  // ✅ Updated useEffect to handle all room types including Triple and Quard
   useEffect(() => {
     const priceKey = ROOM_TYPE_PRICE_KEY[form.roomType] || 'singlePrice';
     const roomPriceNPR = (pricing as any)[priceKey] || 0;
@@ -251,15 +254,14 @@ export default function NewBookingPage() {
     const heads = Number(form.heads) || 1;
     const childrenBelow10 = Number(form.childrenBelow10) || 0;
     
-    // ✅ Children below 10 are NOT counted in extra persons (no charges)
-    // Only adults (heads) count towards room capacity
-    const adults = heads - childrenBelow10; // ✅ Adults only
+    // ✅ Adults = Heads - Children below 10
+    const adults = heads - childrenBelow10;
     
+    // ✅ Room capacity - works for Triple (3) and Quard (4)
     const roomCapacity = ROOM_CAPACITY[form.roomType] || 1;
     const totalCapacity = roomCapacity * roomsCount;
     
     // ✅ Extra persons are ONLY for adults exceeding capacity
-    // Children below 10 have NO charges by default
     const extraPersons = Math.max(0, adults - totalCapacity);
     
     // ✅ Calculate charges
@@ -267,7 +269,7 @@ export default function NewBookingPage() {
     const extraCostNPR = extraPersonPriceNPR * extraPersons * nights;
     const kitchenChargesNPR = Number(form.kitchenCharges) || 0;
     const diningChargesNPR = Number(form.diningCharges) || 0;
-    const breakfastChargesNPR = Number(form.breakfastCharges) || 0; // ✅ Breakfast charges if made
+    const breakfastChargesNPR = Number(form.breakfastCharges) || 0;
     
     const subtotalNPR = baseCostNPR + extraCostNPR + kitchenChargesNPR + diningChargesNPR + breakfastChargesNPR;
     const vatAmountNPR = subtotalNPR * VAT_RATE;
@@ -333,15 +335,19 @@ export default function NewBookingPage() {
       return 'Children below 10 cannot exceed total heads.';
     }
     
+    // ✅ Adults = Heads - Children below 10
+    const adults = heads - childrenBelow10;
     const minHeads = Number(form.roomsCount);
-    if (Number(form.heads) < minHeads) {
-      return `Heads must be at least ${minHeads} (1 person per room).`;
+    
+    // ✅ If there are rooms, there must be at least one adult
+    if (adults < 1 && heads > 0) {
+      return `Total heads (${heads}) must include at least 1 adult. Please reduce children below 10 or increase total heads.`;
     }
     
     return '';
   };
 
-  // Generate PDF Receipt
+  // Generate PDF Receipt - Updated to show Triple and Quard
   const generateReceiptPDF = (booking: any) => {
     const doc = new jsPDF({
       orientation: 'portrait',
@@ -431,6 +437,8 @@ export default function NewBookingPage() {
     addRow('Check-In', checkInStr);
     addRow('Check-Out', checkOutStr);
     addRow('Rooms', `${booking.roomsCount || 1} (${booking.roomType || 'Single'})`);
+    addRow('Room Capacity', `${costBreakdown.roomCapacity} per room`);
+    addRow('Total Capacity', String(costBreakdown.totalCapacity || 0));
     addRow('Nights', String(costBreakdown.nights || 0));
     addRow('Total Heads', String(booking.heads || 1));
     addRow('Children Below 10', String(costBreakdown.childrenBelow10 || 0));
@@ -459,7 +467,7 @@ export default function NewBookingPage() {
     doc.setTextColor(107, 114, 128);
     doc.setFontSize(8);
     doc.setFont('helvetica', 'bold');
-    doc.text('Room Charges:', 35, y + 2);
+    doc.text(`Room Charges (${booking.roomType}):`, 35, y + 2);
     doc.setTextColor(31, 41, 55);
     doc.setFontSize(9);
     doc.setFont('helvetica', 'normal');
@@ -654,7 +662,7 @@ export default function NewBookingPage() {
         roomType: form.roomType,
         roomsCount: Number(form.roomsCount) || 1,
         heads: Number(form.heads) || 1,
-        childrenBelow10: childrenBelow10, // ✅ Added children below 10
+        childrenBelow10: childrenBelow10,
         mealPlan: form.mealPlan,
         facility: form.facility.trim() || undefined,
         checkIn: currentTime,
@@ -665,7 +673,7 @@ export default function NewBookingPage() {
         extraPersons: extraPersons,
         kitchenCharges: Number(form.kitchenCharges) || 0,
         diningCharges: Number(form.diningCharges) || 0,
-        breakfastCharges: Number(form.breakfastCharges) || 0, // ✅ Added breakfast charges
+        breakfastCharges: Number(form.breakfastCharges) || 0,
         currency: selectedCurrency,
         subtotal: selectedCurrency === 'INR' ? subtotalNPR * NPR_TO_INR : subtotalNPR,
         vatAmount: selectedCurrency === 'INR' ? vatAmountNPR * NPR_TO_INR : vatAmountNPR,
@@ -684,9 +692,12 @@ export default function NewBookingPage() {
       console.log('📋 Creating booking with payload:', {
         branch: payload.branch,
         rooms: payload.roomsCount,
+        roomType: payload.roomType,
         heads: payload.heads,
         childrenBelow10: payload.childrenBelow10,
         extraPersons: payload.extraPersons,
+        roomCapacity: payload.roomCapacity,
+        totalCapacity: payload.totalCapacity,
         breakfastCharges: payload.breakfastCharges,
         total: payload.totalCost,
       });
@@ -723,9 +734,10 @@ export default function NewBookingPage() {
         const childrenMsg = childrenBelow10 > 0 ? ` 👶 ${childrenBelow10} children below 10 (FREE)` : '';
         const breakfastMsg = Number(form.breakfastCharges) > 0 ? ` 🍳 Breakfast: ${selectedCurrency === 'INR' ? `₹ ${(Number(form.breakfastCharges) * NPR_TO_INR).toLocaleString()}` : `Rs. ${Number(form.breakfastCharges).toLocaleString()}`}` : '';
         const extraPersonMsg = extraPersons > 0 ? ` (${extraPersons} extra person(s) charged)` : '';
+        const roomCapacityMsg = ` (Room capacity: ${costBreakdown.roomCapacity} per room, Total: ${costBreakdown.totalCapacity} persons)`;
 
         setSuccess(
-          `✅ Booking confirmed at ${timeStr}! Total: ${displayTotal} (incl. 13% VAT)${extraPersonMsg}${childrenMsg}${breakfastMsg}`
+          `✅ Booking confirmed at ${timeStr}! Total: ${displayTotal} (incl. 13% VAT)${extraPersonMsg}${childrenMsg}${breakfastMsg}${roomCapacityMsg}`
         );
 
         generateReceiptPDF(booking);
@@ -823,6 +835,9 @@ export default function NewBookingPage() {
                 </p>
                 <p className="text-xs text-green-600 mt-1">
                   👤 Created by: <strong>{currentUser?.username}</strong> ({isOwner ? 'Owner' : isManager ? 'Manager' : 'User'})
+                </p>
+                <p className="text-xs text-green-600 mt-1">
+                  🏠 Room Type: <strong>{form.roomType}</strong> (Capacity: {costBreakdown.roomCapacity} per room)
                 </p>
                 <p className="text-xs text-green-600 mt-1">
                   👶 Children below 10: <strong>{form.childrenBelow10 || 0}</strong> (FREE)
@@ -932,7 +947,7 @@ export default function NewBookingPage() {
               )}
             </div>
 
-            {/* Room Type */}
+            {/* Room Type - Updated with description */}
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Room Type</label>
               <select 
@@ -941,10 +956,20 @@ export default function NewBookingPage() {
                 onChange={handleChange}
                 className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-indigo-500 outline-none bg-white"
               >
-                {ROOM_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
+                {ROOM_TYPES.map((t) => {
+                  const capacity = ROOM_CAPACITY[t] || 1;
+                  return (
+                    <option key={t} value={t}>
+                      {t} (Capacity: {capacity} person{capacity > 1 ? 's' : ''})
+                    </option>
+                  );
+                })}
               </select>
               <p className="text-[10px] text-gray-400 mt-1">
                 {pricingLoading ? 'Loading price…' : `Rate: ${fmtNPR(costBreakdown.roomPriceNPR)} / night`}
+              </p>
+              <p className="text-[10px] text-blue-600 mt-1">
+                Capacity: {ROOM_CAPACITY[form.roomType] || 1} person(s) per room
               </p>
             </div>
 
@@ -992,7 +1017,7 @@ export default function NewBookingPage() {
               </div>
             </div>
 
-            {/* ✅ Children Below 10 */}
+            {/* Children Below 10 */}
             <div className="bg-green-50 border border-green-200 rounded-lg p-3">
               <label className="block text-sm font-medium text-green-800 mb-1">
                 👶 Children Below 10 <span className="text-green-600">(FREE)</span>
@@ -1128,7 +1153,7 @@ export default function NewBookingPage() {
             </div>
           </div>
 
-          {/* ✅ Breakfast Charges */}
+          {/* Breakfast Charges */}
           <div className="border border-orange-200 rounded-lg p-4 bg-orange-50">
             <h4 className="text-sm font-semibold text-orange-800 mb-2">🍳 Breakfast Charges</h4>
             <p className="text-[10px] text-orange-600 mb-3">
@@ -1197,15 +1222,19 @@ export default function NewBookingPage() {
               <span className="text-right font-medium">{costBreakdown.nights}</span>
               <span>Room Type</span>
               <span className="text-right font-medium">{form.roomType}</span>
+              <span>Room Capacity</span>
+              <span className="text-right font-medium">{costBreakdown.roomCapacity} per room</span>
               <span>Rooms</span>
               <span className="text-right font-medium">{form.roomsCount}</span>
+              <span>Total Capacity</span>
+              <span className="text-right font-medium">{costBreakdown.totalCapacity}</span>
               <span>Total Heads</span>
               <span className="text-right font-medium">{form.heads}</span>
               <span className="text-green-600 font-medium">👶 Children Below 10</span>
               <span className="text-right text-green-600 font-medium">{costBreakdown.childrenBelow10} (FREE)</span>
               <span className="text-orange-600 font-medium">Extra Adults</span>
               <span className="text-right text-orange-600 font-medium">{costBreakdown.extraPersons}</span>
-              <span>Room Charges</span>
+              <span>Room Charges ({form.roomsCount} × {costBreakdown.nights} nights)</span>
               <span className="text-right font-medium">
                 {selectedCurrency === 'INR' 
                   ? fmtNPR(costBreakdown.baseCostNPR * NPR_TO_INR)

@@ -79,6 +79,14 @@ export default function DashboardPage() {
     confirmedBookings: 0,
   });
 
+  // ✅ NEW: Room Stats state
+  const [roomStats, setRoomStats] = useState({
+    totalRooms: 65,
+    totalBookings: 0,
+    occupiedRooms: 0,
+    vacantRooms: 65,
+  });
+
   // ✅ Recent Bookings with search
   const [recentBookings, setRecentBookings] = useState<any[]>([]);
   const [filteredBookings, setFilteredBookings] = useState<any[]>([]);
@@ -1254,6 +1262,7 @@ export default function DashboardPage() {
     setVacantRooms(vacantRoomsCount);
   };
 
+  // ✅ Updated calculateStats function with room stats
   const calculateStats = (bookings: any[], capacity: number) => {
     const confirmed = bookings.filter((b: any) => 
       b.bookingStatus === 'Confirm' || b.bookingStatus === 'Confirmed'
@@ -1325,6 +1334,14 @@ export default function DashboardPage() {
       pending: pending.length,
       checkedOut: checkedOut.length,
       checkedIn: checkedIn.length
+    });
+    
+    // ✅ Update room stats
+    setRoomStats({
+      totalRooms: capacity,
+      totalBookings: bookings.length,
+      occupiedRooms: occupiedRooms,
+      vacantRooms: availableRooms,
     });
     
     setStats({
@@ -1777,7 +1794,9 @@ export default function DashboardPage() {
 
   return (
     <div className="flex h-screen bg-gray-50 overflow-hidden">
-      {/* ✅ Sidebar - COMPLETE */}
+      {/* ============================================================ */}
+      {/* ✅ SECTION 1: SIDEBAR */}
+      {/* ============================================================ */}
       <div 
         className={`fixed inset-y-0 left-0 z-50 w-64 sm:w-72 bg-indigo-800 text-white transform transition-transform duration-300 ease-in-out ${
           sidebarOpen ? 'translate-x-0' : '-translate-x-full'
@@ -1895,9 +1914,14 @@ export default function DashboardPage() {
         />
       )}
 
-      {/* Main Content */}
+      {/* ============================================================ */}
+      {/* ✅ SECTION 2: MAIN CONTENT */}
+      {/* ============================================================ */}
       <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
-        {/* Header */}
+
+        {/* ============================================================ */}
+        {/* ✅ SECTION 2.1: HEADER */}
+        {/* ============================================================ */}
         <header className="bg-white shadow-sm border-b border-gray-200 sticky top-0 z-30 flex-shrink-0">
           <div className="flex items-center justify-between px-3 sm:px-6 py-2 sm:py-4">
             <div className="flex items-center space-x-2 sm:space-x-4 min-w-0">
@@ -2067,9 +2091,14 @@ export default function DashboardPage() {
           </div>
         </header>
 
-        {/* Dashboard Content */}
+        {/* ============================================================ */}
+        {/* ✅ SECTION 2.2: DASHBOARD CONTENT */}
+        {/* ============================================================ */}
         <div className="flex-1 overflow-y-auto p-2 sm:p-4 md:p-6">
-          {/* Real-time Notification Alerts */}
+
+          {/* ============================================================ */}
+          {/* ✅ SECTION 2.2.1: REAL-TIME NOTIFICATION ALERTS */}
+          {/* ============================================================ */}
           {todayCheckins.length > 0 && (
             <div className="bg-green-50 border border-green-300 rounded-lg p-3 mb-3">
               <div className="flex items-start gap-2">
@@ -2181,7 +2210,9 @@ export default function DashboardPage() {
             </div>
           )}
 
-          {/* Welcome Section */}
+          {/* ============================================================ */}
+          {/* ✅ SECTION 2.2.2: WELCOME SECTION */}
+          {/* ============================================================ */}
           <div className="bg-gradient-to-r from-indigo-600 via-purple-600 to-pink-500 rounded-xl shadow-lg p-4 sm:p-6 mb-4 sm:mb-6 text-white">
             <div className="flex flex-col md:flex-row md:items-center md:justify-between">
               <div>
@@ -2248,7 +2279,9 @@ export default function DashboardPage() {
             </div>
           </div>
 
-          {/* Today's Check-ins */}
+          {/* ============================================================ */}
+          {/* ✅ SECTION 2.2.3: TODAY'S CHECK-INS */}
+          {/* ============================================================ */}
           {todayCheckins.length > 0 && (
             <div className="bg-white rounded-xl shadow-sm p-4 mb-4 border-l-4 border-green-500">
               <h3 className="text-sm font-semibold text-gray-800 mb-3 flex items-center">
@@ -2310,7 +2343,70 @@ export default function DashboardPage() {
             </div>
           )}
 
-          {/* Stats Cards */}
+          {/* ============================================================ */}
+          {/* ✅ SECTION 2.2.4: ROOM STATS - 4 CARDS */}
+          {/* ============================================================ */}
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3 sm:gap-4 mb-4 sm:mb-6">
+            {/* Total Rooms */}
+            <div className="bg-gradient-to-br from-blue-50 to-blue-100 rounded-xl shadow-sm p-4 border-l-4 border-blue-500 hover:shadow-md transition-shadow">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-xs sm:text-sm text-gray-600 font-medium">Total Rooms</p>
+                  <p className="text-2xl sm:text-3xl font-bold text-blue-700">{roomStats.totalRooms}</p>
+                </div>
+                <div className="w-10 h-10 sm:w-12 sm:h-12 bg-blue-200 rounded-lg flex items-center justify-center">
+                  <FiGrid className="w-5 h-5 sm:w-6 sm:h-6 text-blue-600" />
+                </div>
+              </div>
+              <div className="mt-1 text-[10px] sm:text-xs text-gray-500">Total available rooms</div>
+            </div>
+
+            {/* Total Bookings */}
+            <div className="bg-gradient-to-br from-green-50 to-green-100 rounded-xl shadow-sm p-4 border-l-4 border-green-500 hover:shadow-md transition-shadow">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-xs sm:text-sm text-gray-600 font-medium">Total Bookings</p>
+                  <p className="text-2xl sm:text-3xl font-bold text-green-700">{roomStats.totalBookings}</p>
+                </div>
+                <div className="w-10 h-10 sm:w-12 sm:h-12 bg-green-200 rounded-lg flex items-center justify-center">
+                  <FiBookOpen className="w-5 h-5 sm:w-6 sm:h-6 text-green-600" />
+                </div>
+              </div>
+              <div className="mt-1 text-[10px] sm:text-xs text-gray-500">All bookings made</div>
+            </div>
+
+            {/* Occupied Rooms */}
+            <div className="bg-gradient-to-br from-orange-50 to-orange-100 rounded-xl shadow-sm p-4 border-l-4 border-orange-500 hover:shadow-md transition-shadow">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-xs sm:text-sm text-gray-600 font-medium">Occupied Rooms</p>
+                  <p className="text-2xl sm:text-3xl font-bold text-orange-700">{roomStats.occupiedRooms}</p>
+                </div>
+                <div className="w-10 h-10 sm:w-12 sm:h-12 bg-orange-200 rounded-lg flex items-center justify-center">
+                  <FiUsers className="w-5 h-5 sm:w-6 sm:h-6 text-orange-600" />
+                </div>
+              </div>
+              <div className="mt-1 text-[10px] sm:text-xs text-gray-500">Currently occupied rooms</div>
+            </div>
+
+            {/* Vacant Rooms */}
+            <div className="bg-gradient-to-br from-purple-50 to-purple-100 rounded-xl shadow-sm p-4 border-l-4 border-purple-500 hover:shadow-md transition-shadow">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-xs sm:text-sm text-gray-600 font-medium">Vacant Rooms</p>
+                  <p className="text-2xl sm:text-3xl font-bold text-purple-700">{roomStats.vacantRooms}</p>
+                </div>
+                <div className="w-10 h-10 sm:w-12 sm:h-12 bg-purple-200 rounded-lg flex items-center justify-center">
+                  <FiHome className="w-5 h-5 sm:w-6 sm:h-6 text-purple-600" />
+                </div>
+              </div>
+              <div className="mt-1 text-[10px] sm:text-xs text-gray-500">Available vacant rooms</div>
+            </div>
+          </div>
+
+          {/* ============================================================ */}
+          {/* ✅ SECTION 2.2.5: STATS CARDS - ORIGINAL 4 CARDS */}
+          {/* ============================================================ */}
           <div className="grid grid-cols-1 xs:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-6 mb-4 sm:mb-6">
             <div className="bg-white rounded-xl shadow-sm p-3 sm:p-6 border-l-4 border-blue-500 hover:shadow-md transition-shadow">
               <div className="flex items-center justify-between">
@@ -2388,7 +2484,9 @@ export default function DashboardPage() {
             </div>
           </div>
 
-          {/* Charts */}
+          {/* ============================================================ */}
+          {/* ✅ SECTION 2.2.6: CHARTS */}
+          {/* ============================================================ */}
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 sm:gap-6 mb-4 sm:mb-6">
             <div className="bg-white rounded-xl shadow-sm p-3 sm:p-6">
               <h3 className="text-sm sm:text-lg font-semibold text-gray-800 mb-3 sm:mb-4 flex items-center">
@@ -2411,7 +2509,9 @@ export default function DashboardPage() {
             </div>
           </div>
 
-          {/* Revenue Trend */}
+          {/* ============================================================ */}
+          {/* ✅ SECTION 2.2.7: REVENUE TREND */}
+          {/* ============================================================ */}
           <div className="bg-white rounded-xl shadow-sm p-3 sm:p-6 mb-4 sm:mb-6">
             <h3 className="text-sm sm:text-lg font-semibold text-gray-800 mb-3 sm:mb-4 flex items-center">
               <FiTrendingUp className="w-4 h-4 sm:w-5 sm:h-5 mr-1 sm:mr-2 text-purple-600 flex-shrink-0" />
@@ -2422,7 +2522,9 @@ export default function DashboardPage() {
             </div>
           </div>
 
-          {/* Branch Performance */}
+          {/* ============================================================ */}
+          {/* ✅ SECTION 2.2.8: BRANCH PERFORMANCE */}
+          {/* ============================================================ */}
           {Object.keys(branchStats).length > 0 && (
             <div className="bg-white rounded-xl shadow-sm p-3 sm:p-6 mb-4 sm:mb-6">
               <h3 className="text-sm sm:text-lg font-semibold text-gray-800 mb-3 sm:mb-4">🏪 Branch Performance</h3>
@@ -2464,7 +2566,9 @@ export default function DashboardPage() {
             </div>
           )}
 
-          {/* Today's Activity */}
+          {/* ============================================================ */}
+          {/* ✅ SECTION 2.2.9: TODAY'S ACTIVITY */}
+          {/* ============================================================ */}
           <div className="grid grid-cols-1 xs:grid-cols-3 gap-2 sm:gap-4 mb-4 sm:mb-6">
             <div className="bg-white rounded-xl shadow-sm p-3 sm:p-4 border-l-4 border-blue-500">
               <p className="text-[10px] sm:text-sm text-gray-500">Today's Check-ins</p>
@@ -2482,7 +2586,9 @@ export default function DashboardPage() {
             </div>
           </div>
 
-          {/* ✅ Updated Recent Bookings with Search Bar and Individual Check-In/Out */}
+          {/* ============================================================ */}
+          {/* ✅ SECTION 2.2.10: RECENT BOOKINGS WITH SEARCH & INDIVIDUAL BUTTONS */}
+          {/* ============================================================ */}
           {recentBookings.length > 0 && (
             <div className="bg-white rounded-xl shadow-sm p-3 sm:p-6 mb-4 sm:mb-6">
               <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between mb-3 sm:mb-4 gap-3">
@@ -2493,7 +2599,7 @@ export default function DashboardPage() {
                   </span>
                 </h3>
                 <div className="flex flex-col xs:flex-row items-start xs:items-center gap-2 w-full sm:w-auto">
-                  {/* ✅ Search Bar */}
+                  {/* Search Bar */}
                   <div className="relative w-full sm:w-64">
                     <FiSearch className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
                     <input
@@ -2586,7 +2692,7 @@ export default function DashboardPage() {
                         hour12: true
                       });
                       
-                      // ✅ Show search match highlight
+                      // Show search match highlight
                       const isMatch = searchTerm && (
                         booking.agentName?.toLowerCase().includes(searchTerm.toLowerCase()) ||
                         booking.bookingNo?.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -2619,7 +2725,7 @@ export default function DashboardPage() {
                           </td>
                           <td className="px-2 sm:px-4 py-1.5 sm:py-2">
                             <div className="flex items-center gap-1 sm:gap-2">
-                              {/* ✅ Individual Check-In Button */}
+                              {/* Individual Check-In Button */}
                               {canCheckIn(booking) && (
                                 <button
                                   onClick={() => handleIndividualCheckIn(booking.id)}
@@ -2645,7 +2751,7 @@ export default function DashboardPage() {
                                 </button>
                               )}
 
-                              {/* ✅ Individual Check-Out Button */}
+                              {/* Individual Check-Out Button */}
                               {canCheckOut(booking) && (
                                 <button
                                   onClick={() => handleIndividualCheckOut(booking.id)}
@@ -2716,7 +2822,9 @@ export default function DashboardPage() {
             </div>
           )}
 
-          {/* ✅ QUICK ACTIONS - Only New Booking button remains */}
+          {/* ============================================================ */}
+          {/* ✅ SECTION 2.2.11: QUICK ACTIONS - ONLY NEW BOOKING */}
+          {/* ============================================================ */}
           <div className="grid grid-cols-2 xs:grid-cols-4 gap-2 sm:gap-4">
             {isOwner || isManager ? (
               <button
@@ -2733,10 +2841,13 @@ export default function DashboardPage() {
               </Link>
             )}
           </div>
-        </div>
-      </div>
 
-      {/* Notification Toast */}
+        </div>{/* End of Dashboard Content */}
+      </div>{/* End of Main Content */}
+
+      {/* ============================================================ */}
+      {/* ✅ SECTION 3: NOTIFICATION TOAST */}
+      {/* ============================================================ */}
       {toastMessage && (
         <NotificationToast 
           message={toastMessage} 
@@ -2745,7 +2856,9 @@ export default function DashboardPage() {
         />
       )}
 
-      {/* Profile Modal */}
+      {/* ============================================================ */}
+      {/* ✅ SECTION 4: PROFILE MODAL */}
+      {/* ============================================================ */}
       {showProfileModal && (
         <div className="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full z-50 flex items-center justify-center p-4">
           <div className="relative bg-white rounded-xl shadow-lg max-w-md w-full mx-4 p-4 sm:p-6">

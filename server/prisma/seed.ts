@@ -1,3 +1,4 @@
+// prisma/seed.ts
 import { PrismaClient, Role, Branch, RoomTypeEnum, BookingStatus, MealPlan } from '@prisma/client';
 // @ts-ignore
 import * as bcrypt from 'bcryptjs';
@@ -245,118 +246,13 @@ async function main() {
   }
   console.log('✅ Created room type capacities');
 
-  // ==================== CREATE SAMPLE BOOKINGS ====================
-  console.log('📋 Creating sample bookings...');
-
-  const sampleBookings = [
-    {
-      bookingNo: 'BK-2026-001',
-      agentName: 'John Doe',
-      agentContact: '9841234567',
-      email: 'john.doe@email.com',
-      roomsCount: 2,
-      roomType: RoomTypeEnum.Single,
-      mealPlan: MealPlan.CP,
-      checkIn: new Date('2026-07-01'),
-      checkOut: new Date('2026-07-05'),
-      nights: 4,
-      branch: Branch.Pokhara,
-      bookingStatus: BookingStatus.Confirmed,
-      roomCharges: 20000,
-      totalCost: 20000,
-      heads: 2,
-      childrenCount: 0,
-      extraPersonCharges: 0,
-      price: 20000,
-    },
-    {
-      bookingNo: 'BK-2026-002',
-      agentName: 'Jane Smith',
-      agentContact: '9847654321',
-      email: 'jane.smith@email.com',
-      roomsCount: 1,
-      roomType: RoomTypeEnum.Double,
-      mealPlan: MealPlan.MAP,
-      checkIn: new Date('2026-07-02'),
-      checkOut: new Date('2026-07-06'),
-      nights: 4,
-      branch: Branch.Kathmandu1,
-      bookingStatus: BookingStatus.CheckedIn,
-      roomCharges: 30000,
-      totalCost: 30000,
-      heads: 2,
-      childrenCount: 1,
-      childrenBelow10: 1,
-      extraPersonCharges: 0,
-      price: 30000,
-    },
-    {
-      bookingNo: 'BK-2026-003',
-      agentName: 'Bob Johnson',
-      agentContact: '9849876543',
-      email: 'bob.johnson@email.com',
-      roomsCount: 1,
-      roomType: RoomTypeEnum.Suite,
-      mealPlan: MealPlan.AP,
-      checkIn: new Date('2026-07-03'),
-      checkOut: new Date('2026-07-07'),
-      nights: 4,
-      branch: Branch.Pokhara,
-      bookingStatus: BookingStatus.Pending,
-      roomCharges: 60000,
-      totalCost: 60000,
-      heads: 2,
-      childrenCount: 0,
-      extraPersonCharges: 0,
-      price: 60000,
-    },
-  ];
-
-  const createdBookings = [];
-  for (const booking of sampleBookings) {
-    const created = await prisma.booking.create({
-      data: booking,
-    });
-    createdBookings.push(created);
-    console.log(`✅ Created booking: ${booking.bookingNo}`);
-  }
+  // ❌❌❌ SAMPLE BOOKINGS REMOVED ❌❌❌
+  // The sampleBookings array has been permanently removed.
+  // No bookings will be created during seeding.
 
   // ==================== CREATE FEEDBACK ====================
   console.log('⭐ Creating feedback...');
-
-  if (createdBookings.length > 0) {
-    const feedbacks = [
-      {
-        bookingId: createdBookings[0].id,
-        bookingNo: createdBookings[0].bookingNo,
-        guestName: 'John Doe',
-        guestEmail: 'john.doe@email.com',
-        rating: 4,
-        review: 'Great stay! The room was clean and comfortable.',
-        stayDate: new Date('2026-07-05'),
-        branch: Branch.Pokhara,
-        status: 'reviewed',
-      },
-      {
-        bookingId: createdBookings[1]?.id || createdBookings[0].id,
-        bookingNo: createdBookings[1]?.bookingNo || createdBookings[0].bookingNo,
-        guestName: 'Jane Smith',
-        guestEmail: 'jane.smith@email.com',
-        rating: 5,
-        review: 'Excellent service and beautiful hotel. Highly recommended!',
-        stayDate: new Date('2026-07-06'),
-        branch: Branch.Kathmandu1,
-        status: 'reviewed',
-      },
-    ];
-
-    for (const feedback of feedbacks) {
-      await prisma.feedback.create({
-        data: feedback,
-      });
-      console.log(`✅ Created feedback for: ${feedback.guestName}`);
-    }
-  }
+  // ❌ No feedback created since there are no bookings
 
   // ==================== CREATE PRICING HISTORY ====================
   console.log('📊 Creating pricing history...');
@@ -427,7 +323,7 @@ async function main() {
   console.log(`✅ ${branches.length * createdRoomTypes.length * seasons.length} room pricing entries created`);
   console.log(`✅ ${seasonalRules.length} seasonal rules created`);
   console.log(`✅ ${branchCapacities.length} branch capacities created`);
-  console.log(`✅ ${createdBookings.length} bookings created`);
+  console.log('✅ 0 bookings created (sample bookings removed)');
   console.log('\n✅ Seeding complete!');
 
   console.log('\n🔑 Login Credentials:');

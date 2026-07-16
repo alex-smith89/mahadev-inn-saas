@@ -1,8 +1,7 @@
 // src/bookings/bookings.service.ts
 import { Injectable, BadRequestException, NotFoundException, ForbiddenException, Logger } from '@nestjs/common';
-import { Branch, Booking, BookingStatus, MealPlan } from '@prisma/client';
+import { Branch, Booking, BookingStatus, MealPlan, RoomTypeEnum } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
-import { RoomTypeEnum } from '@prisma/client';
 import { NotificationService } from '../notification/notification.service';
 
 @Injectable()
@@ -31,6 +30,20 @@ export class BookingsService {
     return `BKG-${year}${month}-${seq}`;
   }
 
+  // ✅ Helper function to get room capacity
+  private getRoomCapacity(roomType: string): number {
+    const capacityMap: Record<string, number> = {
+      'Single': 1,
+      'Double': 2,
+      'Triple': 3,
+      'Quard': 4,
+      'Suite': 4,
+      'Deluxe': 2,
+      'Premium': 3,
+    };
+    return capacityMap[roomType] || 1;
+  }
+
   // ---------- CREATE BOOKING ----------
   async create(data: any): Promise<Booking> {
     // ✅ Validate branch is provided
@@ -47,6 +60,11 @@ export class BookingsService {
       checkIn: data.checkIn,
       checkOut: data.checkOut,
       bookingStatus: data.bookingStatus || 'New',
+      heads: data.heads,
+      childrenBelow10: data.childrenBelow10,
+      extraPersons: data.extraPersons,
+      roomCapacity: data.roomCapacity,
+      totalCapacity: data.totalCapacity,
     });
 
     // Validate contact format
@@ -118,17 +136,27 @@ export class BookingsService {
     const roomCharges = data.roomCharges || data.price || 0;
     const totalPrice = roomCharges * data.roomsCount * nights;
 
-    // ✅ Set default status to 'New' if not provided
-    const bookingStatus = data.bookingStatus || 'New';
+    // ✅ Set default status to 'Confirm' if not provided
+    const bookingStatus = data.bookingStatus || 'Confirm';
 
-    // ✅ Create booking
+    // ✅ Calculate room capacity and total capacity
+    const roomCapacity = data.roomCapacity || this.getRoomCapacity(data.roomType);
+    const totalCapacity = roomCapacity * (Number(data.roomsCount) || 1);
+
+    // ✅ Calculate extra persons
+    const heads = Number(data.heads) || 1;
+    const childrenBelow10 = Number(data.childrenBelow10) || 0;
+    const adults = heads - childrenBelow10;
+    const extraPersons = Math.max(0, adults - totalCapacity);
+
+    // ✅ Create booking with all fields
     const booking = await this.prisma.booking.create({
       data: {
         bookingNo: this.bookingNo(data.branch),
         agentName: data.agentName,
         agentContact: String(data.agentContact),
         email: data.email || null,
-        roomsCount: Number(data.roomsCount),
+        roomsCount: Number(data.roomsCount) || 1,
         roomType: data.roomType as RoomTypeEnum,
         facility: data.facility || null,
         price: totalPrice,
@@ -140,17 +168,31 @@ export class BookingsService {
         branch: data.branch,
         bookingStatus: bookingStatus as BookingStatus,
         roomCharges: roomCharges,
-        kitchenCharges: data.kitchenCharges || 0,
-        diningCharges: data.diningCharges || 0,
+        kitchenCharges: Number(data.kitchenCharges) || 0,
+        diningCharges: Number(data.diningCharges) || 0,
+        breakfastCharges: Number(data.breakfastCharges) || 0,
         currency: data.currency || 'NPR',
-        heads: data.heads || 1,
-        extraPersonCharges: data.extraPersonCharges || 0,
-        childrenCount: data.childrenCount || 0,
-        childrenBelow10: data.childrenBelow10 || 0,
+        heads: heads,
+        extraPersonCharges: Number(data.extraPersonCharges) || 0,
+        extraPersons: extraPersons,
+        childrenCount: Number(data.childrenCount) || 0,
+        childrenBelow10: childrenBelow10,
+        totalCost: Number(data.totalCost) || totalPrice,
+        roomCapacity: roomCapacity,
+        totalCapacity: totalCapacity,
+        createdBy: data.createdBy || 'Unknown',
+        createdByRole: data.createdByRole || 'User',
+        createdByUsername: data.createdBy || 'Unknown',
+        creatorRole: data.createdByRole || 'User',
+        userRole: data.createdByRole || 'User',
+        branchName: data.branch,
+        createdAt: new Date(),
+        updatedAt: new Date(),
       },
     });
 
     this.logger.log(`✅ Booking created with ID: ${booking.id} for branch: ${booking.branch}`);
+    this.logger.log(`📊 Room capacity: ${roomCapacity}, Total capacity: ${totalCapacity}, Extra persons: ${extraPersons}`);
 
     // ✅ Create notification for the booking
     await this.createBookingNotification(booking);
@@ -335,12 +377,22 @@ export class BookingsService {
       const roomCharges = data.roomCharges || data.price || 0;
       const totalPrice = roomCharges * data.roomsCount * nights;
 
+      // ✅ Calculate room capacity and total capacity
+      const roomCapacity = data.roomCapacity || this.getRoomCapacity(data.roomType);
+      const totalCapacity = roomCapacity * (Number(data.roomsCount) || 1);
+
+      // ✅ Calculate extra persons
+      const heads = Number(data.heads) || 1;
+      const childrenBelow10 = Number(data.childrenBelow10) || 0;
+      const adults = heads - childrenBelow10;
+      const extraPersons = Math.max(0, adults - totalCapacity);
+
       const updated = await this.prisma.booking.update({
         where: { id },
         data: {
           agentName: data.agentName,
           agentContact: String(data.agentContact),
-          roomsCount: Number(data.roomsCount),
+          roomsCount: Number(data.roomsCount) || 1,
           roomType: data.roomType as RoomTypeEnum,
           facility: data.facility || null,
           price: totalPrice,
@@ -352,18 +404,32 @@ export class BookingsService {
           branch: data.branch,
           bookingStatus: data.bookingStatus ?? 'Confirm',
           roomCharges: roomCharges,
-          kitchenCharges: data.kitchenCharges || 0,
-          diningCharges: data.diningCharges || 0,
+          kitchenCharges: Number(data.kitchenCharges) || 0,
+          diningCharges: Number(data.diningCharges) || 0,
+          breakfastCharges: Number(data.breakfastCharges) || 0,
           currency: data.currency || 'NPR',
-          heads: data.heads || 1,
-          extraPersonCharges: data.extraPersonCharges || 0,
-          childrenCount: data.childrenCount || 0,
-          childrenBelow10: data.childrenBelow10 || 0,
+          heads: heads,
+          extraPersonCharges: Number(data.extraPersonCharges) || 0,
+          extraPersons: extraPersons,
+          childrenCount: Number(data.childrenCount) || 0,
+          childrenBelow10: childrenBelow10,
+          totalCost: Number(data.totalCost) || totalPrice,
+          roomCapacity: roomCapacity,
+          totalCapacity: totalCapacity,
+          createdBy: data.createdBy || existing.createdBy || 'Unknown',
+          createdByRole: data.createdByRole || existing.createdByRole || 'User',
+          createdByUsername: data.createdBy || existing.createdBy || 'Unknown',
+          creatorRole: data.createdByRole || existing.createdByRole || 'User',
+          userRole: data.createdByRole || existing.createdByRole || 'User',
+          branchName: data.branch,
+          updatedAt: new Date(),
         },
       });
 
       // ✅ Create notification for updated booking
       await this.createBookingNotification(updated);
+
+      this.logger.log(`📊 Updated room capacity: ${roomCapacity}, Total capacity: ${totalCapacity}, Extra persons: ${extraPersons}`);
 
       return updated;
     } catch (error) {

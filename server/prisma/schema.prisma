@@ -32,10 +32,12 @@ enum BookingStatus {
   CheckedOut
 }
 
-// Renamed from RoomType to RoomTypeEnum to avoid conflict
+// ✅ UPDATED: Added Triple and Quard
 enum RoomTypeEnum {
   Single
   Double
+  Triple
+  Quard
   Suite
   Deluxe
   Premium
@@ -83,7 +85,7 @@ model UserBranch {
   @@index([branch_name])
 }
 
-// Booking Model with all fields
+// ✅ UPDATED Booking Model with all fields
 model Booking {
   id                  String          @id @default(cuid())
   bookingNo           String          @unique
@@ -109,21 +111,28 @@ model Booking {
   roomCharges         Float           @default(0)
   kitchenCharges      Float           @default(0)
   diningCharges       Float           @default(0)
+  breakfastCharges    Float           @default(0)        // ✅ NEW: Breakfast charges
   currency            String          @default("NPR") @db.VarChar(10)
   heads               Int             @default(1)
   extraPersonCharges  Float           @default(0)
+  extraPersons        Int             @default(0)        // ✅ NEW: Number of extra persons
   childrenCount       Int             @default(0)
   childrenBelow10     Int             @default(0)
   totalCost           Float           @default(0)
+  
+  // ✅ NEW: Room capacity fields
+  roomCapacity        Int             @default(1)        // ✅ NEW: Capacity per room
+  totalCapacity       Int             @default(1)        // ✅ NEW: Total capacity (roomCapacity * roomsCount)
 
-  // NEW FIELDS for better tracking and filtering
-  branchName          String?         @db.VarChar(100)   // Additional branch field for filtering
-  createdBy           String?         @db.VarChar(50)    // User who created the booking
-  userRole            String?         @db.VarChar(20)    // Role of the user who created
-  createdByUsername   String?         @db.VarChar(50)    // Username of creator
-  creatorRole         String?         @db.VarChar(20)    // Role of creator
+  // User tracking fields
+  branchName          String?         @db.VarChar(100)
+  createdBy           String?         @db.VarChar(50)
+  createdByRole       String?         @db.VarChar(20)   // ✅ NEW: Role of creator
+  userRole            String?         @db.VarChar(20)
+  createdByUsername   String?         @db.VarChar(50)
+  creatorRole         String?         @db.VarChar(20)
 
-  // ✅ NEW: Automation fields
+  // Automation fields
   actualCheckIn       DateTime?       @map("actual_check_in")
   actualCheckOut      DateTime?       @map("actual_check_out")
   roomNumber          String?         @map("room_number") @db.VarChar(50)
@@ -171,7 +180,7 @@ model BranchCapacity {
 
 // ===== ROOM PRICING MODELS =====
 
-// Room Types (Model - renamed from RoomType to RoomTypeModel)
+// Room Types (Model)
 model RoomTypeModel {
   id              Int      @id @default(autoincrement())
   name            String   @unique @db.VarChar(50)
@@ -192,7 +201,7 @@ model RoomTypeModel {
 model RoomPricing {
   id              Int      @id @default(autoincrement())
   branch          Branch
-  roomType        String   @db.VarChar(50)  // Single, Double, Triple, Suite, etc.
+  roomType        String   @db.VarChar(50)  // Single, Double, Triple, Quard, Suite, etc.
   season          String   @db.VarChar(50)  // Peak, Off-Peak, Festival, Weekend, etc.
   basePrice       Float    @default(0)
   currentPrice    Float    @default(0)
@@ -329,7 +338,7 @@ model RoomTypeCapacity {
 
 // ===== NOTIFICATION MODEL =====
 
-// ✅ UPDATED Notification Model
+// Notification Model
 model Notification {
   id          String   @id @default(cuid())
   type        String   // checkin_success, checkout_reminder, checkin_reminder, force_checkin, checkout_success, room_vacant
@@ -358,7 +367,7 @@ model Notification {
 
 // ===== EMAIL LOG MODEL =====
 
-// ✅ NEW: Email Log Model
+// Email Log Model
 model EmailLog {
   id          String   @id @default(cuid())
   to          String   @db.VarChar(255)
@@ -384,7 +393,7 @@ model EmailLog {
 
 // ===== AUTOMATION LOG MODEL =====
 
-// ✅ NEW: Automation Log Model
+// Automation Log Model
 model AutomationLog {
   id          String   @id @default(cuid())
   type        String   @db.VarChar(50) // checkin, checkout, reminder
