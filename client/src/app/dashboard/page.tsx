@@ -79,7 +79,7 @@ export default function DashboardPage() {
     confirmedBookings: 0,
   });
 
-  // ✅ NEW: Room Stats state
+  // ✅ Room Stats state
   const [roomStats, setRoomStats] = useState({
     totalRooms: 65,
     totalBookings: 0,
@@ -2344,10 +2344,10 @@ export default function DashboardPage() {
           )}
 
           {/* ============================================================ */}
-          {/* ✅ SECTION 2.2.4: ROOM STATS - 4 CARDS */}
+          {/* ✅ SECTION 2.2.4: ROOM STATS - 4 CARDS (Vacant Rooms REPLACED with Available Rooms) */}
           {/* ============================================================ */}
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3 sm:gap-4 mb-4 sm:mb-6">
-            {/* Total Rooms */}
+            {/* Total Rooms - KEPT */}
             <div className="bg-gradient-to-br from-blue-50 to-blue-100 rounded-xl shadow-sm p-4 border-l-4 border-blue-500 hover:shadow-md transition-shadow">
               <div className="flex items-center justify-between">
                 <div>
@@ -2361,7 +2361,7 @@ export default function DashboardPage() {
               <div className="mt-1 text-[10px] sm:text-xs text-gray-500">Total available rooms</div>
             </div>
 
-            {/* Total Bookings */}
+            {/* Total Bookings - KEPT */}
             <div className="bg-gradient-to-br from-green-50 to-green-100 rounded-xl shadow-sm p-4 border-l-4 border-green-500 hover:shadow-md transition-shadow">
               <div className="flex items-center justify-between">
                 <div>
@@ -2375,7 +2375,7 @@ export default function DashboardPage() {
               <div className="mt-1 text-[10px] sm:text-xs text-gray-500">All bookings made</div>
             </div>
 
-            {/* Occupied Rooms */}
+            {/* Occupied Rooms - KEPT */}
             <div className="bg-gradient-to-br from-orange-50 to-orange-100 rounded-xl shadow-sm p-4 border-l-4 border-orange-500 hover:shadow-md transition-shadow">
               <div className="flex items-center justify-between">
                 <div>
@@ -2389,25 +2389,37 @@ export default function DashboardPage() {
               <div className="mt-1 text-[10px] sm:text-xs text-gray-500">Currently occupied rooms</div>
             </div>
 
-            {/* Vacant Rooms */}
+            {/* ✅ REPLACED: Vacant Rooms with Available Rooms (with occupancy) */}
             <div className="bg-gradient-to-br from-purple-50 to-purple-100 rounded-xl shadow-sm p-4 border-l-4 border-purple-500 hover:shadow-md transition-shadow">
               <div className="flex items-center justify-between">
                 <div>
-                  <p className="text-xs sm:text-sm text-gray-600 font-medium">Vacant Rooms</p>
-                  <p className="text-2xl sm:text-3xl font-bold text-purple-700">{roomStats.vacantRooms}</p>
+                  <p className="text-xs sm:text-sm text-gray-600 font-medium">Available Rooms</p>
+                  <p className="text-2xl sm:text-3xl font-bold text-purple-700">{availableRoomsCount}</p>
                 </div>
                 <div className="w-10 h-10 sm:w-12 sm:h-12 bg-purple-200 rounded-lg flex items-center justify-center">
                   <FiHome className="w-5 h-5 sm:w-6 sm:h-6 text-purple-600" />
                 </div>
               </div>
-              <div className="mt-1 text-[10px] sm:text-xs text-gray-500">Available vacant rooms</div>
+              <div className="mt-1 text-[10px] sm:text-xs text-gray-500">
+                {stats.occupiedRooms} occupied out of {totalRooms}
+              </div>
+              <div className="mt-1 w-full bg-gray-200 rounded-full h-1.5 sm:h-2">
+                <div 
+                  className={`${getOccupancyBgColor(stats.occupancyRate)} h-1.5 sm:h-2 rounded-full transition-all duration-500`} 
+                  style={{ width: `${Math.min(stats.occupancyRate, 100)}%` }}
+                />
+              </div>
+              <div className="mt-0.5 text-[8px] sm:text-xs text-gray-400">
+                Occupancy: <span className={`font-bold ${getOccupancyColor(stats.occupancyRate)}`}>{stats.occupancyRate}%</span>
+              </div>
             </div>
           </div>
 
           {/* ============================================================ */}
-          {/* ✅ SECTION 2.2.5: STATS CARDS - ORIGINAL 4 CARDS */}
+          {/* ✅ SECTION 2.2.5: STATS CARDS - ONLY 3 CARDS (Available Rooms REMOVED from here) */}
           {/* ============================================================ */}
-          <div className="grid grid-cols-1 xs:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-6 mb-4 sm:mb-6">
+          <div className="grid grid-cols-1 xs:grid-cols-3 gap-3 sm:gap-6 mb-4 sm:mb-6">
+            {/* Total Customers - KEPT */}
             <div className="bg-white rounded-xl shadow-sm p-3 sm:p-6 border-l-4 border-blue-500 hover:shadow-md transition-shadow">
               <div className="flex items-center justify-between">
                 <div className="min-w-0">
@@ -2421,6 +2433,7 @@ export default function DashboardPage() {
               <div className="mt-1 sm:mt-2 text-[10px] sm:text-sm text-gray-500">Unique guests in {displayBranchName}</div>
             </div>
 
+            {/* Total Bookings - KEPT (with checkmark and cross) */}
             <div className="bg-white rounded-xl shadow-sm p-3 sm:p-6 border-l-4 border-green-500 hover:shadow-md transition-shadow">
               <div className="flex items-center justify-between">
                 <div className="min-w-0">
@@ -2437,30 +2450,7 @@ export default function DashboardPage() {
               </div>
             </div>
 
-            <div className="bg-white rounded-xl shadow-sm p-3 sm:p-6 border-l-4 border-yellow-500 hover:shadow-md transition-shadow">
-              <div className="flex items-center justify-between">
-                <div className="min-w-0">
-                  <p className="text-[10px] sm:text-sm text-gray-500 truncate">Available Rooms</p>
-                  <p className="text-xl sm:text-3xl font-bold text-gray-800">{availableRoomsCount}</p>
-                </div>
-                <div className="w-8 h-8 sm:w-12 sm:h-12 bg-yellow-100 rounded-lg flex items-center justify-center flex-shrink-0">
-                  <FiHome className="w-4 h-4 sm:w-6 sm:h-6 text-yellow-500" />
-                </div>
-              </div>
-              <div className="mt-1 sm:mt-2 text-[10px] sm:text-sm">
-                <span className="text-gray-500">{stats.occupiedRooms} occupied out of {totalRooms}</span>
-              </div>
-              <div className="mt-1 sm:mt-2 w-full bg-gray-200 rounded-full h-1.5 sm:h-2">
-                <div 
-                  className={`${getOccupancyBgColor(stats.occupancyRate)} h-1.5 sm:h-2 rounded-full transition-all duration-500`} 
-                  style={{ width: `${Math.min(stats.occupancyRate, 100)}%` }}
-                />
-              </div>
-              <div className="mt-0.5 sm:mt-1 text-[8px] sm:text-xs text-gray-400">
-                Occupancy: <span className={`font-bold ${getOccupancyColor(stats.occupancyRate)}`}>{stats.occupancyRate}%</span>
-              </div>
-            </div>
-
+            {/* Monthly Revenue - KEPT */}
             <div className="bg-white rounded-xl shadow-sm p-3 sm:p-6 border-l-4 border-purple-500 hover:shadow-md transition-shadow">
               <div className="flex items-center justify-between">
                 <div className="min-w-0">
