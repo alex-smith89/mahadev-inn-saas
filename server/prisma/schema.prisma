@@ -1,3 +1,4 @@
+// prisma/schema.prisma
 generator client {
   provider = "prisma-client-js"
 }
@@ -32,15 +33,12 @@ enum BookingStatus {
   CheckedOut
 }
 
-// ✅ UPDATED: Added Triple and Quard
 enum RoomTypeEnum {
   Single
   Double
   Triple
   Quard
   Suite
-  Deluxe
-  Premium
 }
 
 enum MealPlan {
@@ -85,7 +83,7 @@ model UserBranch {
   @@index([branch_name])
 }
 
-// ✅ UPDATED Booking Model with all fields
+// Booking Model
 model Booking {
   id                  String          @id @default(cuid())
   bookingNo           String          @unique
@@ -94,7 +92,8 @@ model Booking {
   email               String?         @db.VarChar(100)
   roomsCount          Int             @default(1)
   roomType            RoomTypeEnum
-  facility            String?         @db.VarChar(100)
+  facility            String          @default("Standard") @db.VarChar(50)
+  facilityMultiplier  Float           @default(1.0)
   price               Float?          @default(0)
   mealPlan            MealPlan        @default(EP)
   selfCooking         Boolean?        @default(false)
@@ -111,23 +110,22 @@ model Booking {
   roomCharges         Float           @default(0)
   kitchenCharges      Float           @default(0)
   diningCharges       Float           @default(0)
-  breakfastCharges    Float           @default(0)        // ✅ NEW: Breakfast charges
+  breakfastCharges    Float           @default(0)
   currency            String          @default("NPR") @db.VarChar(10)
   heads               Int             @default(1)
   extraPersonCharges  Float           @default(0)
-  extraPersons        Int             @default(0)        // ✅ NEW: Number of extra persons
+  extraPersons        Int             @default(0)
   childrenCount       Int             @default(0)
   childrenBelow10     Int             @default(0)
   totalCost           Float           @default(0)
   
-  // ✅ NEW: Room capacity fields
-  roomCapacity        Int             @default(1)        // ✅ NEW: Capacity per room
-  totalCapacity       Int             @default(1)        // ✅ NEW: Total capacity (roomCapacity * roomsCount)
+  roomCapacity        Int             @default(1)
+  totalCapacity       Int             @default(1)
 
   // User tracking fields
   branchName          String?         @db.VarChar(100)
   createdBy           String?         @db.VarChar(50)
-  createdByRole       String?         @db.VarChar(20)   // ✅ NEW: Role of creator
+  createdByRole       String?         @db.VarChar(20)
   userRole            String?         @db.VarChar(20)
   createdByUsername   String?         @db.VarChar(50)
   creatorRole         String?         @db.VarChar(20)
@@ -149,6 +147,8 @@ model Booking {
   userId              Int?            @map("user_id")
   notifications       Notification[]
   emailLogs           EmailLog[]
+  roomAvailabilities  RoomAvailability[]
+  bookingRooms        BookingRoom[]
   
   @@index([branch])
   @@index([branchName])
@@ -162,6 +162,65 @@ model Booking {
   @@index([userRole])
   @@index([actualCheckIn])
   @@index([actualCheckOut])
+  @@index([roomType])
+  @@index([facility])
+}
+
+// Room Model
+model Room {
+  id          String   @id @default(cuid())
+  roomNumber  String   @unique @db.VarChar(50)
+  branch      Branch
+  roomType    RoomTypeEnum
+  capacity    Int      @default(1)
+  status      String   @default("available") @db.VarChar(20)
+  floor       String?  @db.VarChar(10)
+  description String?  @db.Text
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // Relations
+  roomAvailabilities RoomAvailability[]
+  bookingRooms       BookingRoom[]
+
+  @@unique([branch, roomNumber])
+  @@index([branch])
+  @@index([roomType])
+  @@index([status])
+}
+
+// Room Availability
+model RoomAvailability {
+  id          String   @id @default(cuid())
+  roomId      String
+  date        DateTime
+  isAvailable Boolean  @default(true)
+  bookingId   String?
+  
+  // Relations
+  room        Room     @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  booking     Booking? @relation(fields: [bookingId], references: [id])
+
+  @@unique([roomId, date])
+  @@index([date])
+  @@index([isAvailable])
+  @@index([bookingId])
+}
+
+// BookingRoom junction table
+model BookingRoom {
+  id          String   @id @default(cuid())
+  bookingId   String
+  roomId      String
+  assignedAt  DateTime @default(now())
+  
+  // Relations
+  booking     Booking  @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  room        Room     @relation(fields: [roomId], references: [id], onDelete: Cascade)
+
+  @@unique([bookingId, roomId])
+  @@index([bookingId])
+  @@index([roomId])
 }
 
 // Branch Capacity
@@ -172,13 +231,26 @@ model BranchCapacity {
   doubleCap  Int      @default(0)
   tripleCap  Int      @default(0)
   quardCap   Int      @default(0)
+  suiteCap   Int      @default(0)
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
   
   @@index([branch])
 }
 
-// ===== ROOM PRICING MODELS =====
+// Room Type Capacity
+model RoomTypeCapacity {
+  id              Int      @id @default(autoincrement())
+  branch          Branch
+  roomType        String   @db.VarChar(50)
+  totalRooms      Int      @default(0)
+  occupiedRooms   Int      @default(0)
+  availableRooms  Int      @default(0)
+  updated_at      DateTime @updatedAt
+  
+  @@unique([branch, roomType])
+  @@index([branch, roomType])
+}
 
 // Room Types (Model)
 model RoomTypeModel {
@@ -201,8 +273,8 @@ model RoomTypeModel {
 model RoomPricing {
   id              Int      @id @default(autoincrement())
   branch          Branch
-  roomType        String   @db.VarChar(50)  // Single, Double, Triple, Quard, Suite, etc.
-  season          String   @db.VarChar(50)  // Peak, Off-Peak, Festival, Weekend, etc.
+  roomType        String   @db.VarChar(50)
+  season          String   @db.VarChar(50)
   basePrice       Float    @default(0)
   currentPrice    Float    @default(0)
   startDate       DateTime?
@@ -219,6 +291,22 @@ model RoomPricing {
   @@index([branch, roomType])
   @@index([isActive])
   @@index([season])
+}
+
+// ✅ CORRECTED: Branch Room Pricing - Only these columns exist
+model BranchRoomPricing {
+  id                String   @id @default(cuid())
+  branch            Branch   @unique
+  singlePrice       Float    @default(2000)
+  doublePrice       Float    @default(3000)
+  triplePrice       Float    @default(4500)
+  quardPrice        Float    @default(5500)
+  suitePrice        Float    @default(8000)
+  extraPersonPrice  Float    @default(500)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  @@map("branch_room_pricing")
 }
 
 // Pricing History
@@ -238,8 +326,6 @@ model PricingHistory {
   @@index([season])
 }
 
-// ===== FEEDBACK MODELS =====
-
 // Feedback
 model Feedback {
   id          String   @id @default(cuid())
@@ -247,11 +333,11 @@ model Feedback {
   bookingNo   String   @db.VarChar(50)
   guestName   String   @db.VarChar(100)
   guestEmail  String   @db.VarChar(100)
-  rating      Int      // 1-5 stars
+  rating      Int
   review      String?  @db.Text
   stayDate    DateTime
   submittedAt DateTime @default(now())
-  status      String   @default("pending") @db.VarChar(20) // pending, reviewed, archived
+  status      String   @default("pending") @db.VarChar(20)
   branch      Branch
   
   // Relations
@@ -263,8 +349,6 @@ model Feedback {
   @@index([branch])
   @@index([status])
 }
-
-// ===== AUDIT & TRIAL MODELS =====
 
 // Audit Log
 model AuditLog {
@@ -303,17 +387,15 @@ model TrialSignup {
   @@index([status])
 }
 
-// ===== SEASONAL PRICING SUGGESTIONS =====
-
 // Seasonal Pricing Rules
 model SeasonalPricingRule {
   id              Int      @id @default(autoincrement())
   name            String   @db.VarChar(100)
   description     String?  @db.Text
-  season          String   @db.VarChar(50)  // Peak, Off-Peak, Festival, Weekend
+  season          String   @db.VarChar(50)
   multiplier      Float    @default(1.0)
-  startMonth      Int      // 1-12
-  endMonth        Int      // 1-12
+  startMonth      Int
+  endMonth        Int
   isActive        Boolean  @default(true)
   created_at      DateTime @default(now())
   updated_at      DateTime @updatedAt
@@ -322,26 +404,10 @@ model SeasonalPricingRule {
   @@index([season, isActive])
 }
 
-// Room Type Capacity
-model RoomTypeCapacity {
-  id              Int      @id @default(autoincrement())
-  branch          Branch
-  roomType        String   @db.VarChar(50)
-  totalRooms      Int      @default(0)
-  occupiedRooms   Int      @default(0)
-  availableRooms  Int      @default(0)
-  updated_at      DateTime @updatedAt
-  
-  @@unique([branch, roomType])
-  @@index([branch, roomType])
-}
-
-// ===== NOTIFICATION MODEL =====
-
 // Notification Model
 model Notification {
   id          String   @id @default(cuid())
-  type        String   // checkin_success, checkout_reminder, checkin_reminder, force_checkin, checkout_success, room_vacant
+  type        String
   title       String
   message     String
   branch      Branch
@@ -365,8 +431,6 @@ model Notification {
   @@index([userId])
 }
 
-// ===== EMAIL LOG MODEL =====
-
 // Email Log Model
 model EmailLog {
   id          String   @id @default(cuid())
@@ -374,7 +438,7 @@ model EmailLog {
   subject     String   @db.VarChar(255)
   template    String   @db.VarChar(100)
   data        Json
-  status      String   @db.VarChar(20) // sent, failed, pending
+  status      String   @db.VarChar(20)
   sentAt      DateTime @map("sent_at")
   error       String?  @db.Text
   createdAt   DateTime @default(now()) @map("created_at")
@@ -391,18 +455,16 @@ model EmailLog {
   @@index([bookingId])
 }
 
-// ===== AUTOMATION LOG MODEL =====
-
 // Automation Log Model
 model AutomationLog {
   id          String   @id @default(cuid())
-  type        String   @db.VarChar(50) // checkin, checkout, reminder
+  type        String   @db.VarChar(50)
   branch      Branch
   bookingId   String?  @map("booking_id")
-  status      String   @db.VarChar(20) // success, failed
+  status      String   @db.VarChar(20)
   message     String?  @db.Text
   details     Json?
-  executedBy  String   @db.VarChar(50) // username
+  executedBy  String   @db.VarChar(50)
   executedAt  DateTime @default(now()) @map("executed_at")
 
   @@map("automation_logs")
