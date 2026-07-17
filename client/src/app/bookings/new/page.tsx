@@ -802,11 +802,12 @@ export default function NewBookingPage() {
         email: form.email.trim(),
         branch: form.branch,
         roomType: form.roomType,
+        facility: form.facility, // ✅ Include facility in payload
+        facilityMultiplier: facilityMultiplier, // ✅ Include facility multiplier
         roomsCount: Number(form.roomsCount) || 1,
         heads: Number(form.heads) || 1,
         childrenBelow10: childrenBelow10,
         mealPlan: form.mealPlan,
-        facility: form.facility, // ✅ Include facility in payload
         checkIn: currentTime,
         checkOut: form.checkOut,
         bookingStatus: form.bookingStatus,
@@ -829,8 +830,9 @@ export default function NewBookingPage() {
         totalCapacity: costBreakdown.totalCapacity,
         createdBy: currentUser?.username || 'Unknown',
         createdByRole: currentUser?.role || 'Unknown',
-        facilityMultiplier: facilityMultiplier,
       };
+
+      console.log('📋 Creating booking with payload:', payload);
 
       const response = await fetch(`${API_URL}/bookings`, {
         method: 'POST',
@@ -889,9 +891,11 @@ export default function NewBookingPage() {
         try {
           const errorData = await response.json();
           errorMessage = errorData.message || errorData.error || errorMessage;
+          console.error('Error response:', errorData);
         } catch (parseError) {
           const text = await response.text();
           if (text) errorMessage = text;
+          console.error('Error text:', text);
         }
         setError(`Error ${response.status}: ${errorMessage}`);
       }
@@ -1275,7 +1279,7 @@ export default function NewBookingPage() {
               </select>
             </div>
 
-            {/* ✅ Facility Dropdown - Updated with Standard and Deluxe */}
+            {/* ✅ Facility Dropdown */}
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
                 Facility <span className="text-red-500">*</span>

@@ -337,71 +337,8 @@ async function main() {
   }
   console.log('✅ Created audit logs');
 
-  // ==================== CREATE SAMPLE BOOKINGS ====================
-  console.log('📋 Creating sample bookings...');
-
-  // Try to create bookings without the facility field
-  try {
-    await prisma.booking.create({
-      data: {
-        bookingNo: 'BKG-SAMPLE-001',
-        agentName: 'John Doe',
-        agentContact: '+977 9800000000',
-        email: 'john@example.com',
-        branch: Branch.Pokhara,
-        roomType: RoomTypeEnum.Single,
-        roomsCount: 1,
-        heads: 1,
-        childrenBelow10: 0,
-        mealPlan: MealPlan.EP,
-        checkIn: new Date(),
-        checkOut: new Date(Date.now() + 24 * 60 * 60 * 1000),
-        nights: 1,
-        bookingStatus: BookingStatus.Confirm,
-        roomCharges: 2000,
-        totalCost: 2260,
-        currency: 'NPR',
-        roomCapacity: 1,
-        totalCapacity: 1,
-        createdBy: 'system',
-        createdByRole: 'ADMIN',
-      },
-    });
-    console.log('✅ Created sample booking 1');
-  } catch (error) {
-    console.log('⚠️ Could not create booking 1, skipping...');
-  }
-
-  try {
-    await prisma.booking.create({
-      data: {
-        bookingNo: 'BKG-SAMPLE-002',
-        agentName: 'Jane Smith',
-        agentContact: '+977 9800000001',
-        email: 'jane@example.com',
-        branch: Branch.Pokhara,
-        roomType: RoomTypeEnum.Double,
-        roomsCount: 1,
-        heads: 2,
-        childrenBelow10: 0,
-        mealPlan: MealPlan.MAP,
-        checkIn: new Date(),
-        checkOut: new Date(Date.now() + 2 * 24 * 60 * 60 * 1000),
-        nights: 2,
-        bookingStatus: BookingStatus.Confirm,
-        roomCharges: 3000,
-        totalCost: 3390,
-        currency: 'NPR',
-        roomCapacity: 2,
-        totalCapacity: 2,
-        createdBy: 'system',
-        createdByRole: 'ADMIN',
-      },
-    });
-    console.log('✅ Created sample booking 2');
-  } catch (error) {
-    console.log('⚠️ Could not create booking 2, skipping...');
-  }
+  // ==================== NO SAMPLE BOOKINGS CREATED ====================
+  console.log('📋 No sample bookings created (removed permanently)');
 
   // ==================== SUMMARY ====================
   console.log('\n📊 Seeding Summary:');
@@ -412,6 +349,7 @@ async function main() {
   console.log(`✅ ${availabilityCount} room availability entries created`);
   console.log(`✅ ${seasonalRules.length} seasonal rules created`);
   console.log(`✅ ${branchCapacities.length} branch capacities created`);
+  console.log('✅ 0 sample bookings created (permanently removed)');
   console.log('✅ Seeding complete!');
 
   console.log('\n🔑 Login Credentials:');
@@ -425,6 +363,11 @@ async function main() {
   console.log('  - Triple (Capacity: 3) - Rs. 4,500/night');
   console.log('  - Quard (Capacity: 4) - Rs. 5,500/night');
   console.log('  - Suite (Capacity: 4) - Rs. 8,000/night');
+
+  console.log('\n🏷️ Facility Options (Available in UI):');
+  console.log('  - Standard (1.0x multiplier) - Base price');
+  console.log('  - Deluxe (1.5x multiplier) - 50% extra');
+  console.log('  - Premium (2.0x multiplier) - 100% extra');
 }
 
 main()
