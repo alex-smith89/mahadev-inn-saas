@@ -1,277 +1,245 @@
-import { Injectable, ForbiddenException, NotFoundException } from '@nestjs/common';
+// src/room-capacity/room-capacity.service.ts
+import { Injectable, Logger, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
-import { Branch } from '@prisma/client';
 
 @Injectable()
 export class RoomCapacityService {
+  private readonly logger = new Logger(RoomCapacityService.name);
+
   constructor(private prisma: PrismaService) {}
 
-  // Get branch capacity
-  async getBranchCapacity(branch: Branch) {
-    const capacity = await this.prisma.branchCapacity.findUnique({
-      where: { branch },
-    });
-
-    if (!capacity) {
-      // Create default capacity if not exists
-      return this.prisma.branchCapacity.create({
-        data: {
-          branch,
-          singleCap: 20,
-          doubleCap: 30,
-          tripleCap: 10,
-          quardCap: 5,
-        },
+  async getBranchCapacity(branch: string, user: any) {
+    try {
+      let capacity = await this.prisma.branchCapacity.findUnique({
+        where: { branch: branch as any },
       });
-    }
 
-    return capacity;
-  }
-
-  // Update branch capacity
-  async updateBranchCapacity(
-    branch: Branch,
-    data: {
-      singleCap?: number;
-      doubleCap?: number;
-      tripleCap?: number;
-      quardCap?: number;
-    }
-  ) {
-    const existing = await this.prisma.branchCapacity.findUnique({
-      where: { branch },
-    });
-
-    if (!existing) {
-      return this.prisma.branchCapacity.create({
-        data: {
-          branch,
-          singleCap: data.singleCap || 20,
-          doubleCap: data.doubleCap || 30,
-          tripleCap: data.tripleCap || 10,
-          quardCap: data.quardCap || 5,
-        },
-      });
-    }
-
-    return this.prisma.branchCapacity.update({
-      where: { branch },
-      data: {
-        singleCap: data.singleCap !== undefined ? data.singleCap : existing.singleCap,
-        doubleCap: data.doubleCap !== undefined ? data.doubleCap : existing.doubleCap,
-        tripleCap: data.tripleCap !== undefined ? data.tripleCap : existing.tripleCap,
-        quardCap: data.quardCap !== undefined ? data.quardCap : existing.quardCap,
-        updatedAt: new Date(),
-      },
-    });
-  }
-
-  // Get all branch capacities
-  async getAllBranchCapacities() {
-    const capacities = await this.prisma.branchCapacity.findMany({
-      orderBy: { branch: 'asc' },
-    });
-
-    // Ensure all branches have capacities
-    const allBranches = Object.values(Branch);
-    const existingBranches = capacities.map(c => c.branch);
-    
-    for (const branch of allBranches) {
-      if (!existingBranches.includes(branch)) {
-        const newCapacity = await this.prisma.branchCapacity.create({
+      if (!capacity) {
+        this.logger.log(`📊 Creating default capacity for branch: ${branch}`);
+        capacity = await this.prisma.branchCapacity.create({
           data: {
-            branch,
-            singleCap: 20,
-            doubleCap: 30,
-            tripleCap: 10,
-            quardCap: 5,
+            branch: branch as any,
+            singleCap: 0,
+            doubleCap: 0,
+            tripleCap: 0,
+            quardCap: 0,
+            suiteCap: 0,
           },
         });
-        capacities.push(newCapacity);
       }
-    }
 
-    return capacities;
+      return capacity;
+    } catch (error) {
+      this.logger.error(`❌ Error: ${error.message}`);
+      throw error;
+    }
   }
 
-  // Get room type capacity (available rooms per type)
-  async getRoomTypeCapacity(branch: Branch) {
-    const capacities = await this.prisma.roomTypeCapacity.findMany({
-      where: { branch },
-    });
+  async updateBranchCapacity(branch: string, body: any, user: any) {
+    try {
+      const { singleCap, doubleCap, tripleCap, quardCap, suiteCap } = body;
 
-    // Get all room types
-    const roomTypes = await this.prisma.roomTypeModel.findMany({
-      where: { isActive: true },
-    });
+      if (!singleCap && !doubleCap && !tripleCap && !quardCap && !suiteCap) {
+        throw new BadRequestException('At least one capacity value is required');
+      }
 
-    // Ensure all room types have capacities
-    const existingTypes = capacities.map(c => c.roomType);
-    for (const rt of roomTypes) {
-      if (!existingTypes.includes(rt.name)) {
-        const newCapacity = await this.prisma.roomTypeCapacity.create({
-          data: {
-            branch,
+      // Update branch capacity
+      const capacity = await this.prisma.branchCapacity.upsert({
+        where: { branch: branch as any },
+        update: {
+          singleCap: Number(singleCap) || 0,
+          doubleCap: Number(doubleCap) || 0,
+          tripleCap: Number(tripleCap) || 0,
+          quardCap: Number(quardCap) || 0,
+          suiteCap: Number(suiteCap) || 0,
+          updatedAt: new Date(),
+        },
+        create: {
+          branch: branch as any,
+          singleCap: Number(singleCap) || 0,
+          doubleCap: Number(doubleCap) || 0,
+          tripleCap: Number(tripleCap) || 0,
+          quardCap: Number(quardCap) || 0,
+          suiteCap: Number(suiteCap) || 0,
+        },
+      });
+
+      this.logger.log(`✅ Branch capacity updated for ${branch}`);
+
+      // Sync room type capacities
+      await this.syncRoomTypeCapacities(branch, capacity);
+
+      return {
+        success: true,
+        message: 'Branch capacity updated successfully',
+        data: capacity,
+      };
+    } catch (error) {
+      this.logger.error(`❌ Error: ${error.message}`);
+      throw error;
+    }
+  }
+
+  private async syncRoomTypeCapacities(branch: string, capacity: any) {
+    try {
+      const roomTypes = [
+        { name: 'Single', total: capacity.singleCap },
+        { name: 'Double', total: capacity.doubleCap },
+        { name: 'Triple', total: capacity.tripleCap },
+        { name: 'Quard', total: capacity.quardCap },
+        { name: 'Suite', total: capacity.suiteCap || 0 },
+      ];
+
+      for (const rt of roomTypes) {
+        await this.prisma.roomTypeCapacity.upsert({
+          where: {
+            branch_roomType: {
+              branch: branch as any,
+              roomType: rt.name,
+            },
+          },
+          update: {
+            totalRooms: rt.total,
+            availableRooms: rt.total,
+          },
+          create: {
+            branch: branch as any,
             roomType: rt.name,
-            totalRooms: 10,
+            totalRooms: rt.total,
             occupiedRooms: 0,
-            availableRooms: 10,
+            availableRooms: rt.total,
           },
         });
-        capacities.push(newCapacity);
       }
+
+      this.logger.log(`✅ Room type capacities synced for ${branch}`);
+    } catch (error) {
+      this.logger.error(`❌ Error syncing: ${error.message}`);
     }
+  }
 
-    // Calculate occupied rooms from bookings
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
+  async getRoomTypeCapacities(branch: string, user: any) {
+    try {
+      let capacities = await this.prisma.roomTypeCapacity.findMany({
+        where: { branch: branch as any },
+        orderBy: { roomType: 'asc' },
+      });
 
-    const bookings = await this.prisma.booking.findMany({
-      where: {
-        branch,
-        bookingStatus: { in: ['Confirm', 'Confirmed', 'CheckedIn'] },
-        checkIn: { lte: today },
-        checkOut: { gt: today },
-      },
-    });
+      if (capacities.length === 0) {
+        this.logger.log(`📊 Creating default room type capacities for ${branch}`);
+        
+        const branchCap = await this.getBranchCapacity(branch, user);
+        const roomTypes = ['Single', 'Double', 'Triple', 'Quard', 'Suite'];
+        const created = [];
 
-    // Update occupied rooms
-    for (const cap of capacities) {
-      const occupied = bookings
-        .filter(b => b.roomType === cap.roomType)
-        .reduce((sum, b) => sum + b.roomsCount, 0);
-      
-      await this.prisma.roomTypeCapacity.update({
-        where: { id: cap.id },
-        data: {
-          occupiedRooms: occupied,
-          availableRooms: cap.totalRooms - occupied,
+        for (const roomType of roomTypes) {
+          let totalRooms = 0;
+          switch(roomType) {
+            case 'Single': totalRooms = branchCap.singleCap || 0; break;
+            case 'Double': totalRooms = branchCap.doubleCap || 0; break;
+            case 'Triple': totalRooms = branchCap.tripleCap || 0; break;
+            case 'Quard': totalRooms = branchCap.quardCap || 0; break;
+            case 'Suite': totalRooms = branchCap.suiteCap || 0; break;
+          }
+
+          const capacity = await this.prisma.roomTypeCapacity.create({
+            data: {
+              branch: branch as any,
+              roomType: roomType,
+              totalRooms: totalRooms,
+              occupiedRooms: 0,
+              availableRooms: totalRooms,
+            },
+          });
+          created.push(capacity);
+        }
+        
+        return created;
+      }
+
+      return capacities;
+    } catch (error) {
+      this.logger.error(`❌ Error: ${error.message}`);
+      throw error;
+    }
+  }
+
+  async updateRoomTypeCapacity(branch: string, roomType: string, body: any, user: any) {
+    try {
+      const { totalRooms } = body;
+
+      if (totalRooms === undefined) {
+        throw new BadRequestException('totalRooms is required');
+      }
+
+      const capacity = await this.prisma.roomTypeCapacity.upsert({
+        where: {
+          branch_roomType: {
+            branch: branch as any,
+            roomType: roomType,
+          },
+        },
+        update: {
+          totalRooms: Number(totalRooms),
+          availableRooms: Number(totalRooms),
           updated_at: new Date(),
         },
-      });
-    }
-
-    const updatedCapacities = await this.prisma.roomTypeCapacity.findMany({
-      where: { branch },
-    });
-
-    return updatedCapacities;
-  }
-
-  // Update room type capacity
-  async updateRoomTypeCapacity(
-    branch: Branch,
-    roomType: string,
-    totalRooms: number
-  ) {
-    const existing = await this.prisma.roomTypeCapacity.findFirst({
-      where: {
-        branch,
-        roomType,
-      },
-    });
-
-    if (!existing) {
-      return this.prisma.roomTypeCapacity.create({
-        data: {
-          branch,
-          roomType,
-          totalRooms,
+        create: {
+          branch: branch as any,
+          roomType: roomType,
+          totalRooms: Number(totalRooms),
           occupiedRooms: 0,
-          availableRooms: totalRooms,
+          availableRooms: Number(totalRooms),
         },
       });
-    }
 
-    return this.prisma.roomTypeCapacity.update({
-      where: { id: existing.id },
-      data: {
-        totalRooms,
-        availableRooms: totalRooms - existing.occupiedRooms,
-        updated_at: new Date(),
-      },
-    });
-  }
+      this.logger.log(`✅ ${roomType} capacity updated for ${branch}`);
 
-  // Get capacity summary for dashboard
-  async getCapacitySummary() {
-    const branches = Object.values(Branch);
-    const summary = [];
-
-    for (const branch of branches) {
-      const capacity = await this.getBranchCapacity(branch);
-      const roomTypeCap = await this.getRoomTypeCapacity(branch);
-      
-      const totalRooms = capacity.singleCap + capacity.doubleCap + capacity.tripleCap + capacity.quardCap;
-      const occupiedRooms = roomTypeCap.reduce((sum, r) => sum + r.occupiedRooms, 0);
-      const availableRooms = totalRooms - occupiedRooms;
-      const occupancyRate = totalRooms > 0 ? Math.round((occupiedRooms / totalRooms) * 100) : 0;
-
-      summary.push({
-        branch,
-        totalRooms,
-        occupiedRooms,
-        availableRooms,
-        occupancyRate,
-        roomTypes: roomTypeCap,
-      });
-    }
-
-    return summary;
-  }
-
-  // Check if rooms are available for booking
-  async checkAvailability(
-    branch: Branch,
-    roomType: string,
-    roomsCount: number,
-    checkIn: Date,
-    checkOut: Date
-  ) {
-    // Get room type capacity
-    const capacity = await this.prisma.roomTypeCapacity.findFirst({
-      where: {
-        branch,
-        roomType,
-      },
-    });
-
-    if (!capacity) {
       return {
-        available: false,
-        message: `Room type ${roomType} not found in ${branch}`,
-        availableRooms: 0,
-        requestedRooms: roomsCount,
+        success: true,
+        message: `${roomType} capacity updated successfully`,
+        data: capacity,
       };
+    } catch (error) {
+      this.logger.error(`❌ Error: ${error.message}`);
+      throw error;
     }
+  }
 
-    // Get overlapping bookings
-    const overlapping = await this.prisma.booking.findMany({
-      where: {
-        branch,
-        roomType: roomType as any,
-        bookingStatus: { in: ['Confirm', 'Confirmed', 'CheckedIn'] },
-        OR: [
-          {
-            checkIn: { lte: checkOut },
-            checkOut: { gte: checkIn },
-          },
-        ],
-      },
-    });
+  async getCapacitySummary(user: any) {
+    try {
+      const branchCapacities = await this.prisma.branchCapacity.findMany();
+      const summary = [];
 
-    const bookedRooms = overlapping.reduce((sum, b) => sum + b.roomsCount, 0);
-    const availableRooms = capacity.totalRooms - bookedRooms;
+      for (const branchCap of branchCapacities) {
+        const roomTypes = await this.prisma.roomTypeCapacity.findMany({
+          where: { branch: branchCap.branch },
+        });
 
-    return {
-      available: availableRooms >= roomsCount,
-      availableRooms,
-      requestedRooms: roomsCount,
-      totalRooms: capacity.totalRooms,
-      bookedRooms,
-      message: availableRooms >= roomsCount 
-        ? `${availableRooms} rooms available` 
-        : `Only ${availableRooms} rooms available, requested ${roomsCount}`,
-    };
+        const totalRooms = 
+          (branchCap.singleCap || 0) +
+          (branchCap.doubleCap || 0) +
+          (branchCap.tripleCap || 0) +
+          (branchCap.quardCap || 0) +
+          (branchCap.suiteCap || 0);
+
+        const occupiedRooms = roomTypes.reduce((sum, r) => sum + r.occupiedRooms, 0);
+        const availableRooms = totalRooms - occupiedRooms;
+        const occupancyRate = totalRooms > 0 ? Math.round((occupiedRooms / totalRooms) * 100) : 0;
+
+        summary.push({
+          branch: branchCap.branch,
+          totalRooms,
+          occupiedRooms,
+          availableRooms,
+          occupancyRate,
+        });
+      }
+
+      return summary;
+    } catch (error) {
+      this.logger.error(`❌ Error: ${error.message}`);
+      throw error;
+    }
   }
 }

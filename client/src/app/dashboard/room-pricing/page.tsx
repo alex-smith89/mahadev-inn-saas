@@ -8,7 +8,8 @@ import {
   FiCheckCircle, FiInfo, FiClock, FiSettings, FiZap, FiX
 } from 'react-icons/fi';
 
-const API_URL = 'http://localhost:4000';
+// ✅ Fix: Use /api in the URL
+const API_URL = 'http://localhost:4000/api';
 
 export default function RoomPricingPage() {
   const router = useRouter();
@@ -34,40 +35,23 @@ export default function RoomPricingPage() {
     const token = localStorage.getItem('token');
     const userStr = localStorage.getItem('user');
     
-    console.log('🔍 Room Pricing Page - Checking auth...');
-    console.log('Token exists:', !!token);
-    console.log('Token value:', token?.substring(0, 20) + '...');
-    console.log('User exists:', !!userStr);
-    
     if (!token) {
-      console.log('❌ No token found, redirecting to login');
       router.push('/login');
       return;
     }
     
     if (!userStr) {
-      console.log('❌ No user data found, redirecting to login');
       router.push('/login');
       return;
     }
     
     try {
       const userData = JSON.parse(userStr);
-      console.log('✅ User loaded:', userData);
-      
-      if (!userData.branches || userData.branches.length === 0) {
-        console.log('❌ No branches found for user');
-        setError('No branches assigned to this user');
-        setLoading(false);
-        return;
-      }
-      
       setUser(userData);
       setBranches(userData.branches || []);
       setSelectedBranch(userData.selectedBranch || userData.branches[0]);
       
       if (userData.role !== 'OWNER') {
-        console.log('❌ Not an owner, redirecting to dashboard');
         router.push('/dashboard');
         return;
       }
@@ -104,7 +88,6 @@ export default function RoomPricingPage() {
     try {
       const token = localStorage.getItem('token');
       if (!token) {
-        console.log('❌ No token found in loadPricingData');
         router.push('/login');
         return;
       }
@@ -121,7 +104,6 @@ export default function RoomPricingPage() {
       console.log('📊 Response status:', response.status);
 
       if (response.status === 401) {
-        console.log('❌ Unauthorized - Token expired or invalid');
         localStorage.removeItem('token');
         localStorage.removeItem('user');
         router.push('/login');
@@ -131,7 +113,6 @@ export default function RoomPricingPage() {
       if (!response.ok) {
         console.log('⚠️ Using fallback pricing data');
         setIsUsingFallback(true);
-        // ✅ Updated fallback data with Triple and Quard - REMOVED Suite, Deluxe, Premium
         const fallbackData = [
           { roomType: 'Single', description: 'Standard single room with basic amenities', maxOccupancy: 1, basePrice: 2500, currentPrice: 2500, season: 'Regular' },
           { roomType: 'Double', description: 'Standard double room with comfortable bedding', maxOccupancy: 2, basePrice: 3500, currentPrice: 3500, season: 'Regular' },
@@ -154,12 +135,30 @@ export default function RoomPricingPage() {
       const data = await response.json();
       console.log('✅ Pricing data loaded:', data);
       
-      // ✅ Filter out Suite, Deluxe, Premium if they come from API
-      const pricingData = (data.pricing || data || []).filter((p: any) => 
-        !['Suite', 'Deluxe', 'Premium'].includes(p.roomType)
-      );
+      // ✅ Handle both response formats
+      let pricingData = [];
+      if (data.pricing) {
+        pricingData = data.pricing;
+      } else if (Array.isArray(data)) {
+        pricingData = data;
+      } else {
+        // Convert object to array
+        pricingData = Object.keys(data).filter(key => key !== 'branch').map(key => ({
+          roomType: key.replace('Price', ''),
+          currentPrice: data[key],
+          basePrice: data[key],
+          maxOccupancy: key === 'singlePrice' ? 1 : key === 'doublePrice' ? 2 : key === 'triplePrice' ? 3 : 4,
+          season: 'Regular',
+          description: key === 'singlePrice' ? 'Standard single room' : 
+                      key === 'doublePrice' ? 'Standard double room' :
+                      key === 'triplePrice' ? 'Triple room' : 'Quad room'
+        }));
+      }
       
-      // ✅ Ensure Triple and Quard exist
+      // Filter out Suite
+      pricingData = pricingData.filter((p: any) => p.roomType !== 'Suite');
+      
+      // Ensure all room types exist
       const roomTypes = ['Single', 'Double', 'Triple', 'Quard'];
       const existingTypes = pricingData.map((p: any) => p.roomType);
       
@@ -194,7 +193,7 @@ export default function RoomPricingPage() {
 
     } catch (err: any) {
       console.error('❌ Error loading pricing:', err);
-      // ✅ Updated fallback data with Triple and Quard
+      setIsUsingFallback(true);
       const fallbackData = [
         { roomType: 'Single', description: 'Standard single room with basic amenities', maxOccupancy: 1, basePrice: 2500, currentPrice: 2500, season: 'Regular' },
         { roomType: 'Double', description: 'Standard double room with comfortable bedding', maxOccupancy: 2, basePrice: 3500, currentPrice: 3500, season: 'Regular' },
@@ -202,7 +201,6 @@ export default function RoomPricingPage() {
         { roomType: 'Quard', description: 'Quard room with four beds', maxOccupancy: 4, basePrice: 5500, currentPrice: 5500, season: 'Regular' },
       ];
       setPricing(fallbackData);
-      setIsUsingFallback(true);
       
       const prices: {[key: string]: number} = {};
       const seasons: {[key: string]: string} = {};
@@ -280,11 +278,7 @@ export default function RoomPricingPage() {
 
       if (response.ok) {
         const data = await response.json();
-        // ✅ Filter out Suite, Deluxe, Premium from history
-        const filteredHistory = (data || []).filter((h: any) => 
-          !['Suite', 'Deluxe', 'Premium'].includes(h.roomType)
-        );
-        setHistory(filteredHistory);
+        setHistory(data);
         setShowHistory(true);
       } else {
         setHistory([
@@ -311,6 +305,7 @@ export default function RoomPricingPage() {
     setEditingSeason(prev => ({ ...prev, [roomType]: season }));
   };
 
+  // ✅ FIXED: Improved handleSavePrice with proper API call
   const handleSavePrice = async (roomType: string) => {
     try {
       setSaving(true);
@@ -321,7 +316,12 @@ export default function RoomPricingPage() {
       const price = editingPrice[roomType];
       const season = editingSeason[roomType] || 'Regular';
 
-      console.log('💾 Saving price:', { roomType, price, season, branch: selectedBranch });
+      console.log('💾 Saving price:', { 
+        roomType, 
+        price, 
+        season, 
+        branch: selectedBranch 
+      });
 
       const response = await fetch(`${API_URL}/room-pricing/update`, {
         method: 'PUT',
@@ -332,11 +332,14 @@ export default function RoomPricingPage() {
         body: JSON.stringify({
           branch: selectedBranch,
           roomType,
-          price,
+          price: Number(price),
           season,
           reason: `Price updated for ${season} season by ${user?.username}`
         })
       });
+
+      console.log('📊 Response status:', response.status);
+      console.log('📊 Response OK:', response.ok);
 
       if (response.status === 401) {
         localStorage.removeItem('token');
@@ -345,24 +348,25 @@ export default function RoomPricingPage() {
         return;
       }
 
+      // Parse the response
+      const responseData = await response.json();
+      console.log('📊 Response data:', responseData);
+
       if (!response.ok) {
-        console.log('⚠️ API failed, updating locally');
-        setSuccess(`✅ Price for ${roomType} updated locally!`);
-        const updatedPricing = pricing.map(p => 
-          p.roomType === roomType ? { ...p, currentPrice: price, season: season } : p
-        );
-        setPricing(updatedPricing);
-        setTimeout(() => setSuccess(''), 3000);
-        setSaving(false);
-        return;
+        throw new Error(responseData.message || responseData.error || 'Failed to update price');
       }
 
+      // ✅ Success - update the UI
       setSuccess(`✅ Price for ${roomType} updated successfully!`);
+      
+      // Reload pricing data to reflect changes
       await loadPricingData();
       
       setTimeout(() => setSuccess(''), 3000);
     } catch (err: any) {
       console.error('❌ Error saving price:', err);
+      
+      // ✅ Update locally as fallback
       const price = editingPrice[roomType];
       const season = editingSeason[roomType] || 'Regular';
       const updatedPricing = pricing.map(p => 

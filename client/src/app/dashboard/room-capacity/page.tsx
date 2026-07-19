@@ -18,6 +18,7 @@ interface BranchCapacity {
   doubleCap: number;
   tripleCap: number;
   quardCap: number;
+  suiteCap: number;
   createdAt: string;
   updatedAt: string;
 }
@@ -29,6 +30,15 @@ interface RoomTypeCapacity {
   totalRooms: number;
   occupiedRooms: number;
   availableRooms: number;
+}
+
+interface Room {
+  id: string;
+  roomNumber: string;
+  branch: string;
+  roomType: string;
+  capacity: number;
+  status: string;
 }
 
 export default function RoomCapacityPage() {
@@ -44,9 +54,11 @@ export default function RoomCapacityPage() {
   const [roomTypeCapacities, setRoomTypeCapacities] = useState<RoomTypeCapacity[]>([]);
   const [editingCapacity, setEditingCapacity] = useState<{[key: string]: number}>({});
   const [editingRoomCapacity, setEditingRoomCapacity] = useState<{[key: string]: number}>({});
+  const [originalCapacity, setOriginalCapacity] = useState<{[key: string]: number}>({});
   const [summary, setSummary] = useState<any[]>([]);
   const [viewMode, setViewMode] = useState<'branch' | 'summary'>('branch');
   const [isBranchDropdownOpen, setIsBranchDropdownOpen] = useState(false);
+  const [rooms, setRooms] = useState<Room[]>([]);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -64,11 +76,9 @@ export default function RoomCapacityPage() {
         setUser(userData);
         console.log('✅ User loaded:', userData);
         
-        // Get branches from user data
         const userBranches = userData.branches || [];
         setBranches(userBranches);
         
-        // Set selected branch - use stored selection or first branch
         const savedBranch = localStorage.getItem('selectedBranch');
         if (savedBranch && userBranches.includes(savedBranch)) {
           setSelectedBranch(savedBranch);
@@ -90,14 +100,12 @@ export default function RoomCapacityPage() {
     setLoading(false);
   }, [router]);
 
-  // Load data when branch changes
   useEffect(() => {
     if (selectedBranch) {
       loadData();
     }
   }, [selectedBranch]);
 
-  // Close dropdown when clicking outside
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
       if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
@@ -126,12 +134,15 @@ export default function RoomCapacityPage() {
       if (branchRes.ok) {
         const data = await branchRes.json();
         setBranchCapacity(data);
-        setEditingCapacity({
+        const caps = {
           singleCap: data.singleCap || 0,
           doubleCap: data.doubleCap || 0,
           tripleCap: data.tripleCap || 0,
           quardCap: data.quardCap || 0,
-        });
+          suiteCap: data.suiteCap || 0,
+        };
+        setEditingCapacity(caps);
+        setOriginalCapacity(caps);
         console.log('✅ Branch capacity loaded:', data);
       } else {
         console.error('❌ Failed to load branch capacity');
@@ -153,6 +164,17 @@ export default function RoomCapacityPage() {
         console.log('✅ Room type capacities loaded:', data);
       } else {
         console.error('❌ Failed to load room type capacities');
+      }
+
+      // Load rooms for this branch
+      const roomsRes = await fetch(`${API_URL}/rooms/branch/${selectedBranch}`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+
+      if (roomsRes.ok) {
+        const data = await roomsRes.json();
+        setRooms(data);
+        console.log('✅ Rooms loaded:', data.length);
       }
 
       // Load summary
@@ -188,6 +210,86 @@ export default function RoomCapacityPage() {
     }
   };
 
+  // Function to get room type prefix
+  const getRoomTypePrefix = (roomType: string) => {
+    const prefixes: {[key: string]: string} = {
+      'Single': 'SGL',
+      'Double': 'DBL',
+      'Triple': 'TPL',
+      'Quard': 'QRD',
+      'Suite': 'STE'
+    };
+    return prefixes[roomType] || roomType.substring(0, 3).toUpperCase();
+  };
+
+  // Function to get room capacity
+  const getRoomCapacity = (roomType: string) => {
+    const capacities: {[key: string]: number} = {
+      'Single': 1,
+      'Double': 2,
+      'Triple': 3,
+      'Quard': 4,
+      'Suite': 4
+    };
+    return capacities[roomType] || 1;
+  };
+
+  // Function to create new rooms when capacity is increased
+  const createRoomsForType = async (roomType: string, currentCount: number, newCount: number) => {
+    if (newCount <= currentCount) return [];
+
+    const token = localStorage.getItem('token');
+    const branchPrefix = selectedBranch.substring(0, 3).toUpperCase();
+    const typePrefix = getRoomTypePrefix(roomType);
+    const capacity = getRoomCapacity(roomType);
+    const createdRooms = [];
+
+    // Get existing room numbers for this type
+    const existingRooms = rooms.filter(r => r.roomType === roomType);
+    const existingNumbers = existingRooms.map(r => {
+      const parts = r.roomNumber.split('-');
+      return parseInt(parts[2] || '0');
+    });
+
+    let nextNumber = 1;
+    if (existingNumbers.length > 0) {
+      nextNumber = Math.max(...existingNumbers) + 1;
+    }
+
+    for (let i = 0; i < newCount - currentCount; i++) {
+      const roomNumber = `${branchPrefix}-${typePrefix}-${String(nextNumber++).padStart(3, '0')}`;
+      
+      try {
+        const response = await fetch(`${API_URL}/rooms`, {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            roomNumber,
+            branch: selectedBranch,
+            roomType,
+            capacity,
+            status: 'available',
+          }),
+        });
+
+        if (response.ok) {
+          const newRoom = await response.json();
+          createdRooms.push(newRoom);
+          console.log(`✅ Created room: ${roomNumber}`);
+        } else {
+          console.error(`❌ Failed to create room: ${roomNumber}`);
+        }
+      } catch (error) {
+        console.error(`❌ Error creating room ${roomNumber}:`, error);
+      }
+    }
+
+    return createdRooms;
+  };
+
   const saveBranchCapacity = async () => {
     try {
       setSaving(true);
@@ -195,6 +297,8 @@ export default function RoomCapacityPage() {
       setSuccess('');
       
       const token = localStorage.getItem('token');
+      
+      // First, update the branch capacity
       const response = await fetch(`${API_URL}/room-capacity/branch/${selectedBranch}`, {
         method: 'PUT',
         headers: {
@@ -216,9 +320,33 @@ export default function RoomCapacityPage() {
         throw new Error(data.message || 'Failed to update capacity');
       }
 
-      setSuccess('✅ Branch capacity updated successfully!');
+      // Check which room types have increased capacity and create rooms
+      const roomTypes = ['Single', 'Double', 'Triple', 'Quard', 'Suite'];
+      let createdCount = 0;
+      
+      for (const roomType of roomTypes) {
+        const capKey = `${roomType.toLowerCase()}Cap`;
+        const oldCount = originalCapacity[capKey] || 0;
+        const newCount = editingCapacity[capKey] || 0;
+        
+        if (newCount > oldCount) {
+          console.log(`📈 ${roomType}: ${oldCount} → ${newCount} (Creating ${newCount - oldCount} rooms)`);
+          const newRooms = await createRoomsForType(roomType, oldCount, newCount);
+          createdCount += newRooms.length;
+          
+          // Update original capacity to match new count
+          setOriginalCapacity(prev => ({ ...prev, [capKey]: newCount }));
+        }
+      }
+
+      let successMessage = '✅ Branch capacity updated successfully!';
+      if (createdCount > 0) {
+        successMessage += ` Created ${createdCount} new room(s).`;
+      }
+      
+      setSuccess(successMessage);
       await loadData();
-      setTimeout(() => setSuccess(''), 3000);
+      setTimeout(() => setSuccess(''), 4000);
     } catch (err: any) {
       setError(err.message || 'Failed to update capacity');
       setTimeout(() => setError(''), 3000);
@@ -235,6 +363,10 @@ export default function RoomCapacityPage() {
       
       const token = localStorage.getItem('token');
       const totalRooms = editingRoomCapacity[roomType];
+
+      // Get current room count for this type
+      const currentRooms = rooms.filter(r => r.roomType === roomType);
+      const currentCount = currentRooms.length;
 
       const response = await fetch(`${API_URL}/room-capacity/room-type/${selectedBranch}/${roomType}`, {
         method: 'PUT',
@@ -257,9 +389,16 @@ export default function RoomCapacityPage() {
         throw new Error(data.message || 'Failed to update room capacity');
       }
 
-      setSuccess(`✅ ${roomType} capacity updated successfully!`);
+      // If totalRooms increased, create new rooms
+      if (totalRooms > currentCount) {
+        const newRooms = await createRoomsForType(roomType, currentCount, totalRooms);
+        setSuccess(`✅ ${roomType} capacity updated! Created ${newRooms.length} new room(s).`);
+      } else {
+        setSuccess(`✅ ${roomType} capacity updated successfully!`);
+      }
+      
       await loadData();
-      setTimeout(() => setSuccess(''), 3000);
+      setTimeout(() => setSuccess(''), 4000);
     } catch (err: any) {
       setError(err.message || 'Failed to update room capacity');
       setTimeout(() => setError(''), 3000);
@@ -271,7 +410,8 @@ export default function RoomCapacityPage() {
   const getTotalRooms = () => {
     if (!branchCapacity) return 0;
     return branchCapacity.singleCap + branchCapacity.doubleCap + 
-           branchCapacity.tripleCap + branchCapacity.quardCap;
+           branchCapacity.tripleCap + branchCapacity.quardCap + 
+           (branchCapacity.suiteCap || 0);
   };
 
   const getOccupiedRooms = () => {
@@ -292,8 +432,18 @@ export default function RoomCapacityPage() {
     console.log('🔄 Selecting branch:', branch);
     setSelectedBranch(branch);
     setIsBranchDropdownOpen(false);
-    // Save selected branch to localStorage
     localStorage.setItem('selectedBranch', branch);
+  };
+
+  // Check if any capacity has changed
+  const hasCapacityChanged = () => {
+    const roomTypes = ['singleCap', 'doubleCap', 'tripleCap', 'quardCap', 'suiteCap'];
+    for (const key of roomTypes) {
+      if ((editingCapacity[key] || 0) !== (originalCapacity[key] || 0)) {
+        return true;
+      }
+    }
+    return false;
   };
 
   if (loading && !branchCapacity) {
@@ -456,7 +606,7 @@ export default function RoomCapacityPage() {
                 {selectedBranch || 'Select Branch'} - Branch Capacity
               </h2>
               
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Single Rooms</label>
                   <input
@@ -497,16 +647,37 @@ export default function RoomCapacityPage() {
                     min="0"
                   />
                 </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Suite Rooms</label>
+                  <input
+                    type="number"
+                    value={editingCapacity.suiteCap || 0}
+                    onChange={(e) => handleCapacityChange('suiteCap', e.target.value)}
+                    className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none transition"
+                    min="0"
+                  />
+                </div>
               </div>
 
-              <div className="mt-4 flex justify-end">
+              <div className="mt-4 flex justify-between items-center">
+                <div className="text-sm text-gray-500">
+                  {hasCapacityChanged() ? (
+                    <span className="text-yellow-600">⚠️ Changes detected. Click Save to apply.</span>
+                  ) : (
+                    <span className="text-green-600">✓ All capacities are up to date.</span>
+                  )}
+                </div>
                 <button
                   onClick={saveBranchCapacity}
-                  disabled={saving}
-                  className="bg-indigo-600 text-white px-4 py-2 rounded-lg hover:bg-indigo-700 transition-colors disabled:opacity-50 flex items-center space-x-2"
+                  disabled={saving || !hasCapacityChanged()}
+                  className={`px-4 py-2 rounded-lg transition-colors flex items-center space-x-2 ${
+                    saving || !hasCapacityChanged()
+                      ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
+                      : 'bg-indigo-600 text-white hover:bg-indigo-700'
+                  }`}
                 >
                   <FiSave className="w-4 h-4" />
-                  <span>Save Branch Capacity</span>
+                  <span>{saving ? 'Saving...' : 'Save Branch Capacity'}</span>
                 </button>
               </div>
             </div>
@@ -579,8 +750,12 @@ export default function RoomCapacityPage() {
                           <td className="px-4 py-3">
                             <button
                               onClick={() => saveRoomCapacity(r.roomType)}
-                              disabled={saving}
-                              className="bg-indigo-600 text-white px-3 py-1 rounded-lg hover:bg-indigo-700 transition-colors disabled:opacity-50 flex items-center space-x-1 text-sm"
+                              disabled={saving || (editingRoomCapacity[r.roomType] || r.totalRooms) === r.totalRooms}
+                              className={`px-3 py-1 rounded-lg transition-colors flex items-center space-x-1 text-sm ${
+                                saving || (editingRoomCapacity[r.roomType] || r.totalRooms) === r.totalRooms
+                                  ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
+                                  : 'bg-indigo-600 text-white hover:bg-indigo-700'
+                              }`}
                             >
                               <FiSave className="w-4 h-4" />
                               <span>Save</span>
@@ -593,6 +768,54 @@ export default function RoomCapacityPage() {
                 </table>
               </div>
             </div>
+
+            {/* Rooms List */}
+            {rooms.length > 0 && (
+              <div className="bg-white rounded-xl shadow-sm p-6 mt-6">
+                <h2 className="text-lg font-semibold text-gray-800 mb-4">
+                  Rooms in {selectedBranch}
+                  <span className="text-sm font-normal text-gray-500 ml-2">({rooms.length} rooms)</span>
+                </h2>
+                
+                <div className="overflow-x-auto">
+                  <table className="min-w-full divide-y divide-gray-200">
+                    <thead className="bg-gray-50">
+                      <tr>
+                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Room Number</th>
+                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Room Type</th>
+                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Capacity</th>
+                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
+                      </tr>
+                    </thead>
+                    <tbody className="bg-white divide-y divide-gray-200">
+                      {rooms.slice(0, 20).map((room) => (
+                        <tr key={room.id} className="hover:bg-gray-50 transition-colors">
+                          <td className="px-4 py-3 font-medium text-gray-900">{room.roomNumber}</td>
+                          <td className="px-4 py-3">{room.roomType}</td>
+                          <td className="px-4 py-3">{room.capacity}</td>
+                          <td className="px-4 py-3">
+                            <span className={`px-2 py-1 rounded-full text-xs font-medium ${
+                              room.status === 'available' ? 'bg-green-100 text-green-700' :
+                              room.status === 'occupied' ? 'bg-red-100 text-red-700' :
+                              'bg-yellow-100 text-yellow-700'
+                            }`}>
+                              {room.status}
+                            </span>
+                          </td>
+                        </tr>
+                      ))}
+                      {rooms.length > 20 && (
+                        <tr>
+                          <td colSpan={4} className="px-4 py-3 text-center text-gray-500 text-sm">
+                            Showing 20 of {rooms.length} rooms
+                          </td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
           </>
         )}
       </div>

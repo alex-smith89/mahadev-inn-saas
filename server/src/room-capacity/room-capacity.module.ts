@@ -1,3 +1,4 @@
+// src/room-capacity/room-capacity.module.ts
 import { Module } from '@nestjs/common';
 import { RoomCapacityController } from './room-capacity.controller';
 import { RoomCapacityService } from './room-capacity.service';
