@@ -21,6 +21,7 @@ import { RoomCapacityModule } from './room-capacity/room-capacity.module';
     AutomationModule,
     RoomPricingModule,
     RoomCapacityModule,
+    // AuditModule, // ❌ Remove this line
   ],
 })
 export class AppModule {}

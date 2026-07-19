@@ -9,7 +9,8 @@ import {
   FiTrendingUp, FiTrendingDown, FiGrid, FiChevronDown
 } from 'react-icons/fi';
 
-const API_URL = 'http://localhost:4000';
+// ✅ FIX: Use the correct API URL with /api prefix
+const API_URL = 'http://localhost:4000/api';
 
 interface BranchCapacity {
   id: string;
@@ -126,7 +127,7 @@ export default function RoomCapacityPage() {
 
       console.log('📊 Loading data for branch:', selectedBranch);
 
-      // Load branch capacity
+      // Load branch capacity - ✅ FIXED URL
       const branchRes = await fetch(`${API_URL}/room-capacity/branch/${selectedBranch}`, {
         headers: { 'Authorization': `Bearer ${token}` }
       });
@@ -148,7 +149,7 @@ export default function RoomCapacityPage() {
         console.error('❌ Failed to load branch capacity');
       }
 
-      // Load room type capacities
+      // Load room type capacities - ✅ FIXED URL
       const roomRes = await fetch(`${API_URL}/room-capacity/room-types/${selectedBranch}`, {
         headers: { 'Authorization': `Bearer ${token}` }
       });
@@ -166,7 +167,7 @@ export default function RoomCapacityPage() {
         console.error('❌ Failed to load room type capacities');
       }
 
-      // Load rooms for this branch
+      // Load rooms for this branch - ✅ FIXED URL
       const roomsRes = await fetch(`${API_URL}/rooms/branch/${selectedBranch}`, {
         headers: { 'Authorization': `Bearer ${token}` }
       });
@@ -177,7 +178,7 @@ export default function RoomCapacityPage() {
         console.log('✅ Rooms loaded:', data.length);
       }
 
-      // Load summary
+      // Load summary - ✅ FIXED URL
       const summaryRes = await fetch(`${API_URL}/room-capacity/summary`, {
         headers: { 'Authorization': `Bearer ${token}` }
       });
@@ -210,7 +211,6 @@ export default function RoomCapacityPage() {
     }
   };
 
-  // Function to get room type prefix
   const getRoomTypePrefix = (roomType: string) => {
     const prefixes: {[key: string]: string} = {
       'Single': 'SGL',
@@ -222,7 +222,6 @@ export default function RoomCapacityPage() {
     return prefixes[roomType] || roomType.substring(0, 3).toUpperCase();
   };
 
-  // Function to get room capacity
   const getRoomCapacity = (roomType: string) => {
     const capacities: {[key: string]: number} = {
       'Single': 1,
@@ -234,7 +233,6 @@ export default function RoomCapacityPage() {
     return capacities[roomType] || 1;
   };
 
-  // Function to create new rooms when capacity is increased
   const createRoomsForType = async (roomType: string, currentCount: number, newCount: number) => {
     if (newCount <= currentCount) return [];
 
@@ -244,7 +242,6 @@ export default function RoomCapacityPage() {
     const capacity = getRoomCapacity(roomType);
     const createdRooms = [];
 
-    // Get existing room numbers for this type
     const existingRooms = rooms.filter(r => r.roomType === roomType);
     const existingNumbers = existingRooms.map(r => {
       const parts = r.roomNumber.split('-');
@@ -260,6 +257,7 @@ export default function RoomCapacityPage() {
       const roomNumber = `${branchPrefix}-${typePrefix}-${String(nextNumber++).padStart(3, '0')}`;
       
       try {
+        // ✅ FIXED URL
         const response = await fetch(`${API_URL}/rooms`, {
           method: 'POST',
           headers: {
@@ -298,8 +296,12 @@ export default function RoomCapacityPage() {
       
       const token = localStorage.getItem('token');
       
-      // First, update the branch capacity
-      const response = await fetch(`${API_URL}/room-capacity/branch/${selectedBranch}`, {
+      // ✅ FIXED URL
+      const url = `${API_URL}/room-capacity/branch/${selectedBranch}`;
+      console.log('📤 Sending PUT request to:', url);
+      console.log('📤 With body:', editingCapacity);
+      
+      const response = await fetch(url, {
         method: 'PUT',
         headers: {
           'Authorization': `Bearer ${token}`,
@@ -307,6 +309,8 @@ export default function RoomCapacityPage() {
         },
         body: JSON.stringify(editingCapacity),
       });
+
+      console.log('📊 Response status:', response.status);
 
       if (response.status === 401) {
         localStorage.removeItem('token');
@@ -317,8 +321,12 @@ export default function RoomCapacityPage() {
 
       if (!response.ok) {
         const data = await response.json();
-        throw new Error(data.message || 'Failed to update capacity');
+        console.error('❌ Error response:', data);
+        throw new Error(data.message || data.error || 'Failed to update capacity');
       }
+
+      const data = await response.json();
+      console.log('✅ Success:', data);
 
       // Check which room types have increased capacity and create rooms
       const roomTypes = ['Single', 'Double', 'Triple', 'Quard', 'Suite'];
@@ -334,7 +342,6 @@ export default function RoomCapacityPage() {
           const newRooms = await createRoomsForType(roomType, oldCount, newCount);
           createdCount += newRooms.length;
           
-          // Update original capacity to match new count
           setOriginalCapacity(prev => ({ ...prev, [capKey]: newCount }));
         }
       }
@@ -348,6 +355,7 @@ export default function RoomCapacityPage() {
       await loadData();
       setTimeout(() => setSuccess(''), 4000);
     } catch (err: any) {
+      console.error('❌ Error saving capacity:', err);
       setError(err.message || 'Failed to update capacity');
       setTimeout(() => setError(''), 3000);
     } finally {
@@ -364,10 +372,10 @@ export default function RoomCapacityPage() {
       const token = localStorage.getItem('token');
       const totalRooms = editingRoomCapacity[roomType];
 
-      // Get current room count for this type
       const currentRooms = rooms.filter(r => r.roomType === roomType);
       const currentCount = currentRooms.length;
 
+      // ✅ FIXED URL
       const response = await fetch(`${API_URL}/room-capacity/room-type/${selectedBranch}/${roomType}`, {
         method: 'PUT',
         headers: {
@@ -389,7 +397,6 @@ export default function RoomCapacityPage() {
         throw new Error(data.message || 'Failed to update room capacity');
       }
 
-      // If totalRooms increased, create new rooms
       if (totalRooms > currentCount) {
         const newRooms = await createRoomsForType(roomType, currentCount, totalRooms);
         setSuccess(`✅ ${roomType} capacity updated! Created ${newRooms.length} new room(s).`);
@@ -435,7 +442,6 @@ export default function RoomCapacityPage() {
     localStorage.setItem('selectedBranch', branch);
   };
 
-  // Check if any capacity has changed
   const hasCapacityChanged = () => {
     const roomTypes = ['singleCap', 'doubleCap', 'tripleCap', 'quardCap', 'suiteCap'];
     for (const key of roomTypes) {
@@ -469,7 +475,6 @@ export default function RoomCapacityPage() {
             </div>
           </div>
           <div className="flex items-center space-x-3 flex-wrap gap-2">
-            {/* Branch Dropdown */}
             <div className="relative" ref={dropdownRef}>
               <button
                 onClick={() => setIsBranchDropdownOpen(!isBranchDropdownOpen)}
@@ -535,7 +540,6 @@ export default function RoomCapacityPage() {
           </div>
         </div>
 
-        {/* Alerts */}
         {error && (
           <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg mb-4 flex items-center">
             <FiAlertCircle className="w-5 h-5 mr-2 flex-shrink-0" />
@@ -550,7 +554,6 @@ export default function RoomCapacityPage() {
           </div>
         )}
 
-        {/* Summary View */}
         {viewMode === 'summary' ? (
           <div className="space-y-4">
             <h2 className="text-lg font-semibold text-gray-800">All Branches Summary</h2>
@@ -599,7 +602,6 @@ export default function RoomCapacityPage() {
           </div>
         ) : (
           <>
-            {/* Branch Capacity */}
             <div className="bg-white rounded-xl shadow-sm p-6 mb-6">
               <h2 className="text-lg font-semibold text-gray-800 mb-4 flex items-center">
                 <FiHome className="mr-2" />
@@ -638,7 +640,7 @@ export default function RoomCapacityPage() {
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Quad Rooms</label>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Quard Rooms</label>
                   <input
                     type="number"
                     value={editingCapacity.quardCap || 0}
@@ -682,7 +684,6 @@ export default function RoomCapacityPage() {
               </div>
             </div>
 
-            {/* Statistics */}
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
               <div className="bg-white rounded-xl shadow-sm p-4 border-l-4 border-blue-500">
                 <p className="text-sm text-gray-500">Total Rooms</p>
@@ -710,7 +711,6 @@ export default function RoomCapacityPage() {
               </div>
             </div>
 
-            {/* Room Type Capacity */}
             <div className="bg-white rounded-xl shadow-sm p-6">
               <h2 className="text-lg font-semibold text-gray-800 mb-4">Room Type Capacity</h2>
               
@@ -769,7 +769,6 @@ export default function RoomCapacityPage() {
               </div>
             </div>
 
-            {/* Rooms List */}
             {rooms.length > 0 && (
               <div className="bg-white rounded-xl shadow-sm p-6 mt-6">
                 <h2 className="text-lg font-semibold text-gray-800 mb-4">

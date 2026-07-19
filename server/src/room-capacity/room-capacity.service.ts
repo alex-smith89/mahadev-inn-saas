@@ -30,30 +30,31 @@ export class RoomCapacityService {
 
       return capacity;
     } catch (error) {
-      this.logger.error(`❌ Error: ${error.message}`);
+      this.logger.error(`❌ Error getting branch capacity: ${error.message}`);
       throw error;
     }
   }
 
   async updateBranchCapacity(branch: string, body: any, user: any) {
     try {
+      this.logger.log(`📊 Updating branch capacity for ${branch}:`, body);
+
       const { singleCap, doubleCap, tripleCap, quardCap, suiteCap } = body;
 
-      if (!singleCap && !doubleCap && !tripleCap && !quardCap && !suiteCap) {
-        throw new BadRequestException('At least one capacity value is required');
-      }
+      // Build update data
+      const updateData: any = { updatedAt: new Date() };
+      if (singleCap !== undefined) updateData.singleCap = Number(singleCap);
+      if (doubleCap !== undefined) updateData.doubleCap = Number(doubleCap);
+      if (tripleCap !== undefined) updateData.tripleCap = Number(tripleCap);
+      if (quardCap !== undefined) updateData.quardCap = Number(quardCap);
+      if (suiteCap !== undefined) updateData.suiteCap = Number(suiteCap);
+
+      this.logger.log(`📊 Update data: ${JSON.stringify(updateData)}`);
 
       // Update branch capacity
       const capacity = await this.prisma.branchCapacity.upsert({
         where: { branch: branch as any },
-        update: {
-          singleCap: Number(singleCap) || 0,
-          doubleCap: Number(doubleCap) || 0,
-          tripleCap: Number(tripleCap) || 0,
-          quardCap: Number(quardCap) || 0,
-          suiteCap: Number(suiteCap) || 0,
-          updatedAt: new Date(),
-        },
+        update: updateData,
         create: {
           branch: branch as any,
           singleCap: Number(singleCap) || 0,
@@ -65,7 +66,7 @@ export class RoomCapacityService {
       });
 
       this.logger.log(`✅ Branch capacity updated for ${branch}`);
-
+      
       // Sync room type capacities
       await this.syncRoomTypeCapacities(branch, capacity);
 
@@ -75,7 +76,7 @@ export class RoomCapacityService {
         data: capacity,
       };
     } catch (error) {
-      this.logger.error(`❌ Error: ${error.message}`);
+      this.logger.error(`❌ Error updating branch capacity: ${error.message}`);
       throw error;
     }
   }
@@ -83,12 +84,14 @@ export class RoomCapacityService {
   private async syncRoomTypeCapacities(branch: string, capacity: any) {
     try {
       const roomTypes = [
-        { name: 'Single', total: capacity.singleCap },
-        { name: 'Double', total: capacity.doubleCap },
-        { name: 'Triple', total: capacity.tripleCap },
-        { name: 'Quard', total: capacity.quardCap },
+        { name: 'Single', total: capacity.singleCap || 0 },
+        { name: 'Double', total: capacity.doubleCap || 0 },
+        { name: 'Triple', total: capacity.tripleCap || 0 },
+        { name: 'Quard', total: capacity.quardCap || 0 },
         { name: 'Suite', total: capacity.suiteCap || 0 },
       ];
+
+      this.logger.log(`📊 Syncing room type capacities for ${branch}`);
 
       for (const rt of roomTypes) {
         await this.prisma.roomTypeCapacity.upsert({
@@ -114,7 +117,7 @@ export class RoomCapacityService {
 
       this.logger.log(`✅ Room type capacities synced for ${branch}`);
     } catch (error) {
-      this.logger.error(`❌ Error syncing: ${error.message}`);
+      this.logger.error(`❌ Error syncing room type capacities: ${error.message}`);
     }
   }
 
@@ -159,7 +162,7 @@ export class RoomCapacityService {
 
       return capacities;
     } catch (error) {
-      this.logger.error(`❌ Error: ${error.message}`);
+      this.logger.error(`❌ Error getting room type capacities: ${error.message}`);
       throw error;
     }
   }
@@ -201,7 +204,7 @@ export class RoomCapacityService {
         data: capacity,
       };
     } catch (error) {
-      this.logger.error(`❌ Error: ${error.message}`);
+      this.logger.error(`❌ Error updating room type capacity: ${error.message}`);
       throw error;
     }
   }
@@ -238,7 +241,7 @@ export class RoomCapacityService {
 
       return summary;
     } catch (error) {
-      this.logger.error(`❌ Error: ${error.message}`);
+      this.logger.error(`❌ Error getting capacity summary: ${error.message}`);
       throw error;
     }
   }
