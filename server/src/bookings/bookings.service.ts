@@ -3,6 +3,7 @@ import { Injectable, BadRequestException, NotFoundException, ForbiddenException,
 import { Branch, Booking, BookingStatus, MealPlan, RoomTypeEnum } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { NotificationService } from '../notification/notification.service';
+import { EmailService } from '../email/email.service';
 
 @Injectable()
 export class BookingsService {
@@ -11,6 +12,7 @@ export class BookingsService {
   constructor(
     public prisma: PrismaService,
     private notificationService: NotificationService,
+    private emailService: EmailService,
   ) {}
 
   private bookingNo(branch: Branch) {
@@ -21,15 +23,6 @@ export class BookingsService {
     return Math.max(0, Math.round((co.getTime() - ci.getTime()) / 86400000));
   }
 
-  // ---------- GENERATE BOOKING NUMBER ----------
-  private async generateBookingNumber(): Promise<string> {
-    const count = await this.prisma.booking.count();
-    const year = new Date().getFullYear().toString().slice(-2);
-    const month = String(new Date().getMonth() + 1).padStart(2, '0');
-    const seq = String(count + 1).padStart(4, '0');
-    return `BKG-${year}${month}-${seq}`;
-  }
-
   // ✅ Helper function to get room capacity
   private getRoomCapacity(roomType: string): number {
     const capacityMap: Record<string, number> = {
@@ -38,276 +31,89 @@ export class BookingsService {
       'Triple': 3,
       'Quard': 4,
       'Suite': 4,
-      'Deluxe': 2,
-      'Premium': 3,
     };
     return capacityMap[roomType] || 1;
   }
 
-  // ---------- CREATE BOOKING ----------
-  async create(data: any): Promise<Booking> {
-    // ✅ Validate branch is provided
-    if (!data.branch) {
-      this.logger.error('❌ Branch is required but not provided');
-      throw new BadRequestException('Branch is required');
-    }
-
-    this.logger.log(`📝 Creating booking for branch: ${data.branch}`);
-    this.logger.log(`📋 Booking data:`, {
-      agentName: data.agentName,
-      roomType: data.roomType,
-      roomsCount: data.roomsCount,
-      checkIn: data.checkIn,
-      checkOut: data.checkOut,
-      bookingStatus: data.bookingStatus || 'New',
-      heads: data.heads,
-      childrenBelow10: data.childrenBelow10,
-      extraPersons: data.extraPersons,
-      roomCapacity: data.roomCapacity,
-      totalCapacity: data.totalCapacity,
-    });
-
-    // Validate contact format
-    if (!/^\+\d{1,4}\d{10}$/.test(String(data.agentContact))) {
-      throw new BadRequestException(
-        'Agent Contact must be in format +CCXXXXXXXXXX (e.g., +977987654321)',
-      );
-    }
-
-    const checkIn = new Date(data.checkIn);
-    const checkOut = new Date(data.checkOut);
-    const nights = this.nights(checkIn, checkOut);
-
-    if (nights < 1) {
-      throw new BadRequestException('Check-out must be after check-in');
-    }
-
-    // ✅ Check branch capacity
-    try {
-      const capacity = await this.prisma.branchCapacity.findUnique({
-        where: { branch: data.branch },
-      });
-
-      if (!capacity) {
-        this.logger.warn(`⚠️ No capacity record found for branch: ${data.branch}, skipping capacity check`);
-      } else {
-        const overlapping = await this.prisma.booking.findMany({
-          where: {
-            branch: data.branch,
-            roomType: data.roomType,
-            bookingStatus: { in: ['Confirm', 'Confirmed', 'CheckedIn'] },
-            OR: [
-              {
-                checkIn: { lte: checkOut },
-                checkOut: { gte: checkIn },
-              },
-            ],
-          },
-        });
-
-        const totalBooked = overlapping.reduce((sum: any, b: { roomsCount: any }) => sum + b.roomsCount, 0);
-        const maxCap =
-          data.roomType === 'Single'
-            ? capacity.singleCap
-            : data.roomType === 'Double'
-            ? capacity.doubleCap
-            : data.roomType === 'Triple'
-            ? capacity.tripleCap
-            : data.roomType === 'Quard'
-            ? capacity.quardCap
-            : 0;
-
-        if (totalBooked + data.roomsCount > maxCap) {
-          const available = maxCap - totalBooked;
-          throw new BadRequestException(
-            `Not enough ${data.roomType} rooms available in ${data.branch}. Only ${
-              available >= 0 ? available : 0
-            } left.`,
-          );
-        }
-      }
-    } catch (error) {
-      if (error instanceof BadRequestException) {
-        throw error;
-      }
-      this.logger.warn(`⚠️ Capacity check failed: ${error.message}, continuing anyway`);
-    }
-
-    const roomCharges = data.roomCharges || data.price || 0;
-    const totalPrice = roomCharges * data.roomsCount * nights;
-
-    // ✅ Set default status to 'Confirm' if not provided
-    const bookingStatus = data.bookingStatus || 'Confirm';
-
-    // ✅ Calculate room capacity and total capacity
-    const roomCapacity = data.roomCapacity || this.getRoomCapacity(data.roomType);
-    const totalCapacity = roomCapacity * (Number(data.roomsCount) || 1);
-
-    // ✅ Calculate extra persons
-    const heads = Number(data.heads) || 1;
-    const childrenBelow10 = Number(data.childrenBelow10) || 0;
-    const adults = heads - childrenBelow10;
-    const extraPersons = Math.max(0, adults - totalCapacity);
-
-    // ✅ Create booking with all fields
-    const booking = await this.prisma.booking.create({
-      data: {
-        bookingNo: this.bookingNo(data.branch),
-        agentName: data.agentName,
-        agentContact: String(data.agentContact),
-        email: data.email || null,
-        roomsCount: Number(data.roomsCount) || 1,
-        roomType: data.roomType as RoomTypeEnum,
-        facility: data.facility || null,
-        price: totalPrice,
-        mealPlan: data.mealPlan as MealPlan,
-        checkIn,
-        checkOut,
-        nights,
-        remark: data.remark ?? null,
-        branch: data.branch,
-        bookingStatus: bookingStatus as BookingStatus,
-        roomCharges: roomCharges,
-        kitchenCharges: Number(data.kitchenCharges) || 0,
-        diningCharges: Number(data.diningCharges) || 0,
-        breakfastCharges: Number(data.breakfastCharges) || 0,
-        currency: data.currency || 'NPR',
-        heads: heads,
-        extraPersonCharges: Number(data.extraPersonCharges) || 0,
-        extraPersons: extraPersons,
-        childrenCount: Number(data.childrenCount) || 0,
-        childrenBelow10: childrenBelow10,
-        totalCost: Number(data.totalCost) || totalPrice,
-        roomCapacity: roomCapacity,
-        totalCapacity: totalCapacity,
-        createdBy: data.createdBy || 'Unknown',
-        createdByRole: data.createdByRole || 'User',
-        createdByUsername: data.createdBy || 'Unknown',
-        creatorRole: data.createdByRole || 'User',
-        userRole: data.createdByRole || 'User',
-        branchName: data.branch,
-        createdAt: new Date(),
-        updatedAt: new Date(),
-      },
-    });
-
-    this.logger.log(`✅ Booking created with ID: ${booking.id} for branch: ${booking.branch}`);
-    this.logger.log(`📊 Room capacity: ${roomCapacity}, Total capacity: ${totalCapacity}, Extra persons: ${extraPersons}`);
-
-    // ✅ Create notification for the booking
-    await this.createBookingNotification(booking);
-
-    return booking;
+  // ✅ Helper function to get room type prefix
+  private getRoomTypePrefix(roomType: string): string {
+    const prefixes: {[key: string]: string} = {
+      'Single': 'SGL',
+      'Double': 'DBL',
+      'Triple': 'TPL',
+      'Quard': 'QRD',
+      'Suite': 'STE'
+    };
+    return prefixes[roomType] || roomType.substring(0, 3).toUpperCase();
   }
 
-  // ---------- CREATE NOTIFICATION FOR BOOKING ----------
-  private async createBookingNotification(booking: any) {
+  // ✅ Create actual rooms for a branch if they don't exist
+  private async ensureRoomsExist(branch: string, roomType: string, count: number) {
     try {
-      this.logger.log(`📝 Creating notification for booking: ${booking.bookingNo}`);
-      this.logger.log(`   Status: ${booking.bookingStatus}`);
-      this.logger.log(`   Branch: ${booking.branch}`);
-
-      let title: string;
-      let message: string;
-      let type: string;
-
-      // Determine notification based on booking status
-      switch (booking.bookingStatus) {
-        case 'CheckedIn':
-          title = '✅ Guest Checked In';
-          message = `${booking.agentName} (${booking.bookingNo}) has checked in at ${booking.branch}.`;
-          type = 'checkin_success';
-          break;
-        case 'CheckedOut':
-          title = '📤 Guest Checked Out';
-          message = `${booking.agentName} (${booking.bookingNo}) has checked out from ${booking.branch}. Room is now vacant.`;
-          type = 'checkout_success';
-          break;
-        case 'New':
-          title = '📋 New Booking Created';
-          message = `${booking.agentName} (${booking.bookingNo}) has made a new booking at ${booking.branch}. Check-in: ${new Date(booking.checkIn).toLocaleDateString()}`;
-          type = 'booking_created';
-          break;
-        case 'Confirm':
-        case 'Confirmed':
-          title = '✅ Booking Confirmed';
-          message = `${booking.agentName} (${booking.bookingNo}) has confirmed booking at ${booking.branch}. Check-in: ${new Date(booking.checkIn).toLocaleDateString()}`;
-          type = 'booking_confirmed';
-          break;
-        case 'Pending':
-          title = '⏳ Booking Pending';
-          message = `${booking.agentName} (${booking.bookingNo}) has a pending booking at ${booking.branch}.`;
-          type = 'booking_pending';
-          break;
-        case 'Cancelled':
-          title = '❌ Booking Cancelled';
-          message = `${booking.agentName} (${booking.bookingNo}) has cancelled booking at ${booking.branch}.`;
-          type = 'booking_cancelled';
-          break;
-        default:
-          title = '📋 Booking Update';
-          message = `${booking.agentName} (${booking.bookingNo}) has a booking at ${booking.branch}.`;
-          type = 'booking_update';
-      }
-
-      // Create the notification
-      const notification = await this.prisma.notification.create({
-        data: {
-          title,
-          message,
-          branch: booking.branch,
-          bookingId: booking.id,
-          type,
-          isRead: false,
-          createdAt: new Date(),
+      const existingRooms = await this.prisma.room.findMany({
+        where: {
+          branch: branch as any,
+          roomType: roomType as any,
         },
       });
 
-      this.logger.log(`✅ Notification created for ${booking.bookingNo}: ${type}`);
-      this.logger.log(`   Notification ID: ${notification.id}`);
-      this.logger.log(`   Title: ${notification.title}`);
-      this.logger.log(`   Message: ${notification.message}`);
+      if (existingRooms.length >= count) {
+        return existingRooms;
+      }
 
-      return notification;
+      const branchPrefix = branch.substring(0, 3).toUpperCase();
+      const typePrefix = this.getRoomTypePrefix(roomType);
+      const capacity = this.getRoomCapacity(roomType);
+      const createdRooms = [];
+
+      const existingNumbers = existingRooms.map(r => {
+        const parts = r.roomNumber.split('-');
+        return parseInt(parts[2] || '0');
+      });
+
+      let nextNumber = existingNumbers.length > 0 ? Math.max(...existingNumbers) + 1 : 1;
+
+      for (let i = 0; i < count - existingRooms.length; i++) {
+        const roomNumber = `${branchPrefix}-${typePrefix}-${String(nextNumber++).padStart(3, '0')}`;
+        
+        try {
+          const room = await this.prisma.room.create({
+            data: {
+              roomNumber,
+              branch: branch as any,
+              roomType: roomType as any,
+              capacity: capacity,
+              status: 'available',
+              floor: '1',
+              description: `${roomType} room`,
+            },
+          });
+          createdRooms.push(room);
+          this.logger.log(`✅ Created room: ${roomNumber}`);
+        } catch (error) {
+          this.logger.error(`❌ Failed to create room ${roomNumber}: ${error.message}`);
+        }
+      }
+
+      this.logger.log(`✅ Created ${createdRooms.length} ${roomType} rooms for ${branch}`);
+      return [...existingRooms, ...createdRooms];
     } catch (error) {
-      this.logger.error(`❌ Failed to create notification for ${booking.bookingNo}: ${error.message}`);
-      return null;
+      this.logger.error(`❌ Error ensuring rooms exist: ${error.message}`);
+      return [];
     }
   }
 
-  // ---------- UPDATE BOOKING ----------
-  async update(id: string, data: any): Promise<Booking> {
+  // ---------- CREATE BOOKING ----------
+  async create(data: any): Promise<Booking> {
     try {
-      this.logger.log('📝 Updating booking:', id, data);
-
-      const existing = await this.prisma.booking.findUnique({
-        where: { id },
-      });
-
-      if (!existing) {
-        throw new BadRequestException('Booking not found');
+      // ✅ Validate branch
+      if (!data.branch) {
+        throw new BadRequestException('Branch is required');
       }
 
-      // ✅ If only status update
-      const keys = Object.keys(data);
-      const isOnlyStatusUpdate = keys.length === 1 && keys[0] === 'bookingStatus';
-      
-      if (isOnlyStatusUpdate) {
-        this.logger.log(`✅ Updating only status to: ${data.bookingStatus}`);
-        const updated = await this.prisma.booking.update({
-          where: { id },
-          data: {
-            bookingStatus: data.bookingStatus,
-          },
-        });
+      this.logger.log(`📝 Creating booking for branch: ${data.branch}`);
 
-        // ✅ Create notification for status change
-        await this.createBookingNotification(updated);
-
-        return updated;
-      }
-
-      // ✅ For full updates, validate all fields
+      // Validate contact
       if (!/^\+\d{1,4}\d{10}$/.test(String(data.agentContact))) {
         throw new BadRequestException(
           'Agent Contact must be in format +CCXXXXXXXXXX (e.g., +977987654321)',
@@ -322,66 +128,257 @@ export class BookingsService {
         throw new BadRequestException('Check-out must be after check-in');
       }
 
-      // ✅ Check branch capacity
-      try {
-        const capacity = await this.prisma.branchCapacity.findUnique({
-          where: { branch: data.branch },
-        });
+      const roomType = data.roomType;
+      const roomsNeeded = Number(data.roomsCount) || 1;
 
-        if (!capacity) {
-          this.logger.warn(`⚠️ No capacity record found for branch: ${data.branch}, skipping capacity check`);
-        } else {
-          const overlapping = await this.prisma.booking.findMany({
-            where: {
-              branch: data.branch,
-              roomType: data.roomType,
-              bookingStatus: { in: ['Confirm', 'Confirmed'] },
-              NOT: { id },
-              OR: [
-                {
-                  checkIn: { lte: checkOut },
-                  checkOut: { gte: checkIn },
-                },
-              ],
+      // ✅ Get branch capacity
+      const branchCap = await this.prisma.branchCapacity.findUnique({
+        where: { branch: data.branch as any },
+      });
+
+      let maxRooms = 0;
+      if (branchCap) {
+        switch(roomType) {
+          case 'Single': maxRooms = branchCap.singleCap || 0; break;
+          case 'Double': maxRooms = branchCap.doubleCap || 0; break;
+          case 'Triple': maxRooms = branchCap.tripleCap || 0; break;
+          case 'Quard': maxRooms = branchCap.quardCap || 0; break;
+          case 'Suite': maxRooms = branchCap.suiteCap || 0; break;
+          default: maxRooms = 0;
+        }
+      }
+
+      if (maxRooms === 0) {
+        throw new BadRequestException(
+          `No ${roomType} rooms available in ${data.branch}. Please set capacity first.`
+        );
+      }
+
+      // ✅ Ensure rooms exist
+      await this.ensureRoomsExist(data.branch, roomType, maxRooms);
+
+      // ✅ Check availability - get ALL rooms of this type
+      const allRooms = await this.prisma.room.findMany({
+        where: {
+          branch: data.branch as any,
+          roomType: roomType as any,
+          status: 'available',
+        },
+        select: {
+          id: true,
+          roomNumber: true,
+        },
+      });
+
+      // ✅ Get booked room IDs for the date range
+      const bookedRoomIds = await this.prisma.bookingRoom.findMany({
+        where: {
+          room: {
+            branch: data.branch as any,
+            roomType: roomType as any,
+          },
+          booking: {
+            OR: [
+              {
+                checkIn: { lt: checkOut },
+                checkOut: { gt: checkIn },
+              },
+            ],
+            bookingStatus: {
+              notIn: ['Cancelled', 'CheckedOut'],
             },
-          });
+          },
+        },
+        select: {
+          roomId: true,
+        },
+      });
 
-          const totalBooked = overlapping.reduce((sum: any, b: { roomsCount: any }) => sum + b.roomsCount, 0);
-          const maxCap =
-            data.roomType === 'Single'
-              ? capacity.singleCap
-              : data.roomType === 'Double'
-              ? capacity.doubleCap
-              : data.roomType === 'Triple'
-              ? capacity.tripleCap
-              : data.roomType === 'Quard'
-              ? capacity.quardCap
-              : 0;
+      const bookedIdSet = new Set(bookedRoomIds.map(br => br.roomId));
+      const availableRooms = allRooms.filter(room => !bookedIdSet.has(room.id));
 
-          if (totalBooked + data.roomsCount > maxCap) {
-            const available = maxCap - totalBooked;
-            throw new BadRequestException(
-              `Not enough ${data.roomType} rooms available in ${data.branch}. Only ${
-                available >= 0 ? available : 0
-              } left.`,
-            );
-          }
-        }
-      } catch (error) {
-        if (error instanceof BadRequestException) {
-          throw error;
-        }
-        this.logger.warn(`⚠️ Capacity check failed: ${error.message}, continuing anyway`);
+      this.logger.log(`📊 Available ${roomType} rooms: ${availableRooms.length} of ${maxRooms}`);
+
+      if (availableRooms.length < roomsNeeded) {
+        throw new BadRequestException(
+          `Not enough ${roomType} rooms available in ${data.branch}. Only ${availableRooms.length} left.`
+        );
+      }
+
+      // ✅ Select rooms
+      const selectedRooms = availableRooms.slice(0, roomsNeeded);
+
+      const roomCharges = data.roomCharges || data.price || 0;
+      const totalPrice = roomCharges * data.roomsCount * nights;
+      const bookingStatus = data.bookingStatus || 'Confirm';
+
+      const roomCapacity = data.roomCapacity || this.getRoomCapacity(data.roomType);
+      const totalCapacity = roomCapacity * (Number(data.roomsCount) || 1);
+
+      const heads = Number(data.heads) || 1;
+      const childrenBelow10 = Number(data.childrenBelow10) || 0;
+      const adults = heads - childrenBelow10;
+      const extraPersons = Math.max(0, adults - totalCapacity);
+
+      // ✅ Create booking WITHOUT bookingRooms first
+      const booking = await this.prisma.booking.create({
+        data: {
+          bookingNo: this.bookingNo(data.branch),
+          agentName: data.agentName,
+          agentContact: String(data.agentContact),
+          email: data.email || null,
+          roomsCount: Number(data.roomsCount) || 1,
+          roomType: data.roomType as RoomTypeEnum,
+          facility: data.facility || null,
+          price: totalPrice,
+          mealPlan: data.mealPlan as MealPlan,
+          checkIn,
+          checkOut,
+          nights,
+          remark: data.remark ?? null,
+          branch: data.branch,
+          bookingStatus: bookingStatus as BookingStatus,
+          roomCharges: roomCharges,
+          kitchenCharges: Number(data.kitchenCharges) || 0,
+          diningCharges: Number(data.diningCharges) || 0,
+          breakfastCharges: Number(data.breakfastCharges) || 0,
+          currency: data.currency || 'NPR',
+          heads: heads,
+          extraPersonCharges: Number(data.extraPersonCharges) || 0,
+          extraPersons: extraPersons,
+          childrenCount: Number(data.childrenCount) || 0,
+          childrenBelow10: childrenBelow10,
+          totalCost: Number(data.totalCost) || totalPrice,
+          roomCapacity: roomCapacity,
+          totalCapacity: totalCapacity,
+          createdBy: data.createdBy || 'Unknown',
+          createdByRole: data.createdByRole || 'User',
+          createdByUsername: data.createdBy || 'Unknown',
+          creatorRole: data.createdByRole || 'User',
+          userRole: data.createdByRole || 'User',
+          branchName: data.branch,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        },
+      });
+
+      // ✅ Create booking room associations
+      for (const room of selectedRooms) {
+        await this.prisma.bookingRoom.create({
+          data: {
+            bookingId: booking.id,
+            roomId: room.id,
+            assignedAt: new Date(),
+          },
+        });
+      }
+
+      this.logger.log(`✅ Booking created: ${booking.bookingNo}`);
+      this.logger.log(`📊 Assigned rooms: ${selectedRooms.map(r => r.roomNumber).join(', ')}`);
+
+      await this.createBookingNotification(booking);
+
+      return booking;
+    } catch (error) {
+      this.logger.error(`❌ Error creating booking: ${error.message}`);
+      this.logger.error(`❌ Stack: ${error.stack}`);
+      throw error;
+    }
+  }
+
+  // ---------- CREATE NOTIFICATION ----------
+  private async createBookingNotification(booking: any) {
+    try {
+      let title: string;
+      let message: string;
+      let type: string;
+
+      switch (booking.bookingStatus) {
+        case 'CheckedIn':
+          title = '✅ Guest Checked In';
+          message = `${booking.agentName} (${booking.bookingNo}) has checked in at ${booking.branch}.`;
+          type = 'checkin_success';
+          break;
+        case 'CheckedOut':
+          title = '📤 Guest Checked Out';
+          message = `${booking.agentName} (${booking.bookingNo}) has checked out from ${booking.branch}.`;
+          type = 'checkout_success';
+          break;
+        case 'New':
+          title = '📋 New Booking Created';
+          message = `${booking.agentName} (${booking.bookingNo}) has made a new booking at ${booking.branch}.`;
+          type = 'booking_created';
+          break;
+        case 'Confirm':
+        case 'Confirmed':
+          title = '✅ Booking Confirmed';
+          message = `${booking.agentName} (${booking.bookingNo}) has confirmed booking at ${booking.branch}.`;
+          type = 'booking_confirmed';
+          break;
+        default:
+          title = '📋 Booking Update';
+          message = `${booking.agentName} (${booking.bookingNo}) has a booking at ${booking.branch}.`;
+          type = 'booking_update';
+      }
+
+      await this.prisma.notification.create({
+        data: {
+          title,
+          message,
+          branch: booking.branch,
+          bookingId: booking.id,
+          type,
+          isRead: false,
+          createdAt: new Date(),
+        },
+      });
+
+      this.logger.log(`✅ Notification created for ${booking.bookingNo}`);
+    } catch (error) {
+      this.logger.error(`❌ Failed to create notification: ${error.message}`);
+    }
+  }
+
+  // ---------- UPDATE BOOKING ----------
+  async update(id: string, data: any): Promise<Booking> {
+    try {
+      const existing = await this.prisma.booking.findUnique({
+        where: { id },
+      });
+
+      if (!existing) {
+        throw new NotFoundException('Booking not found');
+      }
+
+      const keys = Object.keys(data);
+      const isOnlyStatusUpdate = keys.length === 1 && keys[0] === 'bookingStatus';
+      
+      if (isOnlyStatusUpdate) {
+        const updated = await this.prisma.booking.update({
+          where: { id },
+          data: {
+            bookingStatus: data.bookingStatus,
+          },
+        });
+        await this.createBookingNotification(updated);
+        return updated;
+      }
+
+      // Full update logic...
+      const checkIn = new Date(data.checkIn);
+      const checkOut = new Date(data.checkOut);
+      const nights = this.nights(checkIn, checkOut);
+
+      if (nights < 1) {
+        throw new BadRequestException('Check-out must be after check-in');
       }
 
       const roomCharges = data.roomCharges || data.price || 0;
       const totalPrice = roomCharges * data.roomsCount * nights;
 
-      // ✅ Calculate room capacity and total capacity
       const roomCapacity = data.roomCapacity || this.getRoomCapacity(data.roomType);
       const totalCapacity = roomCapacity * (Number(data.roomsCount) || 1);
 
-      // ✅ Calculate extra persons
       const heads = Number(data.heads) || 1;
       const childrenBelow10 = Number(data.childrenBelow10) || 0;
       const adults = heads - childrenBelow10;
@@ -416,29 +413,19 @@ export class BookingsService {
           totalCost: Number(data.totalCost) || totalPrice,
           roomCapacity: roomCapacity,
           totalCapacity: totalCapacity,
-          createdBy: data.createdBy || existing.createdBy || 'Unknown',
-          createdByRole: data.createdByRole || existing.createdByRole || 'User',
-          createdByUsername: data.createdBy || existing.createdBy || 'Unknown',
-          creatorRole: data.createdByRole || existing.createdByRole || 'User',
-          userRole: data.createdByRole || existing.createdByRole || 'User',
-          branchName: data.branch,
           updatedAt: new Date(),
         },
       });
 
-      // ✅ Create notification for updated booking
       await this.createBookingNotification(updated);
-
-      this.logger.log(`📊 Updated room capacity: ${roomCapacity}, Total capacity: ${totalCapacity}, Extra persons: ${extraPersons}`);
-
       return updated;
     } catch (error) {
-      this.logger.error('❌ Error updating booking:', error);
+      this.logger.error(`❌ Error updating booking: ${error.message}`);
       throw error;
     }
   }
 
-  // ✅ ✅ MANUAL CHECK-IN
+  // ---------- CHECK-IN GUEST ----------
   async checkInGuest(id: string): Promise<Booking> {
     try {
       const booking = await this.prisma.booking.findUnique({
@@ -466,18 +453,25 @@ export class BookingsService {
         },
       });
 
-      // Create check-in notification
       await this.notificationService.createCheckinNotification(updated);
-      this.logger.log(`✅ Guest checked in: ${updated.bookingNo} - ${updated.agentName}`);
+      this.logger.log(`✅ Guest checked in: ${updated.bookingNo}`);
+
+      if (updated.email) {
+        try {
+          await this.emailService.sendCheckInConfirmation(updated.email, updated);
+        } catch (emailError) {
+          this.logger.error(`❌ Email failed: ${emailError.message}`);
+        }
+      }
 
       return updated;
     } catch (error) {
-      this.logger.error('❌ Error checking in guest:', error);
+      this.logger.error(`❌ Error checking in guest: ${error.message}`);
       throw error;
     }
   }
 
-  // ✅ ✅ MANUAL CHECK-OUT
+  // ---------- CHECK-OUT GUEST ----------
   async checkOutGuest(id: string): Promise<Booking> {
     try {
       const booking = await this.prisma.booking.findUnique({
@@ -492,6 +486,23 @@ export class BookingsService {
         throw new BadRequestException('Guest has already checked out');
       }
 
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      const checkOutDate = new Date(booking.checkOut);
+      checkOutDate.setHours(0, 0, 0, 0);
+
+      if (checkOutDate > today) {
+        const dateStr = checkOutDate.toLocaleDateString('en-US', {
+          weekday: 'long',
+          year: 'numeric',
+          month: 'long',
+          day: 'numeric'
+        });
+        throw new BadRequestException(
+          `Cannot check out guest yet. Check-out date is ${dateStr}. Please wait until the check-out date.`
+        );
+      }
+
       const updated = await this.prisma.booking.update({
         where: { id },
         data: {
@@ -501,13 +512,44 @@ export class BookingsService {
         },
       });
 
-      // Create check-out notification
       await this.notificationService.createCheckoutNotification(updated);
-      this.logger.log(`✅ Guest checked out: ${updated.bookingNo} - ${updated.agentName}`);
+      this.logger.log(`✅ Guest checked out: ${updated.bookingNo}`);
+
+      if (updated.email) {
+        try {
+          await this.emailService.sendCheckOutConfirmation(updated.email, updated);
+        } catch (emailError) {
+          this.logger.error(`❌ Email failed: ${emailError.message}`);
+        }
+      }
 
       return updated;
     } catch (error) {
-      this.logger.error('❌ Error checking out guest:', error);
+      this.logger.error(`❌ Error checking out guest: ${error.message}`);
+      throw error;
+    }
+  }
+
+  // ---------- REMOVE BOOKING ----------
+  async remove(id: string) {
+    try {
+      const booking = await this.prisma.booking.findUnique({
+        where: { id },
+      });
+
+      if (!booking) {
+        throw new NotFoundException('Booking not found');
+      }
+
+      await this.prisma.bookingRoom.deleteMany({
+        where: { bookingId: id },
+      });
+
+      await this.prisma.booking.delete({ where: { id } });
+      this.logger.log(`🗑️ Booking deleted: ${booking.bookingNo}`);
+      return { message: 'Booking deleted successfully' };
+    } catch (error) {
+      this.logger.error(`❌ Error removing booking: ${error.message}`);
       throw error;
     }
   }
@@ -521,12 +563,10 @@ export class BookingsService {
       where.checkOut = { lte: new Date(to) };
     }
 
-    const bookings = await this.prisma.booking.findMany({
+    return this.prisma.booking.findMany({
       where,
       orderBy: { checkIn: 'desc' },
     });
-
-    return bookings;
   }
 
   // ---------- FIND ONE ----------
@@ -555,29 +595,7 @@ export class BookingsService {
     return booking;
   }
 
-  // ---------- REMOVE BOOKING ----------
-  async remove(id: string) {
-    try {
-      const booking = await this.prisma.booking.findUnique({
-        where: { id },
-      });
-
-      if (!booking) {
-        throw new NotFoundException('Booking not found');
-      }
-
-      await this.prisma.booking.delete({ where: { id } });
-      this.logger.log(`🗑️ Booking deleted: ${booking.bookingNo}`);
-      return { message: 'Booking deleted successfully' };
-    } catch (error) {
-      this.logger.error('Error removing booking:', error);
-      throw error;
-    }
-  }
-
-  // ============================================================
-  // ✅ GET BOOKING STATS
-  // ============================================================
+  // ---------- GET BOOKING STATS ----------
   async getBookingStats(branch: string, user?: any) {
     try {
       const today = new Date();
@@ -667,13 +685,9 @@ export class BookingsService {
     }
   }
 
-  // ============================================================
-  // ✅ GET DASHBOARD STATS
-  // ============================================================
+  // ---------- GET DASHBOARD STATS ----------
   async getDashboardStats(branch: string, user?: any) {
     try {
-      this.logger.log(`📊 Fetching dashboard stats for branch: ${branch}`);
-      
       const today = new Date();
       today.setHours(0, 0, 0, 0);
       
@@ -730,12 +744,13 @@ export class BookingsService {
           (capacity.singleCap || 0) + 
           (capacity.doubleCap || 0) + 
           (capacity.tripleCap || 0) + 
-          (capacity.quardCap || 0) 
+          (capacity.quardCap || 0) + 
+          (capacity.suiteCap || 0)
           : 50;
       } else {
         const allCapacities = await this.prisma.branchCapacity.findMany();
         totalRooms = allCapacities.reduce((sum, cap) => 
-          sum + (cap.singleCap || 0) + (cap.doubleCap || 0) + (cap.tripleCap || 0) + (cap.quardCap || 0), 0
+          sum + (cap.singleCap || 0) + (cap.doubleCap || 0) + (cap.tripleCap || 0) + (cap.quardCap || 0) + (cap.suiteCap || 0), 0
         ) || 50;
       }
       
@@ -824,120 +839,65 @@ export class BookingsService {
     }
   }
 
-  // ============================================================
-  // ✅ GET BOOKINGS FOR BRANCH
-  // ============================================================
-  async getBookingsForBranch(
+  // ---------- CHECK ROOM AVAILABILITY ----------
+  async checkRoomAvailability(
     branch: string,
-    page: number = 1,
-    limit: number = 50,
-    status?: string,
-    from?: string,
-    to?: string,
-    user?: any,
+    roomType: string,
+    checkIn: Date,
+    checkOut: Date,
+    roomsNeeded: number
   ) {
-    let where: any = {};
-    
-    if (user && user.role === 'VIEWER') {
-      const userBranches = user.branches || [];
-      if (userBranches.length === 0) {
-        return { bookings: [], total: 0, page, limit, totalPages: 0 };
-      }
-      if (branch && branch !== 'all' && userBranches.includes(branch)) {
-        where.branch = branch as Branch;
-      } else {
-        where.branch = { in: userBranches };
-      }
-    } else if (branch && branch !== 'all') {
-      where.branch = branch as Branch;
-    }
+    try {
+      this.logger.log(`📊 Checking availability for ${roomType} in ${branch}`);
 
-    if (status) {
-      where.bookingStatus = status;
-    }
-
-    if (from && to) {
-      where.checkIn = { gte: new Date(from) };
-      where.checkOut = { lte: new Date(to) };
-    }
-
-    const skip = (page - 1) * limit;
-
-    const [bookings, total] = await Promise.all([
-      this.prisma.booking.findMany({
-        where,
-        orderBy: { checkIn: 'desc' },
-        skip,
-        take: limit,
-      }),
-      this.prisma.booking.count({ where }),
-    ]);
-
-    return {
-      bookings,
-      total,
-      page,
-      limit,
-      totalPages: Math.ceil(total / limit),
-    };
-  }
-
-  // ---------- GET BOOKINGS BY BRANCH ----------
-  async getBookingsByBranch(branch: Branch) {
-    return this.prisma.booking.findMany({
-      where: { branch },
-      orderBy: { checkIn: 'desc' },
-    });
-  }
-
-  // ---------- GET BOOKINGS BY DATE RANGE ----------
-  async getBookingsByDateRange(from: Date, to: Date, branch?: Branch) {
-    const where: any = {
-      OR: [
-        {
-          checkIn: { gte: from, lte: to },
+      const allRooms = await this.prisma.room.findMany({
+        where: {
+          branch: branch as any,
+          roomType: roomType as any,
+          status: 'available',
         },
-        {
-          checkOut: { gte: from, lte: to },
+        select: {
+          id: true,
+          roomNumber: true,
         },
-      ],
-    };
+      });
 
-    if (branch) {
-      where.branch = branch;
+      const bookedRooms = await this.prisma.bookingRoom.findMany({
+        where: {
+          room: {
+            branch: branch as any,
+            roomType: roomType as any,
+          },
+          booking: {
+            OR: [
+              {
+                checkIn: { lt: checkOut },
+                checkOut: { gt: checkIn },
+              },
+            ],
+            bookingStatus: {
+              notIn: ['Cancelled', 'CheckedOut'],
+            },
+          },
+        },
+        select: {
+          roomId: true,
+        },
+      });
+
+      const bookedRoomIds = new Set(bookedRooms.map(br => br.roomId));
+      const availableRooms = allRooms.filter(room => !bookedRoomIds.has(room.id));
+
+      return {
+        available: availableRooms.length,
+        total: allRooms.length,
+        booked: bookedRoomIds.size,
+        isAvailable: availableRooms.length >= roomsNeeded,
+        availableRoomNumbers: availableRooms.map(r => r.roomNumber),
+      };
+    } catch (error) {
+      this.logger.error(`❌ Error checking availability: ${error.message}`);
+      throw error;
     }
-
-    return this.prisma.booking.findMany({
-      where,
-      orderBy: { checkIn: 'asc' },
-    });
-  }
-
-  // ---------- GET OCCUPANCY FOR DATE ----------
-  async getOccupancyForDate(date: Date, branch?: Branch) {
-    const target = new Date(date);
-    target.setHours(0, 0, 0, 0);
-
-    const where: any = {
-      checkIn: { lte: target },
-      checkOut: { gt: target },
-      bookingStatus: { in: ['Confirm', 'Confirmed', 'CheckedIn'] },
-    };
-
-    if (branch) {
-      where.branch = branch;
-    }
-
-    const bookings = await this.prisma.booking.findMany({
-      where,
-    });
-
-    const totalOccupied = bookings.reduce((sum, b) => sum + b.roomsCount, 0);
-
-    return {
-      date: target,
-      totalOccupied,
-      bookings,
-    };
   }
 }

@@ -1,5 +1,5 @@
 // src/room-capacity/room-capacity.controller.ts
-import { Controller, Get, Put, Body, Param, Request, UseGuards, Logger } from '@nestjs/common';
+import { Controller, Get, Put, Post, Body, Param, Query, Request, UseGuards, Logger, HttpStatus, HttpException } from '@nestjs/common';
 import { RoomCapacityService } from './room-capacity.service';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 
@@ -18,7 +18,7 @@ export class RoomCapacityController {
       return result;
     } catch (error) {
       this.logger.error(`❌ Error: ${error.message}`);
-      return { error: error.message };
+      throw new HttpException(error.message, HttpStatus.INTERNAL_SERVER_ERROR);
     }
   }
 
@@ -30,19 +30,13 @@ export class RoomCapacityController {
   ) {
     try {
       this.logger.log(`📊 Updating capacity for branch: ${branch}`);
-      this.logger.log(`📊 Data received: ${JSON.stringify(body)}`);
-      
-      // Ensure we have data
-      if (!body || Object.keys(body).length === 0) {
-        return { error: 'No data provided' };
-      }
+      this.logger.log(`📊 Data: ${JSON.stringify(body)}`);
       
       const result = await this.roomCapacityService.updateBranchCapacity(branch, body, req.user);
-      this.logger.log(`✅ Branch capacity updated successfully for ${branch}`);
       return result;
     } catch (error) {
-      this.logger.error(`❌ Error updating branch capacity: ${error.message}`);
-      return { error: error.message };
+      this.logger.error(`❌ Error: ${error.message}`);
+      throw new HttpException(error.message, HttpStatus.INTERNAL_SERVER_ERROR);
     }
   }
 
@@ -54,7 +48,7 @@ export class RoomCapacityController {
       return result;
     } catch (error) {
       this.logger.error(`❌ Error: ${error.message}`);
-      return { error: error.message };
+      throw new HttpException(error.message, HttpStatus.INTERNAL_SERVER_ERROR);
     }
   }
 
@@ -71,7 +65,7 @@ export class RoomCapacityController {
       return result;
     } catch (error) {
       this.logger.error(`❌ Error: ${error.message}`);
-      return { error: error.message };
+      throw new HttpException(error.message, HttpStatus.INTERNAL_SERVER_ERROR);
     }
   }
 
@@ -81,7 +75,38 @@ export class RoomCapacityController {
       return await this.roomCapacityService.getCapacitySummary(req.user);
     } catch (error) {
       this.logger.error(`❌ Error: ${error.message}`);
-      return { error: error.message };
+      throw new HttpException(error.message, HttpStatus.INTERNAL_SERVER_ERROR);
+    }
+  }
+
+  // ✅ NEW: Check room availability endpoint
+  @Get('check-availability')
+  async checkAvailability(
+    @Query('branch') branch: string,
+    @Query('roomType') roomType: string,
+    @Query('checkIn') checkIn: string,
+    @Query('checkOut') checkOut: string,
+    @Query('roomsNeeded') roomsNeeded: string
+  ) {
+    try {
+      this.logger.log(`📊 Checking availability for ${roomType} in ${branch}`);
+      
+      const checkInDate = new Date(checkIn);
+      const checkOutDate = new Date(checkOut);
+      const needed = parseInt(roomsNeeded) || 1;
+
+      const result = await this.roomCapacityService.checkRoomAvailability(
+        branch,
+        roomType,
+        checkInDate,
+        checkOutDate,
+        needed
+      );
+
+      return result;
+    } catch (error) {
+      this.logger.error(`❌ Error: ${error.message}`);
+      throw new HttpException(error.message, HttpStatus.INTERNAL_SERVER_ERROR);
     }
   }
 }

@@ -71,6 +71,58 @@ export class EmailService {
     }
   }
 
+  // ✅ Send Check-In Confirmation Email
+  async sendCheckInConfirmation(to: string, booking: any) {
+    try {
+      this.logger.log(`📧 Sending check-in confirmation to ${to}`);
+
+      const html = this.checkInConfirmationTemplate(booking);
+      const text = this.checkInConfirmationPlainText(booking);
+
+      const info = await this.transporter.sendMail({
+        from: process.env.EMAIL_FROM || 'Mahadev Inn <noreply@mahadevinn.com>',
+        to: to,
+        subject: `✅ Check-in Confirmed - ${booking.bookingNo}`,
+        text: text,
+        html: html,
+      });
+
+      await this.logEmail(to, 'Check-in Confirmation', booking.bookingNo, 'sent');
+      this.logger.log(`✅ Check-in confirmation sent to ${to}`);
+      return { success: true, messageId: info.messageId };
+    } catch (error) {
+      this.logger.error(`❌ Error sending check-in confirmation: ${error.message}`);
+      await this.logEmail(to, 'Check-in Confirmation', booking.bookingNo, 'failed', error.message);
+      return { success: false, error: error.message };
+    }
+  }
+
+  // ✅ Send Check-Out Confirmation Email
+  async sendCheckOutConfirmation(to: string, booking: any) {
+    try {
+      this.logger.log(`📧 Sending check-out confirmation to ${to}`);
+
+      const html = this.checkOutConfirmationTemplate(booking);
+      const text = this.checkOutConfirmationPlainText(booking);
+
+      const info = await this.transporter.sendMail({
+        from: process.env.EMAIL_FROM || 'Mahadev Inn <noreply@mahadevinn.com>',
+        to: to,
+        subject: `📤 Check-out Confirmed - ${booking.bookingNo}`,
+        text: text,
+        html: html,
+      });
+
+      await this.logEmail(to, 'Check-out Confirmation', booking.bookingNo, 'sent');
+      this.logger.log(`✅ Check-out confirmation sent to ${to}`);
+      return { success: true, messageId: info.messageId };
+    } catch (error) {
+      this.logger.error(`❌ Error sending check-out confirmation: ${error.message}`);
+      await this.logEmail(to, 'Check-out Confirmation', booking.bookingNo, 'failed', error.message);
+      return { success: false, error: error.message };
+    }
+  }
+
   // ✅ Send Auto Checkout Email
   async sendAutoCheckoutEmail(to: string, booking: any) {
     try {
@@ -137,7 +189,6 @@ export class EmailService {
     try {
       this.logger.log(`📧 Sending email to ${data.to}: ${data.subject}`);
 
-      // ✅ Ensure proper data mapping for templates
       const emailData = {
         guestName: data.data?.guestName || data.data?.agentName || 'Guest',
         bookingNo: data.data?.bookingNo || 'N/A',
@@ -193,10 +244,84 @@ export class EmailService {
   }
 
   // ============================================
-  // EMAIL TEMPLATES - WITH PROPER DATA HANDLING
+  // HELPER FUNCTIONS
   // ============================================
 
-  // ✅ Booking Request Template
+  private extractDate(booking: any, field: string): Date | null {
+    if (!booking) return null;
+    
+    const possibleFields = [field, `${field}Date`, `${field}_date`];
+    
+    for (const f of possibleFields) {
+      if (booking[f]) {
+        const date = booking[f] instanceof Date ? booking[f] : new Date(booking[f]);
+        if (!isNaN(date.getTime())) {
+          return date;
+        }
+      }
+    }
+    
+    return null;
+  }
+
+  private formatDateWithTime(date: Date, isCheckOut: boolean = false): string {
+    if (!date || isNaN(date.getTime())) return 'Not specified';
+    
+    const dateStr = date.toLocaleDateString('en-US', { 
+      weekday: 'short', 
+      year: 'numeric', 
+      month: 'short', 
+      day: 'numeric' 
+    });
+    
+    if (isCheckOut) {
+      return `${dateStr} at 12:00 PM`;
+    }
+    
+    const hasTime = date.getHours() !== 0 || date.getMinutes() !== 0;
+    if (hasTime) {
+      const timeStr = date.toLocaleTimeString('en-US', {
+        hour: '2-digit',
+        minute: '2-digit',
+        hour12: true
+      });
+      return `${dateStr} at ${timeStr}`;
+    }
+    
+    return dateStr;
+  }
+
+  private formatDateWithTimePlain(date: Date, isCheckOut: boolean = false): string {
+    if (!date || isNaN(date.getTime())) return 'Not specified';
+    
+    const dateStr = date.toLocaleDateString('en-US', { 
+      weekday: 'short', 
+      year: 'numeric', 
+      month: 'short', 
+      day: 'numeric' 
+    });
+    
+    if (isCheckOut) {
+      return `${dateStr} at 12:00 PM`;
+    }
+    
+    const hasTime = date.getHours() !== 0 || date.getMinutes() !== 0;
+    if (hasTime) {
+      const timeStr = date.toLocaleTimeString('en-US', {
+        hour: '2-digit',
+        minute: '2-digit',
+        hour12: true
+      });
+      return `${dateStr} at ${timeStr}`;
+    }
+    
+    return dateStr;
+  }
+
+  // ============================================
+  // EMAIL TEMPLATES
+  // ============================================
+
   private bookingRequestTemplate(booking: any): string {
     const guestName = booking.agentName || booking.guestName || 'Guest';
     const checkInDate = booking.checkIn ? new Date(booking.checkIn) : null;
@@ -287,19 +412,15 @@ Thank you for choosing us!
     `;
   }
 
-  // ✅ Booking Confirmation Template
   private bookingConfirmationTemplate(booking: any): string {
     const guestName = booking.agentName || booking.guestName || booking.name || 'Guest';
     
-    // Handle date objects properly
     let checkInDate = this.extractDate(booking, 'checkIn');
     let checkOutDate = this.extractDate(booking, 'checkOut');
     
-    // ✅ Pass true for check-out to force 12:00 PM
     const checkInStr = checkInDate ? this.formatDateWithTime(checkInDate, false) : 'Not specified';
     const checkOutStr = checkOutDate ? this.formatDateWithTime(checkOutDate, true) : 'Not specified';
     
-    // Calculate stay duration
     let stayDuration = 'N/A';
     if (checkInDate && checkOutDate) {
       const nights = Math.ceil((checkOutDate.getTime() - checkInDate.getTime()) / (1000 * 60 * 60 * 24));
@@ -407,11 +528,209 @@ Thank you for choosing us!
     `;
   }
 
-  // ✅ Auto Checkout Template
+  // ✅ Check-In Confirmation Templates
+  private checkInConfirmationTemplate(booking: any): string {
+    const guestName = booking.agentName || booking.guestName || 'Guest';
+    const checkInDate = this.extractDate(booking, 'checkIn');
+    const checkOutDate = this.extractDate(booking, 'checkOut');
+    const checkInStr = checkInDate ? this.formatDateWithTime(checkInDate, false) : 'Not specified';
+    const checkOutStr = checkOutDate ? this.formatDateWithTime(checkOutDate, true) : 'Not specified';
+    
+    let stayDuration = 'N/A';
+    if (checkInDate && checkOutDate) {
+      const nights = Math.ceil((checkOutDate.getTime() - checkInDate.getTime()) / (1000 * 60 * 60 * 24));
+      stayDuration = `${nights} night${nights > 1 ? 's' : ''}`;
+    }
+
+    return `
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <style>
+          body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
+          .container { max-width: 600px; margin: 0 auto; padding: 20px; }
+          .header { background: #4CAF50; color: white; padding: 20px; text-align: center; border-radius: 8px 8px 0 0; }
+          .content { padding: 20px; background: #f9f9f9; }
+          .footer { text-align: center; padding: 20px; font-size: 12px; color: #666; background: #f1f1f1; border-radius: 0 0 8px 8px; }
+          .details { background: white; padding: 15px; border-radius: 5px; margin: 15px 0; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+          .success { background: #E8F5E9; border-left: 4px solid #4CAF50; padding: 10px; margin: 10px 0; }
+          .label { font-weight: bold; color: #555; }
+          .highlight { color: #4CAF50; font-weight: bold; }
+          .stay-badge { background: #4CAF50; color: white; padding: 4px 12px; border-radius: 20px; display: inline-block; font-size: 14px; }
+          .info-box { background: #E3F2FD; padding: 15px; border-radius: 5px; margin: 15px 0; border-left: 4px solid #2196F3; }
+          .divider { border-top: 1px solid #e0e0e0; margin: 15px 0; }
+        </style>
+      </head>
+      <body>
+        <div class="container">
+          <div class="header">
+            <h1 style="margin: 0;">✅ Check-in Confirmed</h1>
+            <p style="margin: 5px 0 0; opacity: 0.9;">Welcome to Mahadev Inn</p>
+          </div>
+          <div class="content">
+            <div class="success">
+              <p><strong>Status:</strong> Checked In ✅</p>
+            </div>
+            <h2>Dear ${guestName},</h2>
+            <p>Your check-in has been successfully completed. Welcome to <strong>Mahadev Inn</strong>!</p>
+            <div class="details">
+              <h3 style="margin-top: 0;">📋 Booking Details:</h3>
+              <p><span class="label">📋 Booking No:</span> <strong>${booking.bookingNo || 'N/A'}</strong></p>
+              <p><span class="label">👤 Guest Name:</span> <strong>${guestName}</strong></p>
+              <p><span class="label">📅 Check-in:</span> <span class="highlight">${checkInStr}</span></p>
+              <p><span class="label">📅 Check-out:</span> <span class="highlight">${checkOutStr}</span></p>
+              <p><span class="label">⏳ Stay Duration:</span> <span class="stay-badge">${stayDuration}</span></p>
+              <p><span class="label">🛏️ Room Type:</span> <strong>${booking.roomType || 'N/A'}</strong></p>
+              <p><span class="label">📍 Branch:</span> <strong>${booking.branch || 'N/A'}</strong></p>
+            </div>
+            <div class="info-box">
+              <p style="font-weight: bold; margin-bottom: 5px;">📌 Important Information:</p>
+              <ul style="margin: 5px 0;">
+                <li>Check-out time: 12:00 PM</li>
+                <li>Please return room keys at the reception</li>
+                <li>Wi-Fi available throughout the hotel</li>
+              </ul>
+            </div>
+            <p>We hope you have a pleasant stay!</p>
+            <div class="divider"></div>
+            <p style="font-size: 14px; color: #666;">📞 For assistance, contact us at: +977 1 4785959</p>
+          </div>
+          <div class="footer">
+            <p>© ${new Date().getFullYear()} Mahadev Inn. All rights reserved.</p>
+            <p style="font-size: 10px; color: #999;">This is an automated notification. Please do not reply to this email.</p>
+          </div>
+        </div>
+      </body>
+      </html>
+    `;
+  }
+
+  private checkInConfirmationPlainText(booking: any): string {
+    const guestName = booking.agentName || booking.guestName || 'Guest';
+    const checkInDate = this.extractDate(booking, 'checkIn');
+    const checkOutDate = this.extractDate(booking, 'checkOut');
+    const checkInStr = checkInDate ? this.formatDateWithTimePlain(checkInDate, false) : 'Not specified';
+    const checkOutStr = checkOutDate ? this.formatDateWithTimePlain(checkOutDate, true) : 'Not specified';
+
+    return `
+Check-in Confirmed
+
+Dear ${guestName},
+
+Your check-in has been successfully completed. Welcome to Mahadev Inn!
+
+Booking Details:
+- Booking No: ${booking.bookingNo || 'N/A'}
+- Guest Name: ${guestName}
+- Check-in: ${checkInStr}
+- Check-out: ${checkOutStr}
+- Room Type: ${booking.roomType || 'N/A'}
+- Branch: ${booking.branch || 'N/A'}
+
+Important Information:
+- Check-out time: 12:00 PM
+- Please return room keys at the reception
+- Wi-Fi available throughout the hotel
+
+We hope you have a pleasant stay!
+
+📞 For assistance, contact us at: +977 1 4785959
+    `;
+  }
+
+  // ✅ Check-Out Confirmation Templates
+  private checkOutConfirmationTemplate(booking: any): string {
+    const guestName = booking.agentName || booking.guestName || 'Guest';
+    const checkOutDate = this.extractDate(booking, 'checkOut');
+    const checkOutStr = checkOutDate ? this.formatDateWithTime(checkOutDate, true) : 'Not specified';
+
+    return `
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <style>
+          body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
+          .container { max-width: 600px; margin: 0 auto; padding: 20px; }
+          .header { background: #FF9800; color: white; padding: 20px; text-align: center; border-radius: 8px 8px 0 0; }
+          .content { padding: 20px; background: #f9f9f9; }
+          .footer { text-align: center; padding: 20px; font-size: 12px; color: #666; background: #f1f1f1; border-radius: 0 0 8px 8px; }
+          .details { background: white; padding: 15px; border-radius: 5px; margin: 15px 0; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+          .label { font-weight: bold; color: #555; }
+          .highlight { color: #FF9800; font-weight: bold; }
+          .thank-you { background: #E8F5E9; border-left: 4px solid #4CAF50; padding: 10px; margin: 10px 0; }
+          .divider { border-top: 1px solid #e0e0e0; margin: 15px 0; }
+        </style>
+      </head>
+      <body>
+        <div class="container">
+          <div class="header">
+            <h1 style="margin: 0;">📤 Check-out Confirmed</h1>
+            <p style="margin: 5px 0 0; opacity: 0.9;">Thank you for staying with us</p>
+          </div>
+          <div class="content">
+            <div class="thank-you">
+              <p><strong>Status:</strong> Checked Out ✅</p>
+            </div>
+            <h2>Dear ${guestName},</h2>
+            <p>Your check-out has been successfully processed. Thank you for choosing <strong>Mahadev Inn</strong>!</p>
+            <div class="details">
+              <h3 style="margin-top: 0;">📋 Check-out Details:</h3>
+              <p><span class="label">📋 Booking No:</span> <strong>${booking.bookingNo || 'N/A'}</strong></p>
+              <p><span class="label">👤 Guest Name:</span> <strong>${guestName}</strong></p>
+              <p><span class="label">📅 Check-out Date:</span> <span class="highlight">${checkOutStr}</span></p>
+              <p><span class="label">🛏️ Room Type:</span> <strong>${booking.roomType || 'N/A'}</strong></p>
+              <p><span class="label">📍 Branch:</span> <strong>${booking.branch || 'N/A'}</strong></p>
+            </div>
+            <p>We hope you had a wonderful stay with us!</p>
+            <div class="divider"></div>
+            <p style="font-size: 14px; color: #666;">📞 For assistance, contact us at: +977 1 4785959</p>
+            <p style="font-size: 14px; color: #666;">We look forward to welcoming you again soon!</p>
+          </div>
+          <div class="footer">
+            <p>© ${new Date().getFullYear()} Mahadev Inn. All rights reserved.</p>
+            <p style="font-size: 10px; color: #999;">This is an automated notification. Please do not reply to this email.</p>
+          </div>
+        </div>
+      </body>
+      </html>
+    `;
+  }
+
+  private checkOutConfirmationPlainText(booking: any): string {
+    const guestName = booking.agentName || booking.guestName || 'Guest';
+    const checkOutDate = this.extractDate(booking, 'checkOut');
+    const checkOutStr = checkOutDate ? this.formatDateWithTimePlain(checkOutDate, true) : 'Not specified';
+
+    return `
+Check-out Confirmed
+
+Dear ${guestName},
+
+Your check-out has been successfully processed. Thank you for choosing Mahadev Inn!
+
+Check-out Details:
+- Booking No: ${booking.bookingNo || 'N/A'}
+- Guest Name: ${guestName}
+- Check-out Date: ${checkOutStr}
+- Room Type: ${booking.roomType || 'N/A'}
+- Branch: ${booking.branch || 'N/A'}
+
+We hope you had a wonderful stay with us!
+
+We look forward to welcoming you again soon!
+
+📞 For assistance, contact us at: +977 1 4785959
+    `;
+  }
+
+  // ✅ Auto Checkout Templates
   private autoCheckoutTemplate(booking: any): string {
     const guestName = booking.agentName || booking.guestName || 'Guest';
     const checkOutDate = this.extractDate(booking, 'checkOut');
-    // ✅ Pass true for check-out to force 12:00 PM
     const checkOutStr = checkOutDate ? this.formatDateWithTime(checkOutDate, true) : 'Not specified';
 
     return `
@@ -485,18 +804,16 @@ We hope to see you again soon.
     `;
   }
 
-  // ✅ Checkout Reminder Template - With Time Until Checkout
+  // ✅ Checkout Reminder Templates
   private checkoutReminderTemplate(booking: any, daysUntilCheckout: number): string {
     const guestName = booking.agentName || booking.guestName || booking.name || 'Guest';
     
     let checkInDate = this.extractDate(booking, 'checkIn');
     let checkOutDate = this.extractDate(booking, 'checkOut');
     
-    // ✅ Pass true for check-out to force 12:00 PM
     const checkInStr = checkInDate ? this.formatDateWithTime(checkInDate, false) : 'Not specified';
     const checkOutStr = checkOutDate ? this.formatDateWithTime(checkOutDate, true) : 'Not specified';
     
-    // Calculate time until checkout
     let timeUntilCheckout = 'N/A';
     if (checkOutDate) {
       const now = new Date();
@@ -598,7 +915,6 @@ We hope to see you again soon.
     const checkInStr = checkInDate ? this.formatDateWithTimePlain(checkInDate, false) : 'Not specified';
     const checkOutStr = checkOutDate ? this.formatDateWithTimePlain(checkOutDate, true) : 'Not specified';
     
-    // Calculate time until checkout
     let timeUntilCheckout = 'N/A';
     if (checkOutDate) {
       const now = new Date();
@@ -653,336 +969,30 @@ Thank you for choosing us.
     `;
   }
 
-  // ✅ Checkin Reminder Template
-  private checkinReminderTemplate(data: any): string {
-    const guestName = data.guestName || data.agentName || 'Guest';
-    const checkInDate = this.extractDate(data, 'checkInDate') || this.extractDate(data, 'checkIn');
-    const checkInStr = checkInDate ? this.formatDateWithTime(checkInDate, false) : 'Not specified';
-
-    return `
-      <!DOCTYPE html>
-      <html>
-      <head>
-        <meta charset="UTF-8">
-        <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <style>
-          body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
-          .container { max-width: 600px; margin: 0 auto; padding: 20px; }
-          .header { background: #2196F3; color: white; padding: 20px; text-align: center; border-radius: 8px 8px 0 0; }
-          .content { padding: 20px; background: #f9f9f9; }
-          .footer { text-align: center; padding: 20px; font-size: 12px; color: #666; background: #f1f1f1; border-radius: 0 0 8px 8px; }
-          .details { background: white; padding: 15px; border-radius: 5px; margin: 15px 0; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
-          .label { font-weight: bold; color: #555; }
-          .highlight { color: #2196F3; font-weight: bold; }
-          .info-box { background: #E3F2FD; padding: 15px; border-radius: 5px; margin: 15px 0; border-left: 4px solid #2196F3; }
-          .divider { border-top: 1px solid #e0e0e0; margin: 15px 0; }
-        </style>
-      </head>
-      <body>
-        <div class="container">
-          <div class="header">
-            <h1 style="margin: 0;">📅 Check-in Reminder</h1>
-          </div>
-          <div class="content">
-            <h2>Dear ${guestName},</h2>
-            <p>This is a reminder that your check-in is scheduled for <strong>tomorrow</strong>.</p>
-            <div class="details">
-              <h3 style="margin-top: 0;">📋 Check-in Details:</h3>
-              <p><span class="label">📋 Booking No:</span> <strong>${data.bookingNo || 'N/A'}</strong></p>
-              <p><span class="label">👤 Guest Name:</span> <strong>${guestName}</strong></p>
-              <p><span class="label">📅 Date:</span> <span class="highlight">${checkInStr}</span></p>
-              <p><span class="label">📍 Branch:</span> <strong>${data.branch || 'N/A'}</strong></p>
-            </div>
-            <div class="info-box">
-              <p style="font-weight: bold; margin-bottom: 5px;">📌 Please remember:</p>
-              <ul style="margin: 5px 0;">
-                <li>Carry a valid ID proof</li>
-                <li>Check-in time: 12:00 PM</li>
-              </ul>
-            </div>
-            <p>We look forward to welcoming you!</p>
-            <div class="divider"></div>
-            <p style="font-size: 14px; color: #666;">Please arrive on time for a smooth check-in experience.</p>
-          </div>
-          <div class="footer">
-            <p>© ${new Date().getFullYear()} Hotel Management System. All rights reserved.</p>
-            <p style="font-size: 10px; color: #999;">This is an automated notification. Please do not reply to this email.</p>
-          </div>
-        </div>
-      </body>
-      </html>
-    `;
-  }
-
-  private checkinReminderPlainText(data: any): string {
-    const guestName = data.guestName || data.agentName || 'Guest';
-    const checkInDate = this.extractDate(data, 'checkInDate') || this.extractDate(data, 'checkIn');
-    const checkInStr = checkInDate ? this.formatDateWithTimePlain(checkInDate, false) : 'Not specified';
-
-    return `
-Check-in Reminder
-
-Dear ${guestName},
-
-This is a reminder that your check-in is scheduled for tomorrow.
-
-Check-in Details:
-- Booking No: ${data.bookingNo || 'N/A'}
-- Guest Name: ${guestName}
-- Date: ${checkInStr}
-- Branch: ${data.branch || 'N/A'}
-
-Please remember:
-- Carry a valid ID proof
-- Check-in time: 12:00 PM
-
-We look forward to welcoming you!
-    `;
-  }
-
-  // ✅ Manager Checkout Alert Template
-  private managerCheckoutAlertTemplate(data: any): string {
-    const guestName = data.guestName || data.agentName || 'Guest';
-    const checkOutDate = this.extractDate(data, 'checkOutDate') || this.extractDate(data, 'checkOut');
-    // ✅ Pass true for check-out to force 12:00 PM
-    const checkOutStr = checkOutDate ? this.formatDateWithTime(checkOutDate, true) : 'Not specified';
-
-    return `
-      <!DOCTYPE html>
-      <html>
-      <head>
-        <meta charset="UTF-8">
-        <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <style>
-          body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
-          .container { max-width: 600px; margin: 0 auto; padding: 20px; }
-          .header { background: #FF9800; color: white; padding: 20px; text-align: center; border-radius: 8px 8px 0 0; }
-          .content { padding: 20px; background: #f9f9f9; }
-          .footer { text-align: center; padding: 20px; font-size: 12px; color: #666; background: #f1f1f1; border-radius: 0 0 8px 8px; }
-          .details { background: white; padding: 15px; border-radius: 5px; margin: 15px 0; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
-          .alert { background: #FFF3E0; border-left: 4px solid #FF9800; padding: 10px; margin: 10px 0; }
-          .label { font-weight: bold; color: #555; }
-          .highlight { color: #FF9800; font-weight: bold; }
-          .action-box { background: #FFF8E1; padding: 15px; border-radius: 5px; margin: 15px 0; border-left: 4px solid #FFC107; }
-          .divider { border-top: 1px solid #e0e0e0; margin: 15px 0; }
-        </style>
-      </head>
-      <body>
-        <div class="container">
-          <div class="header">
-            <h1 style="margin: 0;">📋 Room Vacating Alert</h1>
-          </div>
-          <div class="content">
-            <div class="alert">
-              <p><strong>⚠️ Guest Checkout Alert</strong></p>
-            </div>
-            <h2>Dear Manager,</h2>
-            <p>A guest will be checking out soon. Please ensure proper procedures are followed.</p>
-            <div class="details">
-              <h3 style="margin-top: 0;">👤 Guest Details:</h3>
-              <p><span class="label">👤 Guest Name:</span> <strong>${guestName}</strong></p>
-              <p><span class="label">📋 Booking No:</span> <strong>${data.bookingNo || 'N/A'}</strong></p>
-              <p><span class="label">📅 Check-out Date:</span> <span class="highlight">${checkOutStr}</span></p>
-              <p><span class="label">⏳ Days until checkout:</span> <strong>${data.daysUntilCheckout || 0} day${data.daysUntilCheckout > 1 ? 's' : ''}</strong></p>
-              <p><span class="label">📍 Branch:</span> <strong>${data.branch || 'N/A'}</strong></p>
-            </div>
-            <div class="action-box">
-              <p style="font-weight: bold; margin-bottom: 5px;">📌 Action Required:</p>
-              <ul style="margin: 5px 0;">
-                <li>Prepare the room for housekeeping</li>
-                <li>Verify any pending charges</li>
-                <li>Prepare checkout documents</li>
-                <li>Ensure room keys are returned</li>
-              </ul>
-            </div>
-            <div class="divider"></div>
-            <p style="font-size: 12px; color: #666;">This is an automated notification from the Hotel Management System.</p>
-          </div>
-          <div class="footer">
-            <p>© ${new Date().getFullYear()} Hotel Management System. All rights reserved.</p>
-            <p style="font-size: 10px; color: #999;">This is an automated notification. Please do not reply to this email.</p>
-          </div>
-        </div>
-      </body>
-      </html>
-    `;
-  }
-
-  private managerCheckoutAlertPlainText(data: any): string {
-    const guestName = data.guestName || data.agentName || 'Guest';
-    const checkOutDate = this.extractDate(data, 'checkOutDate') || this.extractDate(data, 'checkOut');
-    const checkOutStr = checkOutDate ? this.formatDateWithTimePlain(checkOutDate, true) : 'Not specified';
-
-    return `
-Room Vacating Alert
-
-Dear Manager,
-
-A guest will be checking out soon.
-
-Guest Details:
-- Guest Name: ${guestName}
-- Booking No: ${data.bookingNo || 'N/A'}
-- Check-out Date: ${checkOutStr}
-- Days until checkout: ${data.daysUntilCheckout || 0} day${data.daysUntilCheckout > 1 ? 's' : ''}
-- Branch: ${data.branch || 'N/A'}
-
-Action Required:
-- Prepare the room for housekeeping
-- Verify any pending charges
-- Prepare checkout documents
-- Ensure room keys are returned
-
-This is an automated notification from the Hotel Management System.
-    `;
-  }
-
-  // ============================================
-  // HELPER FUNCTIONS
-  // ============================================
-
-  // ✅ Extract date from booking object
-  private extractDate(booking: any, field: string): Date | null {
-    if (!booking) return null;
-    
-    // Try multiple field names
-    const possibleFields = [field, `${field}Date`, `${field}_date`];
-    
-    for (const f of possibleFields) {
-      if (booking[f]) {
-        const date = booking[f] instanceof Date ? booking[f] : new Date(booking[f]);
-        if (!isNaN(date.getTime())) {
-          return date;
-        }
-      }
-    }
-    
-    return null;
-  }
-
-  // ✅ Format date with time for HTML emails
-  // isCheckOut: true = force 12:00 PM for check-out dates
-  // isCheckOut: false = show actual time for check-in dates
-  private formatDateWithTime(date: Date, isCheckOut: boolean = false): string {
-    if (!date || isNaN(date.getTime())) return 'Not specified';
-    
-    const dateStr = date.toLocaleDateString('en-US', { 
-      weekday: 'short', 
-      year: 'numeric', 
-      month: 'short', 
-      day: 'numeric' 
-    });
-    
-    // ✅ For check-out dates, always show 12:00 PM
-    if (isCheckOut) {
-      return `${dateStr} at 12:00 PM`;
-    }
-    
-    // For check-in dates, show actual time if available
-    const hasTime = date.getHours() !== 0 || date.getMinutes() !== 0;
-    if (hasTime) {
-      const timeStr = date.toLocaleTimeString('en-US', {
-        hour: '2-digit',
-        minute: '2-digit',
-        hour12: true
-      });
-      return `${dateStr} at ${timeStr}`;
-    }
-    
-    return dateStr;
-  }
-
-  // ✅ Format date with time for plain text emails
-  // isCheckOut: true = force 12:00 PM for check-out dates
-  // isCheckOut: false = show actual time for check-in dates
-  private formatDateWithTimePlain(date: Date, isCheckOut: boolean = false): string {
-    if (!date || isNaN(date.getTime())) return 'Not specified';
-    
-    const dateStr = date.toLocaleDateString('en-US', { 
-      weekday: 'short', 
-      year: 'numeric', 
-      month: 'short', 
-      day: 'numeric' 
-    });
-    
-    // ✅ For check-out dates, always show 12:00 PM
-    if (isCheckOut) {
-      return `${dateStr} at 12:00 PM`;
-    }
-    
-    // For check-in dates, show actual time if available
-    const hasTime = date.getHours() !== 0 || date.getMinutes() !== 0;
-    if (hasTime) {
-      const timeStr = date.toLocaleTimeString('en-US', {
-        hour: '2-digit',
-        minute: '2-digit',
-        hour12: true
-      });
-      return `${dateStr} at ${timeStr}`;
-    }
-    
-    return dateStr;
-  }
-
   // ✅ Generic Template Generator
   private generateEmailTemplate(template: string, data: any): string {
-    // Ensure data has all required fields
-    const emailData = {
-      guestName: data.guestName || 'Guest',
-      bookingNo: data.bookingNo || 'N/A',
-      checkInDate: data.checkInDate || null,
-      checkOutDate: data.checkOutDate || null,
-      branch: data.branch || 'N/A',
-      roomType: data.roomType || 'N/A',
-      totalCost: data.totalCost || null,
-      daysUntilCheckout: data.daysUntilCheckout || 0,
-      timeUntilCheckout: data.timeUntilCheckout || '',
-      agentName: data.agentName || 'Guest',
-    };
-
     switch (template) {
       case 'checkout_reminder':
-        return this.checkoutReminderTemplate(emailData, emailData.daysUntilCheckout);
-      case 'checkin_reminder':
-        return this.checkinReminderTemplate(emailData);
+        return this.checkoutReminderTemplate(data, data.daysUntilCheckout || 0);
       case 'checkin_confirmation':
-        return this.bookingConfirmationTemplate(emailData);
-      case 'manager_checkout_alert':
-        return this.managerCheckoutAlertTemplate(emailData);
-      case 'checkout_confirmation':
-        return this.autoCheckoutTemplate(emailData);
+        return this.checkInConfirmationTemplate(data);
+      case 'booking_confirmation':
+        return this.bookingConfirmationTemplate(data);
       default:
-        return this.bookingConfirmationTemplate(emailData);
+        return this.bookingConfirmationTemplate(data);
     }
   }
 
   private generatePlainText(template: string, data: any): string {
-    const emailData = {
-      guestName: data.guestName || 'Guest',
-      bookingNo: data.bookingNo || 'N/A',
-      checkInDate: data.checkInDate || null,
-      checkOutDate: data.checkOutDate || null,
-      branch: data.branch || 'N/A',
-      roomType: data.roomType || 'N/A',
-      totalCost: data.totalCost || null,
-      daysUntilCheckout: data.daysUntilCheckout || 0,
-      timeUntilCheckout: data.timeUntilCheckout || '',
-      agentName: data.agentName || 'Guest',
-    };
-
     switch (template) {
       case 'checkout_reminder':
-        return this.checkoutReminderPlainText(emailData, emailData.daysUntilCheckout);
-      case 'checkin_reminder':
-        return this.checkinReminderPlainText(emailData);
+        return this.checkoutReminderPlainText(data, data.daysUntilCheckout || 0);
       case 'checkin_confirmation':
-        return this.bookingConfirmationPlainText(emailData);
-      case 'manager_checkout_alert':
-        return this.managerCheckoutAlertPlainText(emailData);
-      case 'checkout_confirmation':
-        return this.autoCheckoutPlainText(emailData);
+        return this.checkInConfirmationPlainText(data);
+      case 'booking_confirmation':
+        return this.bookingConfirmationPlainText(data);
       default:
-        return this.bookingConfirmationPlainText(emailData);
+        return this.bookingConfirmationPlainText(data);
     }
   }
 }

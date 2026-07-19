@@ -22,8 +22,9 @@ import { Response } from 'express';
 import { BookingsService } from './bookings.service';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { Branch } from '@prisma/client';
-import { AuditService } from '../../apps/api/src/audit/audit.service';
+// import { AuditService } from '../audit/audit.service'; // ✅ COMMENT OUT
 import { EmailService } from '../email/email.service';
+import * as jsPDF from 'jspdf';
 
 @UseGuards(JwtAuthGuard)
 @Controller('bookings')
@@ -32,11 +33,11 @@ export class BookingsController {
 
   constructor(
     private readonly svc: BookingsService,
-    private readonly audit: AuditService,
+    // private readonly audit: AuditService, // ✅ COMMENT OUT
     private readonly emailService: EmailService,
   ) {}
 
-  // ✅ CREATE BOOKING - With Email Notification
+  // ✅ CREATE BOOKING
   @Post()
   async create(@Req() req: any, @Body() dto: any) {
     try {
@@ -49,7 +50,6 @@ export class BookingsController {
 
       this.logger.log(`📝 Creating booking by ${user.role}: ${user.username} in branch: ${dto.branch}`);
 
-      // ✅ Allow OWNER and MANAGER to create in ANY branch
       if (user.role === 'OWNER') {
         branch = dto.branch;
         this.logger.log(`✅ OWNER ${user.username} creating booking in branch: ${branch}`);
@@ -76,12 +76,10 @@ export class BookingsController {
         throw new BadRequestException('Branch is required');
       }
 
-      // ✅ Create the booking
       const booking = await this.svc.create({ ...dto, branch });
 
       this.logger.log(`✅ Booking created with ID: ${booking.id}, Booking No: ${booking.bookingNo}`);
 
-      // ✅ Send email confirmation to guest
       let emailSent = false;
       let emailStatus = 'no_email';
       
@@ -107,22 +105,6 @@ export class BookingsController {
         emailStatus = 'no_email';
       }
 
-      // ✅ Audit log
-      try {
-        await this.audit.log({
-          username: req.context?.username ?? user.username ?? 'system',
-          branch: req.context?.branch ?? branch ?? null,
-          action: 'CREATE',
-          entity: 'Booking',
-          entityId: booking.id,
-          details: dto,
-          ip: req.context?.ip ?? req.ip ?? null,
-          userAgent: req.context?.userAgent ?? req.headers['user-agent'] ?? null,
-        });
-      } catch (auditError) {
-        this.logger.error('❌ Audit log error:', auditError);
-      }
-
       return {
         success: true,
         data: booking,
@@ -134,12 +116,20 @@ export class BookingsController {
         email: booking.email || null,
       };
     } catch (error) {
-      this.logger.error('❌ Error creating booking:', error);
-      throw error;
+      this.logger.error(`❌ Error creating booking: ${error.message}`);
+      this.logger.error(`❌ Stack: ${error.stack}`);
+      
+      if (error instanceof BadRequestException || error instanceof ForbiddenException) {
+        throw error;
+      }
+      throw new InternalServerErrorException({
+        message: error.message || 'Internal server error',
+        statusCode: error.status || 500,
+      });
     }
   }
 
-  // ✅ ✅ INDIVIDUAL CHECK-IN - NEW ENDPOINT
+  // ✅ CHECK-IN GUEST
   @Patch(':id/checkin')
   async checkInGuest(@Req() req: any, @Param('id') id: string) {
     try {
@@ -153,7 +143,6 @@ export class BookingsController {
         throw new NotFoundException('Booking not found');
       }
 
-      // Check permission
       if (user.role === 'VIEWER') {
         const userBranch = user.branches?.[0];
         if (existingBooking.branch !== userBranch) {
@@ -162,26 +151,6 @@ export class BookingsController {
       }
 
       const booking = await this.svc.checkInGuest(id);
-
-      // Audit log
-      try {
-        await this.audit.log({
-          username: user.username || 'system',
-          branch: booking.branch,
-          action: 'CHECK_IN',
-          entity: 'Booking',
-          entityId: booking.id,
-          details: { 
-            guestName: booking.agentName, 
-            bookingNo: booking.bookingNo 
-          },
-          ip: req.ip || null,
-          userAgent: req.headers?.['user-agent'] || null,
-        });
-        this.logger.log(`✅ Audit log created for check-in: ${booking.bookingNo}`);
-      } catch (auditError) {
-        this.logger.error(`❌ Audit log error: ${auditError.message}`);
-      }
 
       return {
         success: true,
@@ -197,7 +166,7 @@ export class BookingsController {
     }
   }
 
-  // ✅ ✅ INDIVIDUAL CHECK-OUT - NEW ENDPOINT
+  // ✅ CHECK-OUT GUEST
   @Patch(':id/checkout')
   async checkOutGuest(@Req() req: any, @Param('id') id: string) {
     try {
@@ -211,7 +180,6 @@ export class BookingsController {
         throw new NotFoundException('Booking not found');
       }
 
-      // Check permission
       if (user.role === 'VIEWER') {
         const userBranch = user.branches?.[0];
         if (existingBooking.branch !== userBranch) {
@@ -220,26 +188,6 @@ export class BookingsController {
       }
 
       const booking = await this.svc.checkOutGuest(id);
-
-      // Audit log
-      try {
-        await this.audit.log({
-          username: user.username || 'system',
-          branch: booking.branch,
-          action: 'CHECK_OUT',
-          entity: 'Booking',
-          entityId: booking.id,
-          details: { 
-            guestName: booking.agentName, 
-            bookingNo: booking.bookingNo 
-          },
-          ip: req.ip || null,
-          userAgent: req.headers?.['user-agent'] || null,
-        });
-        this.logger.log(`✅ Audit log created for check-out: ${booking.bookingNo}`);
-      } catch (auditError) {
-        this.logger.error(`❌ Audit log error: ${auditError.message}`);
-      }
 
       return {
         success: true,
@@ -255,7 +203,7 @@ export class BookingsController {
     }
   }
 
-  // ✅ UPDATE STATUS (PATCH) - With Email Notification
+  // ✅ UPDATE STATUS
   @Patch(':id')
   async updateStatus(
     @Req() req: any,
@@ -277,7 +225,6 @@ export class BookingsController {
         throw new NotFoundException('Booking not found');
       }
 
-      // ✅ Check permission
       if (user.role === 'VIEWER') {
         const userBranch = user.branches?.[0];
         if (existingBooking.branch !== userBranch) {
@@ -287,7 +234,6 @@ export class BookingsController {
 
       const booking = await this.svc.update(id, { bookingStatus: body.bookingStatus });
 
-      // ✅ Send email on status change to confirmed
       if (booking && booking.email && (body.bookingStatus === 'Confirm' || body.bookingStatus === 'Confirmed')) {
         try {
           await this.emailService.sendBookingConfirmation(booking.email, booking);
@@ -309,7 +255,7 @@ export class BookingsController {
     }
   }
 
-  // ✅ UPDATE BOOKING (PUT) - With Email Notification
+  // ✅ UPDATE BOOKING
   @Put(':id')
   async update(@Req() req: any, @Param('id') id: string, @Body() dto: any) {
     try {
@@ -324,7 +270,6 @@ export class BookingsController {
         throw new NotFoundException('Booking not found');
       }
 
-      // ✅ Check if only status update
       const keys = Object.keys(dto);
       const isOnlyStatusUpdate = keys.length === 1 && keys[0] === 'bookingStatus';
 
@@ -332,7 +277,6 @@ export class BookingsController {
         return this.updateStatus(req, id, { bookingStatus: dto.bookingStatus });
       }
 
-      // ✅ Check permission for full update
       if (user.role === 'OWNER') {
         branch = dto.branch || existingBooking.branch;
       } else if (user.role === 'MANAGER') {
@@ -356,7 +300,6 @@ export class BookingsController {
 
       const updated = await this.svc.update(id, { ...dto, branch });
 
-      // ✅ Send email notification for updates
       if (updated && updated.email) {
         try {
           await this.emailService.sendBookingConfirmation(updated.email, updated);
@@ -403,7 +346,7 @@ export class BookingsController {
     }
   }
 
-  // ✅ LIST BOOKINGS - WITH VIEWER SUPPORT
+  // ✅ LIST BOOKINGS
   @Get()
   async list(
     @Req() req: any,
@@ -426,7 +369,6 @@ export class BookingsController {
       this.logger.log(`📋 User ${user.username} (${user.role}) listing bookings`);
       this.logger.log(`📋 User branches: ${user.branches?.join(', ') || 'none'}`);
 
-      // ✅ Branch filtering based on user role
       if (user.role === 'OWNER') {
         if (branch) {
           where.branch = branch;
@@ -460,7 +402,6 @@ export class BookingsController {
         }
       }
 
-      // ✅ Additional filters
       if (from && to) {
         where.checkIn = { gte: new Date(from) };
         where.checkOut = { lte: new Date(to) };
@@ -535,7 +476,7 @@ export class BookingsController {
     }
   }
 
-  // ✅ DASHBOARD STATS - WITH VIEWER SUPPORT
+  // ✅ DASHBOARD STATS
   @Get('dashboard/stats')
   async getDashboardStats(@Req() req: any, @Query('branch') branch?: string) {
     try {
@@ -582,7 +523,7 @@ export class BookingsController {
     }
   }
 
-  // ✅ BOOKING STATS - WITH VIEWER SUPPORT
+  // ✅ BOOKING STATS
   @Get('stats')
   async getStats(@Req() req: any, @Query('branch') branch?: string) {
     try {
@@ -640,7 +581,6 @@ export class BookingsController {
         bookingStatus: { in: ['Confirm', 'Confirmed', 'Pending'] },
       };
 
-      // ✅ Filter by viewer's branches
       if (user.role === 'VIEWER') {
         const userBranches = user.branches || [];
         if (userBranches.length === 0) {
@@ -739,7 +679,6 @@ export class BookingsController {
     try {
       const user = req.user;
       
-      // ✅ Check if user has permission
       if (user.role === 'VIEWER') {
         throw new ForbiddenException('You do not have permission to resend emails');
       }
@@ -756,7 +695,6 @@ export class BookingsController {
         throw new BadRequestException('No email associated with this booking');
       }
 
-      // ✅ Send email
       await this.emailService.sendBookingConfirmation(booking.email, booking);
       this.logger.log(`📧 Confirmation email resent to: ${booking.email}`);
 
@@ -768,6 +706,184 @@ export class BookingsController {
     } catch (error) {
       this.logger.error('Error resending email:', error);
       throw error;
+    }
+  }
+
+  // ✅ GENERATE PDF
+  @Get(':id/pdf')
+  async generatePdf(@Param('id') id: string, @Res() res: Response) {
+    try {
+      this.logger.log(`📄 Generating PDF for booking: ${id}`);
+
+      let booking = await this.svc.prisma.booking.findUnique({
+        where: { id },
+      });
+
+      if (!booking) {
+        booking = await this.svc.prisma.booking.findFirst({
+          where: { bookingNo: id },
+        });
+      }
+
+      if (!booking) {
+        this.logger.error(`❌ Booking not found: ${id}`);
+        return res.status(404).json({ error: 'Booking not found' });
+      }
+
+      this.logger.log(`✅ Found booking: ${booking.bookingNo}`);
+
+      const doc = new jsPDF.jsPDF({
+        orientation: 'portrait',
+        unit: 'mm',
+        format: 'a4',
+        compress: true,
+      });
+
+      const pageWidth = doc.internal.pageSize.getWidth();
+      let y = 15;
+
+      const primaryColor = [79, 70, 229];
+      const secondaryColor = [31, 41, 55];
+      const lightGray = [107, 114, 128];
+
+      // Header
+      doc.setDrawColor(primaryColor[0], primaryColor[1], primaryColor[2]);
+      doc.setLineWidth(2);
+      doc.line(15, 10, pageWidth - 15, 10);
+
+      doc.setTextColor(primaryColor[0], primaryColor[1], primaryColor[2]);
+      doc.setFontSize(24);
+      doc.setFont('helvetica', 'bold');
+      doc.text('MAHADEV INN', pageWidth / 2, y, { align: 'center' });
+      y += 8;
+
+      doc.setTextColor(lightGray[0], lightGray[1], lightGray[2]);
+      doc.setFontSize(10);
+      doc.setFont('helvetica', 'normal');
+      doc.text('Booking Confirmation Receipt', pageWidth / 2, y, { align: 'center' });
+      y += 10;
+
+      // Booking Details
+      doc.setFillColor(245, 245, 255);
+      doc.rect(15, y - 2, pageWidth - 30, 8, 'F');
+      doc.setTextColor(primaryColor[0], primaryColor[1], primaryColor[2]);
+      doc.setFontSize(11);
+      doc.setFont('helvetica', 'bold');
+      doc.text('BOOKING DETAILS', 20, y + 3);
+      y += 12;
+
+      const addRow = (label: string, value: string) => {
+        doc.setTextColor(lightGray[0], lightGray[1], lightGray[2]);
+        doc.setFontSize(9);
+        doc.setFont('helvetica', 'bold');
+        doc.text(label + ':', 20, y + 3);
+        doc.setTextColor(secondaryColor[0], secondaryColor[1], secondaryColor[2]);
+        doc.setFontSize(9);
+        doc.setFont('helvetica', 'normal');
+        doc.text(String(value), 70, y + 3);
+        y += 8;
+      };
+
+      addRow('Booking No', booking.bookingNo);
+      addRow('Guest Name', booking.agentName);
+      addRow('Contact', booking.agentContact);
+      addRow('Email', booking.email || 'N/A');
+      addRow('Branch', booking.branch);
+      addRow('Room Type', booking.roomType);
+      addRow('Rooms', String(booking.roomsCount));
+      addRow('Heads', String(booking.heads));
+
+      const checkInDate = new Date(booking.checkIn).toLocaleDateString('en-US', {
+        month: 'short',
+        day: 'numeric',
+        year: 'numeric',
+      });
+      const checkOutDate = new Date(booking.checkOut).toLocaleDateString('en-US', {
+        month: 'short',
+        day: 'numeric',
+        year: 'numeric',
+      });
+      addRow('Check In', checkInDate);
+      addRow('Check Out', checkOutDate);
+      addRow('Nights', String(booking.nights));
+
+      // Price Summary
+      y += 4;
+      doc.setFillColor(245, 245, 255);
+      doc.rect(15, y - 2, pageWidth - 30, 8, 'F');
+      doc.setTextColor(primaryColor[0], primaryColor[1], primaryColor[2]);
+      doc.setFontSize(11);
+      doc.setFont('helvetica', 'bold');
+      doc.text('PRICE SUMMARY', 20, y + 3);
+      y += 12;
+
+      const totalCost = Number(booking.totalCost) || Number(booking.roomCharges) || 0;
+      const vatAmount = totalCost * 0.13;
+      const grandTotal = totalCost + vatAmount;
+
+      addRow('Room Charges', `Rs. ${totalCost.toFixed(2)}`);
+      addRow('VAT (13%)', `Rs. ${vatAmount.toFixed(2)}`);
+      
+      doc.setFillColor(primaryColor[0], primaryColor[1], primaryColor[2]);
+      doc.rect(18, y - 1, pageWidth - 36, 9, 'F');
+      doc.setTextColor(255, 255, 255);
+      doc.setFontSize(11);
+      doc.setFont('helvetica', 'bold');
+      doc.text('GRAND TOTAL', 22, y + 4);
+      doc.text(`Rs. ${grandTotal.toFixed(2)}`, pageWidth - 20, y + 4, { align: 'right' });
+      y += 14;
+
+      // Footer
+      y += 4;
+      doc.setDrawColor(primaryColor[0], primaryColor[1], primaryColor[2]);
+      doc.setLineWidth(0.3);
+      doc.line(15, y, pageWidth - 15, y);
+      y += 10;
+
+      doc.setTextColor(primaryColor[0], primaryColor[1], primaryColor[2]);
+      doc.setFontSize(16);
+      doc.setFont('helvetica', 'bold');
+      doc.text('Thank You!', pageWidth / 2, y, { align: 'center' });
+      y += 8;
+
+      doc.setTextColor(lightGray[0], lightGray[1], lightGray[2]);
+      doc.setFontSize(9);
+      doc.setFont('helvetica', 'normal');
+      doc.text('For choosing Mahadev Inn. We look forward to welcoming you!', pageWidth / 2, y, { align: 'center' });
+      y += 6;
+
+      doc.setFontSize(8);
+      doc.setTextColor(lightGray[0], lightGray[1], lightGray[2]);
+      doc.text('This is a system-generated receipt. Please keep it for your records.', pageWidth / 2, y, { align: 'center' });
+      y += 4;
+
+      doc.setFontSize(7);
+      doc.setTextColor(lightGray[0], lightGray[1], lightGray[2]);
+      doc.text('+977 1 4785959  |  info@mahadevin.com  |  www.mahadevin.com', pageWidth / 2, y, { align: 'center' });
+
+      doc.setDrawColor(primaryColor[0], primaryColor[1], primaryColor[2]);
+      doc.setLineWidth(2);
+      doc.line(15, y + 10, pageWidth - 15, y + 10);
+
+      const pdfBuffer = doc.output('arraybuffer');
+
+      res.set({
+        'Content-Type': 'application/pdf',
+        'Content-Disposition': `attachment; filename=MahadevInn_Booking_${booking.bookingNo}.pdf`,
+        'Content-Length': pdfBuffer.byteLength,
+      });
+
+      res.send(Buffer.from(pdfBuffer));
+      
+      this.logger.log(`✅ PDF generated successfully for booking: ${booking.bookingNo}`);
+    } catch (error) {
+      this.logger.error(`❌ Error generating PDF: ${error.message}`);
+      this.logger.error(`❌ Stack trace: ${error.stack}`);
+      
+      return res.status(500).json({ 
+        error: 'Failed to generate PDF', 
+        message: error.message 
+      });
     }
   }
 }

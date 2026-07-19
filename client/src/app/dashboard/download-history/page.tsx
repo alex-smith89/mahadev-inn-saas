@@ -1,3 +1,4 @@
+// src/app/download-history/page.tsx
 'use client';
 
 import { useState, useEffect } from 'react';
@@ -11,6 +12,7 @@ export default function DownloadHistoryPage() {
   const [downloads, setDownloads] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [success, setSuccess] = useState('');
   const [downloadingId, setDownloadingId] = useState<string | null>(null);
   const [isLocalMode, setIsLocalMode] = useState(false);
   const [filter, setFilter] = useState('all');
@@ -350,18 +352,38 @@ export default function DownloadHistoryPage() {
     router.push('/login');
   };
 
+  // ✅ Updated handleDownload function with proper error handling
   const handleDownload = async (id: string) => {
     setDownloadingId(id);
     try {
       const token = localStorage.getItem('token');
+      console.log(`📥 Downloading PDF for booking: ${id}`);
+      
       const response = await fetch(`${API_URL}/bookings/${id}/pdf`, {
         method: 'GET',
-        headers: { 'Authorization': `Bearer ${token}` },
+        headers: { 
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/pdf',
+        },
       });
 
-      if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+      console.log('📥 Response status:', response.status);
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error('Error response:', errorText);
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
 
       const blob = await response.blob();
+      console.log('📥 Blob size:', blob.size);
+      
+      // Check if blob is valid
+      if (blob.size === 0) {
+        throw new Error('Generated PDF is empty');
+      }
+
+      // Create download link
       const url = window.URL.createObjectURL(blob);
       const link = document.createElement('a');
       link.href = url;
@@ -369,34 +391,70 @@ export default function DownloadHistoryPage() {
       document.body.appendChild(link);
       link.click();
       link.remove();
-      window.URL.revokeObjectURL(url);
+      
+      // Clean up
+      setTimeout(() => {
+        window.URL.revokeObjectURL(url);
+      }, 100);
 
+      // Update status
       updateDownloadStatus(id, 'Downloaded');
+      
+      // Show success message
+      setSuccess(`✅ PDF downloaded successfully for booking ${id}`);
+      setTimeout(() => setSuccess(''), 3000);
+      
     } catch (err: any) {
-      console.error('Error downloading PDF:', err);
-      alert('❌ Failed to download PDF. Please try again.');
+      console.error('❌ Error downloading PDF:', err);
+      setError(`❌ Failed to download PDF: ${err.message || 'Please try again.'}`);
+      setTimeout(() => setError(''), 5000);
     } finally {
       setDownloadingId(null);
     }
   };
 
+  // ✅ Updated handleView function
   const handleView = async (id: string) => {
     try {
       const token = localStorage.getItem('token');
+      console.log(`👁️ Viewing PDF for booking: ${id}`);
+      
       const response = await fetch(`${API_URL}/bookings/${id}/pdf`, {
         method: 'GET',
-        headers: { 'Authorization': `Bearer ${token}` },
+        headers: { 
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/pdf',
+        },
       });
 
-      if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error('Error response:', errorText);
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
 
       const blob = await response.blob();
+      
+      if (blob.size === 0) {
+        throw new Error('Generated PDF is empty');
+      }
+
       const url = window.URL.createObjectURL(blob);
-      window.open(url, '_blank');
-      updateDownloadStatus(id, 'Viewed');
+      
+      // Open in new tab
+      const newWindow = window.open(url, '_blank');
+      if (!newWindow) {
+        alert('Please allow popups to view the PDF');
+      } else {
+        updateDownloadStatus(id, 'Viewed');
+        // Clean up after a delay
+        setTimeout(() => {
+          window.URL.revokeObjectURL(url);
+        }, 1000);
+      }
     } catch (err: any) {
-      console.error('Error viewing PDF:', err);
-      alert('❌ Failed to view PDF. Please try again.');
+      console.error('❌ Error viewing PDF:', err);
+      alert(`❌ Failed to view PDF: ${err.message || 'Please try again.'}`);
     }
   };
 
@@ -527,6 +585,13 @@ export default function DownloadHistoryPage() {
               : 'bg-red-100 border-red-400 text-red-700'
           }`}>
             ❌ {error}
+          </div>
+        )}
+
+        {success && (
+          <div className="bg-green-50 border border-green-200 text-green-700 px-4 py-3 rounded-lg mb-4 flex items-center">
+            <FiCheck className="w-5 h-5 mr-2" />
+            {success}
           </div>
         )}
 
