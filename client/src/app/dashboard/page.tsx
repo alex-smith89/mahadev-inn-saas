@@ -13,7 +13,8 @@ import {
   FiEdit2, FiUserCheck, FiBarChart2, FiActivity, FiGrid,
   FiInfo, FiBell, FiAlertCircle, FiCheck, FiCalendar, FiMail,
   FiCpu, FiSettings, FiZap, FiBellOff, FiEye, FiEyeOff,
-  FiMapPin, FiBriefcase, FiRadio, FiWatch, FiSearch
+  FiMapPin, FiBriefcase, FiRadio, FiWatch, FiSearch,
+  FiShield, FiMonitor, FiServer
 } from 'react-icons/fi';
 import {
   Chart as ChartJS,
@@ -30,7 +31,7 @@ import {
 } from 'chart.js';
 import { Bar, Line } from 'react-chartjs-2';
 
-// ✅ Import Notification Toast
+// Import Notification Toast
 import { NotificationToast } from '@/components/NotificationToast';
 
 ChartJS.register(
@@ -46,7 +47,7 @@ ChartJS.register(
   Filler
 );
 
-// ✅ API URL
+// API URL
 const API_URL = 'http://localhost:4000/api';
 
 export default function DashboardPage() {
@@ -63,7 +64,7 @@ export default function DashboardPage() {
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [toastType, setToastType] = useState<'success' | 'info' | 'warning'>('info');
   
-  // ✅ Stats state
+  // Stats state
   const [stats, setStats] = useState({
     totalCustomers: 0,
     totalBookings: 0,
@@ -79,7 +80,7 @@ export default function DashboardPage() {
     confirmedBookings: 0,
   });
 
-  // ✅ Room Stats state
+  // Room Stats state
   const [roomStats, setRoomStats] = useState({
     totalRooms: 65,
     totalBookings: 0,
@@ -87,7 +88,7 @@ export default function DashboardPage() {
     vacantRooms: 65,
   });
 
-  // ✅ Recent Bookings with search
+  // Recent Bookings with search
   const [recentBookings, setRecentBookings] = useState<any[]>([]);
   const [filteredBookings, setFilteredBookings] = useState<any[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
@@ -114,12 +115,25 @@ export default function DashboardPage() {
   const [branchCounts, setBranchCounts] = useState<{[key: string]: number}>({});
   const [branchStatusSummary, setBranchStatusSummary] = useState<{[key: string]: any}>({});
   
-  // ✅ New state for checkout information
+  // ✅ AUDIT LOG STATES (Only for Viewer)
+  const [auditLogs, setAuditLogs] = useState<any[]>([]);
+  const [showAuditLogs, setShowAuditLogs] = useState(false);
+  const [auditLoading, setAuditLoading] = useState(false);
+  const [auditStats, setAuditStats] = useState({
+    totalActions: 0,
+    creates: 0,
+    updates: 0,
+    deletes: 0,
+    logins: 0,
+    users: 0,
+  });
+  
+  // Checkout information states
   const [checkedOutGuests, setCheckedOutGuests] = useState<any[]>([]);
   const [vacantRooms, setVacantRooms] = useState<number>(0);
   const [recentCheckouts, setRecentCheckouts] = useState<any[]>([]);
   
-  // ✅ Real-time notification states
+  // Real-time notification states
   const [todayCheckins, setTodayCheckins] = useState<any[]>([]);
   const [tomorrowCheckins, setTomorrowCheckins] = useState<any[]>([]);
   const [todayCheckoutsList, setTodayCheckoutsList] = useState<any[]>([]);
@@ -140,14 +154,14 @@ export default function DashboardPage() {
     values: [0, 0, 0, 0, 0, 0],
   });
 
-  // ✅ Function to show notification toast
+  // Function to show notification toast
   const showNotification = (message: string, type: 'success' | 'info' | 'warning' = 'info') => {
     setToastMessage(message);
     setToastType(type);
     setTimeout(() => setToastMessage(null), 5000);
   };
 
-  // ✅ Clear messages after timeout
+  // Clear messages after timeout
   useEffect(() => {
     if (successMessage) {
       const timer = setTimeout(() => setSuccessMessage(''), 5000);
@@ -159,7 +173,7 @@ export default function DashboardPage() {
     }
   }, [successMessage, errorMessage]);
 
-  // ✅ Apply search filter
+  // Apply search filter
   const applySearchFilter = () => {
     if (!searchTerm || searchTerm.trim() === '') {
       setFilteredBookings(recentBookings);
@@ -179,12 +193,12 @@ export default function DashboardPage() {
     setFilteredBookings(filtered);
   };
 
-  // ✅ Update filtered bookings when search term or recent bookings change
+  // Update filtered bookings when search term or recent bookings change
   useEffect(() => {
     applySearchFilter();
   }, [searchTerm, recentBookings]);
 
-  // ✅ Format check-in display
+  // Format check-in display
   const formatCheckInDisplay = (booking: any) => {
     if (!booking || !booking.checkIn) return 'N/A';
     
@@ -206,7 +220,7 @@ export default function DashboardPage() {
     return hasTime ? `${dateStr} ${timeStr}` : dateStr;
   };
 
-  // ✅ Get relative time string
+  // Get relative time string
   const getRelativeTime = (dateString: string) => {
     if (!dateString) return '';
     
@@ -227,7 +241,7 @@ export default function DashboardPage() {
     return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
   };
 
-  // ✅ Check if check-in button should be visible
+  // Check if check-in button should be visible
   const canCheckIn = (booking: any): boolean => {
     return booking.bookingStatus === 'Confirm' || 
            booking.bookingStatus === 'Confirmed' || 
@@ -235,12 +249,12 @@ export default function DashboardPage() {
            booking.bookingStatus === 'Pending';
   };
 
-  // ✅ Check if check-out button should be visible
+  // Check if check-out button should be visible
   const canCheckOut = (booking: any): boolean => {
     return booking.bookingStatus === 'CheckedIn';
   };
 
-  // ✅ ✅ INDIVIDUAL AUTO CHECK-IN
+  // Individual Auto Check-In
   const handleIndividualCheckIn = async (bookingId: string) => {
     if (!confirm('Are you sure you want to check in this guest?')) return;
     
@@ -269,7 +283,6 @@ export default function DashboardPage() {
       setSuccessMessage(`✅ ${data.data?.agentName || 'Guest'} checked in successfully!`);
       showNotification(`✅ Guest checked in successfully!`, 'success');
       
-      // Refresh all data
       await refreshAllData();
       
     } catch (err: any) {
@@ -281,7 +294,7 @@ export default function DashboardPage() {
     }
   };
 
-  // ✅ ✅ INDIVIDUAL AUTO CHECK-OUT
+  // Individual Auto Check-Out
   const handleIndividualCheckOut = async (bookingId: string) => {
     if (!confirm('Are you sure you want to check out this guest?')) return;
     
@@ -310,7 +323,6 @@ export default function DashboardPage() {
       setSuccessMessage(`✅ ${data.data?.agentName || 'Guest'} checked out successfully!`);
       showNotification(`✅ Guest checked out successfully!`, 'success');
       
-      // Refresh all data
       await refreshAllData();
       
     } catch (err: any) {
@@ -322,7 +334,7 @@ export default function DashboardPage() {
     }
   };
 
-  // ✅ Normalize branch name function
+  // Normalize branch name function
   const normalizeBranchName = (branchName: string) => {
     if (!branchName) return '';
     const lower = branchName.toLowerCase().trim();
@@ -333,7 +345,7 @@ export default function DashboardPage() {
     return branchName;
   };
 
-  // ✅ Load Notifications
+  // Load Notifications
   const loadNotifications = async () => {
     try {
       const token = localStorage.getItem('token');
@@ -353,7 +365,7 @@ export default function DashboardPage() {
     }
   };
 
-  // ✅ Load Notification History
+  // Load Notification History
   const loadNotificationHistory = async () => {
     try {
       const token = localStorage.getItem('token');
@@ -373,7 +385,44 @@ export default function DashboardPage() {
     }
   };
 
-  // ✅ Load Upcoming Checkouts
+  // ✅ Load Audit Logs (Only for Viewer)
+  const loadAuditLogs = async () => {
+    if (!isViewer) return;
+    
+    try {
+      setAuditLoading(true);
+      const token = localStorage.getItem('token');
+      const response = await fetch(`${API_URL}/audit`, {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+      });
+      
+      if (response.ok) {
+        const data = await response.json();
+        const logs = data.data || data || [];
+        setAuditLogs(logs.slice(0, 50)); // Show last 50 logs
+        
+        // Calculate stats
+        const stats = {
+          totalActions: logs.length,
+          creates: logs.filter((l: any) => l.action === 'CREATE').length,
+          updates: logs.filter((l: any) => l.action === 'UPDATE' || l.action === 'PATCH' || l.action === 'PUT').length,
+          deletes: logs.filter((l: any) => l.action === 'DELETE').length,
+          logins: logs.filter((l: any) => l.action === 'LOGIN').length,
+          users: new Set(logs.map((l: any) => l.username)).size,
+        };
+        setAuditStats(stats);
+      }
+    } catch (err) {
+      console.error('Error loading audit logs:', err);
+    } finally {
+      setAuditLoading(false);
+    }
+  };
+
+  // Load Upcoming Checkouts
   const loadUpcomingCheckouts = async () => {
     try {
       const token = localStorage.getItem('token');
@@ -415,7 +464,7 @@ export default function DashboardPage() {
     }
   };
 
-  // ✅ Load Today's Check-ins
+  // Load Today's Check-ins
   const loadTodayCheckins = async () => {
     try {
       const token = localStorage.getItem('token');
@@ -438,7 +487,7 @@ export default function DashboardPage() {
     }
   };
 
-  // ✅ Load Tomorrow's Check-ins
+  // Load Tomorrow's Check-ins
   const loadTomorrowCheckins = async () => {
     try {
       const token = localStorage.getItem('token');
@@ -458,7 +507,7 @@ export default function DashboardPage() {
     }
   };
 
-  // ✅ Navigate to New Booking page
+  // Navigate to New Booking page
   const handleNewBooking = () => {
     if (user?.role === 'VIEWER') {
       alert('You do not have permission to create bookings.');
@@ -467,7 +516,7 @@ export default function DashboardPage() {
     router.push('/bookings/new');
   };
 
-  // ✅ Refresh All Data
+  // Refresh All Data
   const refreshAllData = async () => {
     await loadDashboardData(true);
     await loadNotifications();
@@ -475,11 +524,14 @@ export default function DashboardPage() {
     await loadTodayCheckins();
     await loadTomorrowCheckins();
     await loadNotificationHistory();
+    if (isViewer) {
+      await loadAuditLogs();
+    }
     setLastRefresh(Date.now());
     setLastUpdate(new Date().toLocaleTimeString());
   };
 
-  // ✅ Mark Notification as Read
+  // Mark Notification as Read
   const markNotificationRead = async (id: string) => {
     try {
       const token = localStorage.getItem('token');
@@ -495,7 +547,7 @@ export default function DashboardPage() {
     }
   };
 
-  // ✅ Mark All Notifications as Read
+  // Mark All Notifications as Read
   const markAllNotificationsRead = async () => {
     try {
       const token = localStorage.getItem('token');
@@ -511,7 +563,7 @@ export default function DashboardPage() {
     }
   };
 
-  // ✅ Check for new data every 15 seconds (Real-time updates)
+  // Check for new data every 15 seconds (Real-time updates)
   useEffect(() => {
     if (!selectedBranch || !user) return;
 
@@ -531,7 +583,7 @@ export default function DashboardPage() {
     };
   }, [selectedBranch, user]);
 
-  // ✅ Listen for real-time events from bookings
+  // Listen for real-time events from bookings
   useEffect(() => {
     const handleBookingCreated = (event: CustomEvent) => {
       const detail = event.detail;
@@ -576,7 +628,7 @@ export default function DashboardPage() {
     };
   }, [selectedBranch, user]);
 
-  // ✅ Initialize user data
+  // Initialize user data
   useEffect(() => {
     const token = localStorage.getItem('token');
     const userStr = localStorage.getItem('user');
@@ -651,7 +703,7 @@ export default function DashboardPage() {
     setLoading(false);
   }, [router]);
 
-  // ✅ Check for refresh query param on page load
+  // Check for refresh query param on page load
   useEffect(() => {
     const queryParams = new URLSearchParams(window.location.search);
     const refreshParam = queryParams.get('refresh');
@@ -665,7 +717,7 @@ export default function DashboardPage() {
     }
   }, [selectedBranch, user]);
 
-  // ✅ Listen for storage changes (cross-tab communication)
+  // Listen for storage changes (cross-tab communication)
   useEffect(() => {
     const handleStorageChange = (e: StorageEvent) => {
       if (e.key === 'forceRefresh' || e.key === 'bookings' || e.key === 'allBookingsCache' || e.key === 'selectedBranch') {
@@ -701,7 +753,7 @@ export default function DashboardPage() {
     };
   }, [selectedBranch, user]);
 
-  // ✅ Load data when branch or user changes
+  // Load data when branch or user changes
   useEffect(() => {
     if (!loading && selectedBranch && user) {
       console.log('🔄 Loading dashboard data for branch:', selectedBranch);
@@ -709,7 +761,7 @@ export default function DashboardPage() {
     }
   }, [selectedBranch, loading]);
 
-  // ✅ Auto-refresh when page becomes visible
+  // Auto-refresh when page becomes visible
   useEffect(() => {
     const handleVisibilityChange = () => {
       if (document.visibilityState === 'visible' && selectedBranch && user) {
@@ -725,7 +777,7 @@ export default function DashboardPage() {
     };
   }, [selectedBranch, user]);
 
-  // ✅ Auto-refresh when window gets focus
+  // Auto-refresh when window gets focus
   useEffect(() => {
     const handleFocus = () => {
       if (selectedBranch && user) {
@@ -741,7 +793,7 @@ export default function DashboardPage() {
     };
   }, [selectedBranch, user]);
 
-  // ✅ Get full date and time string
+  // Get full date and time string
   const getFullDateTime = (dateString: string) => {
     if (!dateString) return 'N/A';
     const date = new Date(dateString);
@@ -759,7 +811,7 @@ export default function DashboardPage() {
     return hasTime ? `${dateStr} ${timeStr}` : dateStr;
   };
 
-  // ✅ Get check-in time color
+  // Get check-in time color
   const getCheckInTimeColor = (booking: any) => {
     if (!booking || !booking.checkIn) return 'text-gray-400';
     
@@ -777,7 +829,7 @@ export default function DashboardPage() {
     return 'text-gray-600';
   };
 
-  // ✅ Get sorted today's check-ins
+  // Get sorted today's check-ins
   const getSortedTodayCheckins = (bookings: any[]) => {
     return [...bookings].sort((a, b) => {
       const timeA = new Date(a.checkIn).getTime();
@@ -786,7 +838,7 @@ export default function DashboardPage() {
     });
   };
 
-  // ✅ Check if booking is recent (within last hour)
+  // Check if booking is recent (within last hour)
   const isRecentBooking = (dateString: string) => {
     if (!dateString) return false;
     const date = new Date(dateString);
@@ -796,7 +848,7 @@ export default function DashboardPage() {
     return diffMs < (1000 * 60 * 60);
   };
 
-  // ✅ loadDashboardData
+  // loadDashboardData
   const loadDashboardData = async (forceRefresh = false) => {
     try {
       setRefreshing(true);
@@ -816,7 +868,7 @@ export default function DashboardPage() {
         return;
       }
 
-      // ✅ Determine branch to fetch
+      // Determine branch to fetch
       let branchToFetch = '';
       
       if (selectedBranch && selectedBranch !== 'all' && selectedBranch !== 'undefined') {
@@ -925,7 +977,7 @@ export default function DashboardPage() {
           });
           console.log('📊 Bookings per branch after normalization:', branchCountsData);
           
-          // ✅ Filter bookings based on user role and branch selection
+          // Filter bookings based on user role and branch selection
           if (user?.role === 'OWNER') {
             if (selectedBranch === 'all' || !selectedBranch) {
               bookings = allBookings;
@@ -1016,7 +1068,7 @@ export default function DashboardPage() {
         setError('Failed to fetch bookings from server. Please check if the server is running.');
       }
 
-      // ✅ If no bookings from API, try local storage
+      // If no bookings from API, try local storage
       if (bookings.length === 0) {
         try {
           const cachedAllBookings = localStorage.getItem('allBookingsCache');
@@ -1126,7 +1178,7 @@ export default function DashboardPage() {
       console.log(`📋 Final bookings count for ${selectedBranch || 'all'}: ${bookings.length}`);
       console.log('📋 Sample booking:', bookings.length > 0 ? bookings[0] : 'No bookings');
 
-      // ✅ Calculate capacity based on branch
+      // Calculate capacity based on branch
       let capacityTotal = 0;
       
       if (selectedBranch && selectedBranch !== 'all') {
@@ -1218,7 +1270,7 @@ export default function DashboardPage() {
     }
   };
 
-  // ✅ Calculate checkout information
+  // Calculate checkout information
   const calculateCheckoutInfo = (bookings: any[]) => {
     const today = new Date();
     today.setHours(0, 0, 0, 0);
@@ -1262,7 +1314,7 @@ export default function DashboardPage() {
     setVacantRooms(vacantRoomsCount);
   };
 
-  // ✅ Updated calculateStats function with room stats
+  // Updated calculateStats function with room stats
   const calculateStats = (bookings: any[], capacity: number) => {
     const confirmed = bookings.filter((b: any) => 
       b.bookingStatus === 'Confirm' || b.bookingStatus === 'Confirmed'
@@ -1336,7 +1388,7 @@ export default function DashboardPage() {
       checkedIn: checkedIn.length
     });
     
-    // ✅ Update room stats
+    // Update room stats
     setRoomStats({
       totalRooms: capacity,
       totalBookings: bookings.length,
@@ -1493,7 +1545,7 @@ export default function DashboardPage() {
     }
   };
 
-  // ✅ Format currency
+  // Format currency
   const formatCurrency = (amount: number) => {
     if (!amount || amount === 0) return 'Rs. 0';
     if (amount >= 100000) {
@@ -1707,7 +1759,7 @@ export default function DashboardPage() {
 
   const unreadCount = notifications.filter(n => !n.isRead).length;
 
-  // ✅ Calculate branch-wise monthly revenue
+  // Calculate branch-wise monthly revenue
   const calculateBranchMonthlyRevenue = (branchName: string) => {
     const currentMonth = new Date().getMonth();
     const currentYear = new Date().getFullYear();
@@ -1728,7 +1780,7 @@ export default function DashboardPage() {
     return monthlyRevenue;
   };
 
-  // ✅ Calculate monthly revenue for the current selected branch
+  // Calculate monthly revenue for the current selected branch
   const monthlyRevenueDisplay = selectedBranch === 'all' 
     ? allBookingsCache.reduce((total, b: any) => {
         const date = new Date(b.checkIn);
@@ -1744,7 +1796,7 @@ export default function DashboardPage() {
       }, 0)
     : calculateBranchMonthlyRevenue(selectedBranch);
 
-  // ✅ Format monthly revenue display
+  // Format monthly revenue display
   const formatMonthlyRevenue = (amount: number) => {
     if (!amount || amount === 0) return 'Rs. 0';
     if (amount >= 100000) {
@@ -1756,7 +1808,7 @@ export default function DashboardPage() {
     return `Rs. ${amount.toFixed(0)}`;
   };
 
-  // ✅ Get filtered branches for viewer
+  // Get filtered branches for viewer
   const getAvailableBranches = () => {
     if (isViewer) {
       return user?.branches || [];
@@ -1765,6 +1817,36 @@ export default function DashboardPage() {
       return user?.branches || [];
     }
     return branches;
+  };
+
+  // ✅ Format audit log action with color
+  const getAuditActionColor = (action: string) => {
+    switch (action) {
+      case 'CREATE': return 'bg-green-100 text-green-800';
+      case 'UPDATE':
+      case 'PATCH':
+      case 'PUT': return 'bg-blue-100 text-blue-800';
+      case 'DELETE': return 'bg-red-100 text-red-800';
+      case 'LOGIN': return 'bg-purple-100 text-purple-800';
+      case 'CHECK_IN': return 'bg-indigo-100 text-indigo-800';
+      case 'CHECK_OUT': return 'bg-orange-100 text-orange-800';
+      default: return 'bg-gray-100 text-gray-800';
+    }
+  };
+
+  // ✅ Get audit action icon
+  const getAuditActionIcon = (action: string) => {
+    switch (action) {
+      case 'CREATE': return '📝';
+      case 'UPDATE':
+      case 'PATCH':
+      case 'PUT': return '✏️';
+      case 'DELETE': return '🗑️';
+      case 'LOGIN': return '🔑';
+      case 'CHECK_IN': return '✅';
+      case 'CHECK_OUT': return '📤';
+      default: return '📌';
+    }
   };
 
   if (loading) {
@@ -1795,7 +1877,7 @@ export default function DashboardPage() {
   return (
     <div className="flex h-screen bg-gray-50 overflow-hidden">
       {/* ============================================================ */}
-      {/* ✅ SECTION 1: SIDEBAR */}
+      {/* SECTION 1: SIDEBAR */}
       {/* ============================================================ */}
       <div 
         className={`fixed inset-y-0 left-0 z-50 w-64 sm:w-72 bg-indigo-800 text-white transform transition-transform duration-300 ease-in-out ${
@@ -1894,6 +1976,22 @@ export default function DashboardPage() {
               <FiPieChart className="w-4 h-4 sm:w-5 sm:h-5 flex-shrink-0" />
               <span className="truncate">Reports</span>
             </Link>
+
+            {/* ✅ ONLY VIEWER - Audit Log Link */}
+            {isViewer && (
+              <button
+                onClick={() => {
+                  setShowAuditLogs(!showAuditLogs);
+                  if (!showAuditLogs) {
+                    loadAuditLogs();
+                  }
+                }}
+                className="flex items-center space-x-3 px-3 sm:px-4 py-2.5 sm:py-3 rounded-lg hover:bg-indigo-700 transition-colors text-sm sm:text-base w-full text-left"
+              >
+                <FiShield className="w-4 h-4 sm:w-5 sm:h-5 flex-shrink-0" />
+                <span className="truncate">Audit Log {showAuditLogs ? '▼' : '▶'}</span>
+              </button>
+            )}
           </nav>
 
           {/* Logout Button */}
@@ -1915,12 +2013,12 @@ export default function DashboardPage() {
       )}
 
       {/* ============================================================ */}
-      {/* ✅ SECTION 2: MAIN CONTENT */}
+      {/* SECTION 2: MAIN CONTENT */}
       {/* ============================================================ */}
       <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
 
         {/* ============================================================ */}
-        {/* ✅ SECTION 2.1: HEADER */}
+        {/* SECTION 2.1: HEADER */}
         {/* ============================================================ */}
         <header className="bg-white shadow-sm border-b border-gray-200 sticky top-0 z-30 flex-shrink-0">
           <div className="flex items-center justify-between px-3 sm:px-6 py-2 sm:py-4">
@@ -2092,12 +2190,12 @@ export default function DashboardPage() {
         </header>
 
         {/* ============================================================ */}
-        {/* ✅ SECTION 2.2: DASHBOARD CONTENT */}
+        {/* SECTION 2.2: DASHBOARD CONTENT */}
         {/* ============================================================ */}
         <div className="flex-1 overflow-y-auto p-2 sm:p-4 md:p-6">
 
           {/* ============================================================ */}
-          {/* ✅ SECTION 2.2.1: REAL-TIME NOTIFICATION ALERTS */}
+          {/* SECTION 2.2.1: REAL-TIME NOTIFICATION ALERTS */}
           {/* ============================================================ */}
           {todayCheckins.length > 0 && (
             <div className="bg-green-50 border border-green-300 rounded-lg p-3 mb-3">
@@ -2211,7 +2309,7 @@ export default function DashboardPage() {
           )}
 
           {/* ============================================================ */}
-          {/* ✅ SECTION 2.2.2: WELCOME SECTION */}
+          {/* SECTION 2.2.2: WELCOME SECTION */}
           {/* ============================================================ */}
           <div className="bg-gradient-to-r from-indigo-600 via-purple-600 to-pink-500 rounded-xl shadow-lg p-4 sm:p-6 mb-4 sm:mb-6 text-white">
             <div className="flex flex-col md:flex-row md:items-center md:justify-between">
@@ -2280,7 +2378,7 @@ export default function DashboardPage() {
           </div>
 
           {/* ============================================================ */}
-          {/* ✅ SECTION 2.2.3: TODAY'S CHECK-INS */}
+          {/* SECTION 2.2.3: TODAY'S CHECK-INS */}
           {/* ============================================================ */}
           {todayCheckins.length > 0 && (
             <div className="bg-white rounded-xl shadow-sm p-4 mb-4 border-l-4 border-green-500">
@@ -2344,10 +2442,10 @@ export default function DashboardPage() {
           )}
 
           {/* ============================================================ */}
-          {/* ✅ SECTION 2.2.4: ROOM STATS - 4 CARDS (Vacant Rooms REPLACED with Available Rooms) */}
+          {/* SECTION 2.2.4: ROOM STATS - 4 CARDS */}
           {/* ============================================================ */}
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3 sm:gap-4 mb-4 sm:mb-6">
-            {/* Total Rooms - KEPT */}
+            {/* Total Rooms */}
             <div className="bg-gradient-to-br from-blue-50 to-blue-100 rounded-xl shadow-sm p-4 border-l-4 border-blue-500 hover:shadow-md transition-shadow">
               <div className="flex items-center justify-between">
                 <div>
@@ -2361,7 +2459,7 @@ export default function DashboardPage() {
               <div className="mt-1 text-[10px] sm:text-xs text-gray-500">Total available rooms</div>
             </div>
 
-            {/* Total Bookings - KEPT */}
+            {/* Total Bookings */}
             <div className="bg-gradient-to-br from-green-50 to-green-100 rounded-xl shadow-sm p-4 border-l-4 border-green-500 hover:shadow-md transition-shadow">
               <div className="flex items-center justify-between">
                 <div>
@@ -2375,7 +2473,7 @@ export default function DashboardPage() {
               <div className="mt-1 text-[10px] sm:text-xs text-gray-500">All bookings made</div>
             </div>
 
-            {/* Occupied Rooms - KEPT */}
+            {/* Occupied Rooms */}
             <div className="bg-gradient-to-br from-orange-50 to-orange-100 rounded-xl shadow-sm p-4 border-l-4 border-orange-500 hover:shadow-md transition-shadow">
               <div className="flex items-center justify-between">
                 <div>
@@ -2389,7 +2487,7 @@ export default function DashboardPage() {
               <div className="mt-1 text-[10px] sm:text-xs text-gray-500">Currently occupied rooms</div>
             </div>
 
-            {/* ✅ REPLACED: Vacant Rooms with Available Rooms (with occupancy) */}
+            {/* Available Rooms */}
             <div className="bg-gradient-to-br from-purple-50 to-purple-100 rounded-xl shadow-sm p-4 border-l-4 border-purple-500 hover:shadow-md transition-shadow">
               <div className="flex items-center justify-between">
                 <div>
@@ -2416,10 +2514,10 @@ export default function DashboardPage() {
           </div>
 
           {/* ============================================================ */}
-          {/* ✅ SECTION 2.2.5: STATS CARDS - ONLY 3 CARDS (Available Rooms REMOVED from here) */}
+          {/* SECTION 2.2.5: STATS CARDS - ONLY 3 CARDS */}
           {/* ============================================================ */}
           <div className="grid grid-cols-1 xs:grid-cols-3 gap-3 sm:gap-6 mb-4 sm:mb-6">
-            {/* Total Customers - KEPT */}
+            {/* Total Customers */}
             <div className="bg-white rounded-xl shadow-sm p-3 sm:p-6 border-l-4 border-blue-500 hover:shadow-md transition-shadow">
               <div className="flex items-center justify-between">
                 <div className="min-w-0">
@@ -2433,7 +2531,7 @@ export default function DashboardPage() {
               <div className="mt-1 sm:mt-2 text-[10px] sm:text-sm text-gray-500">Unique guests in {displayBranchName}</div>
             </div>
 
-            {/* Total Bookings - KEPT (with checkmark and cross) */}
+            {/* Total Bookings */}
             <div className="bg-white rounded-xl shadow-sm p-3 sm:p-6 border-l-4 border-green-500 hover:shadow-md transition-shadow">
               <div className="flex items-center justify-between">
                 <div className="min-w-0">
@@ -2450,7 +2548,7 @@ export default function DashboardPage() {
               </div>
             </div>
 
-            {/* Monthly Revenue - KEPT */}
+            {/* Monthly Revenue */}
             <div className="bg-white rounded-xl shadow-sm p-3 sm:p-6 border-l-4 border-purple-500 hover:shadow-md transition-shadow">
               <div className="flex items-center justify-between">
                 <div className="min-w-0">
@@ -2475,7 +2573,7 @@ export default function DashboardPage() {
           </div>
 
           {/* ============================================================ */}
-          {/* ✅ SECTION 2.2.6: CHARTS */}
+          {/* SECTION 2.2.6: CHARTS */}
           {/* ============================================================ */}
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 sm:gap-6 mb-4 sm:mb-6">
             <div className="bg-white rounded-xl shadow-sm p-3 sm:p-6">
@@ -2500,7 +2598,7 @@ export default function DashboardPage() {
           </div>
 
           {/* ============================================================ */}
-          {/* ✅ SECTION 2.2.7: REVENUE TREND */}
+          {/* SECTION 2.2.7: REVENUE TREND */}
           {/* ============================================================ */}
           <div className="bg-white rounded-xl shadow-sm p-3 sm:p-6 mb-4 sm:mb-6">
             <h3 className="text-sm sm:text-lg font-semibold text-gray-800 mb-3 sm:mb-4 flex items-center">
@@ -2513,7 +2611,7 @@ export default function DashboardPage() {
           </div>
 
           {/* ============================================================ */}
-          {/* ✅ SECTION 2.2.8: BRANCH PERFORMANCE */}
+          {/* SECTION 2.2.8: BRANCH PERFORMANCE */}
           {/* ============================================================ */}
           {Object.keys(branchStats).length > 0 && (
             <div className="bg-white rounded-xl shadow-sm p-3 sm:p-6 mb-4 sm:mb-6">
@@ -2557,7 +2655,7 @@ export default function DashboardPage() {
           )}
 
           {/* ============================================================ */}
-          {/* ✅ SECTION 2.2.9: TODAY'S ACTIVITY */}
+          {/* SECTION 2.2.9: TODAY'S ACTIVITY */}
           {/* ============================================================ */}
           <div className="grid grid-cols-1 xs:grid-cols-3 gap-2 sm:gap-4 mb-4 sm:mb-6">
             <div className="bg-white rounded-xl shadow-sm p-3 sm:p-4 border-l-4 border-blue-500">
@@ -2577,7 +2675,7 @@ export default function DashboardPage() {
           </div>
 
           {/* ============================================================ */}
-          {/* ✅ SECTION 2.2.10: RECENT BOOKINGS WITH SEARCH & INDIVIDUAL BUTTONS */}
+          {/* SECTION 2.2.10: RECENT BOOKINGS WITH SEARCH & INDIVIDUAL BUTTONS */}
           {/* ============================================================ */}
           {recentBookings.length > 0 && (
             <div className="bg-white rounded-xl shadow-sm p-3 sm:p-6 mb-4 sm:mb-6">
@@ -2813,7 +2911,123 @@ export default function DashboardPage() {
           )}
 
           {/* ============================================================ */}
-          {/* ✅ SECTION 2.2.11: QUICK ACTIONS - ONLY NEW BOOKING */}
+          {/* SECTION 2.2.11: AUDIT LOG - ONLY FOR VIEWER */}
+          {/* ============================================================ */}
+          {isViewer && showAuditLogs && (
+            <div className="bg-white rounded-xl shadow-sm p-3 sm:p-6 mb-4 sm:mb-6">
+              <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between mb-3 sm:mb-4 gap-3">
+                <h3 className="text-sm sm:text-lg font-semibold text-gray-800 flex items-center gap-2">
+                  <FiShield className="w-4 h-4 sm:w-5 sm:h-5 text-indigo-600" />
+                  Audit Log
+                  <span className="text-xs font-normal text-gray-400">
+                    ({auditLogs.length} entries)
+                  </span>
+                </h3>
+                <div className="flex flex-wrap items-center gap-2">
+                  <button
+                    onClick={loadAuditLogs}
+                    disabled={auditLoading}
+                    className="text-xs bg-indigo-100 text-indigo-700 px-2 sm:px-3 py-1 sm:py-1.5 rounded-lg hover:bg-indigo-200 transition-colors flex items-center gap-1 disabled:opacity-50"
+                  >
+                    <FiRefreshCw className={`w-3 h-3 ${auditLoading ? 'animate-spin' : ''}`} />
+                    {auditLoading ? 'Loading...' : 'Refresh'}
+                  </button>
+                  <button
+                    onClick={() => setShowAuditLogs(false)}
+                    className="text-xs bg-gray-100 text-gray-700 px-2 sm:px-3 py-1 sm:py-1.5 rounded-lg hover:bg-gray-200 transition-colors"
+                  >
+                    Close
+                  </button>
+                </div>
+              </div>
+
+              {/* Audit Stats Summary */}
+              <div className="grid grid-cols-3 sm:grid-cols-6 gap-2 mb-3 sm:mb-4">
+                <div className="bg-gray-50 rounded-lg p-2 text-center">
+                  <p className="text-lg sm:text-xl font-bold text-gray-800">{auditStats.totalActions}</p>
+                  <p className="text-[8px] sm:text-xs text-gray-500">Total</p>
+                </div>
+                <div className="bg-green-50 rounded-lg p-2 text-center">
+                  <p className="text-lg sm:text-xl font-bold text-green-600">{auditStats.creates}</p>
+                  <p className="text-[8px] sm:text-xs text-green-600">Created</p>
+                </div>
+                <div className="bg-blue-50 rounded-lg p-2 text-center">
+                  <p className="text-lg sm:text-xl font-bold text-blue-600">{auditStats.updates}</p>
+                  <p className="text-[8px] sm:text-xs text-blue-600">Updated</p>
+                </div>
+                <div className="bg-red-50 rounded-lg p-2 text-center">
+                  <p className="text-lg sm:text-xl font-bold text-red-600">{auditStats.deletes}</p>
+                  <p className="text-[8px] sm:text-xs text-red-600">Deleted</p>
+                </div>
+                <div className="bg-purple-50 rounded-lg p-2 text-center">
+                  <p className="text-lg sm:text-xl font-bold text-purple-600">{auditStats.logins}</p>
+                  <p className="text-[8px] sm:text-xs text-purple-600">Logins</p>
+                </div>
+                <div className="bg-indigo-50 rounded-lg p-2 text-center">
+                  <p className="text-lg sm:text-xl font-bold text-indigo-600">{auditStats.users}</p>
+                  <p className="text-[8px] sm:text-xs text-indigo-600">Users</p>
+                </div>
+              </div>
+
+              {/* Audit Logs Table */}
+              <div className="overflow-x-auto">
+                <table className="min-w-full divide-y divide-gray-200">
+                  <thead className="bg-gray-50">
+                    <tr>
+                      <th className="px-2 sm:px-4 py-1.5 sm:py-2 text-left text-[8px] sm:text-xs font-medium text-gray-500 uppercase">User</th>
+                      <th className="px-2 sm:px-4 py-1.5 sm:py-2 text-left text-[8px] sm:text-xs font-medium text-gray-500 uppercase">Action</th>
+                      <th className="px-2 sm:px-4 py-1.5 sm:py-2 text-left text-[8px] sm:text-xs font-medium text-gray-500 uppercase hidden sm:table-cell">Entity</th>
+                      <th className="px-2 sm:px-4 py-1.5 sm:py-2 text-left text-[8px] sm:text-xs font-medium text-gray-500 uppercase hidden md:table-cell">Branch</th>
+                      <th className="px-2 sm:px-4 py-1.5 sm:py-2 text-left text-[8px] sm:text-xs font-medium text-gray-500 uppercase hidden lg:table-cell">IP Address</th>
+                      <th className="px-2 sm:px-4 py-1.5 sm:py-2 text-left text-[8px] sm:text-xs font-medium text-gray-500 uppercase">Time</th>
+                    </tr>
+                  </thead>
+                  <tbody className="bg-white divide-y divide-gray-200">
+                    {auditLogs.length === 0 ? (
+                      <tr>
+                        <td colSpan={6} className="px-4 py-6 text-center text-gray-500 text-sm">
+                          {auditLoading ? 'Loading audit logs...' : 'No audit logs found'}
+                        </td>
+                      </tr>
+                    ) : (
+                      auditLogs.slice(0, 20).map((log) => (
+                        <tr key={log.id} className="hover:bg-gray-50 transition-colors">
+                          <td className="px-2 sm:px-4 py-1.5 sm:py-2 text-[10px] sm:text-sm text-gray-900 font-medium truncate max-w-[80px]">
+                            {log.username || 'system'}
+                          </td>
+                          <td className="px-2 sm:px-4 py-1.5 sm:py-2">
+                            <span className={`px-1.5 sm:px-2 py-0.5 sm:py-1 text-[8px] sm:text-xs rounded-full whitespace-nowrap ${getAuditActionColor(log.action)}`}>
+                              {getAuditActionIcon(log.action)} {log.action}
+                            </span>
+                          </td>
+                          <td className="px-2 sm:px-4 py-1.5 sm:py-2 text-[10px] sm:text-sm text-gray-500 hidden sm:table-cell truncate max-w-[100px]">
+                            {log.entity || 'N/A'}
+                          </td>
+                          <td className="px-2 sm:px-4 py-1.5 sm:py-2 text-[10px] sm:text-sm text-gray-500 hidden md:table-cell truncate max-w-[80px]">
+                            {log.branch || 'N/A'}
+                          </td>
+                          <td className="px-2 sm:px-4 py-1.5 sm:py-2 text-[8px] sm:text-xs text-gray-400 hidden lg:table-cell font-mono">
+                            {log.ip || '—'}
+                          </td>
+                          <td className="px-2 sm:px-4 py-1.5 sm:py-2 text-[8px] sm:text-xs text-gray-400 whitespace-nowrap">
+                            {new Date(log.createdAt || log.created_at).toLocaleString()}
+                          </td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+                {auditLogs.length > 20 && (
+                  <div className="mt-2 text-center text-xs text-gray-400">
+                    Showing 20 of {auditLogs.length} entries
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* ============================================================ */}
+          {/* SECTION 2.2.12: QUICK ACTIONS */}
           {/* ============================================================ */}
           <div className="grid grid-cols-2 xs:grid-cols-4 gap-2 sm:gap-4">
             {isOwner || isManager ? (
@@ -2830,13 +3044,29 @@ export default function DashboardPage() {
                 <p className="text-[10px] sm:text-sm font-medium">Reports</p>
               </Link>
             )}
+            
+            {/* ✅ Viewer can access Audit Log from Quick Actions */}
+            {isViewer && (
+              <button
+                onClick={() => {
+                  setShowAuditLogs(!showAuditLogs);
+                  if (!showAuditLogs) {
+                    loadAuditLogs();
+                  }
+                }}
+                className="bg-indigo-100 text-indigo-700 rounded-xl shadow-sm p-2 sm:p-4 hover:bg-indigo-200 transition-colors text-center"
+              >
+                <FiShield className="w-4 h-4 sm:w-6 sm:h-6 mx-auto mb-1 sm:mb-2" />
+                <p className="text-[10px] sm:text-sm font-medium">Audit Log</p>
+              </button>
+            )}
           </div>
 
         </div>{/* End of Dashboard Content */}
       </div>{/* End of Main Content */}
 
       {/* ============================================================ */}
-      {/* ✅ SECTION 3: NOTIFICATION TOAST */}
+      {/* SECTION 3: NOTIFICATION TOAST */}
       {/* ============================================================ */}
       {toastMessage && (
         <NotificationToast 
@@ -2847,7 +3077,7 @@ export default function DashboardPage() {
       )}
 
       {/* ============================================================ */}
-      {/* ✅ SECTION 4: PROFILE MODAL */}
+      {/* SECTION 4: PROFILE MODAL */}
       {/* ============================================================ */}
       {showProfileModal && (
         <div className="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full z-50 flex items-center justify-center p-4">

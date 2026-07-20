@@ -324,21 +324,190 @@ async function main() {
   }
   console.log('✅ Created pricing history');
 
-  // ==================== CREATE AUDIT LOG ====================
+  // ==================== CREATE AUDIT LOGS ====================
   console.log('📝 Creating audit logs...');
 
   const auditLogs = [
+    // Owner actions
+    {
+      username: 'owner',
+      branch: Branch.Pokhara,
+      action: 'LOGIN',
+      entity: 'User',
+      details: { message: 'User logged in successfully' },
+      ip: '192.168.1.1',
+      userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/114.0.0.0',
+      createdAt: new Date(Date.now() - 1000 * 60 * 60 * 2), // 2 hours ago
+    },
+    {
+      username: 'owner',
+      branch: Branch.Pokhara,
+      action: 'UPDATE',
+      entity: 'RoomPricing',
+      details: { message: 'Updated Single room price to Rs. 2500' },
+      ip: '192.168.1.1',
+      userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/114.0.0.0',
+      createdAt: new Date(Date.now() - 1000 * 60 * 60 * 1.5), // 1.5 hours ago
+    },
+    {
+      username: 'owner',
+      branch: Branch.Kathmandu1,
+      action: 'CREATE',
+      entity: 'Booking',
+      details: { message: 'Created booking BKG-12345 for John Doe' },
+      ip: '192.168.1.1',
+      userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/114.0.0.0',
+      createdAt: new Date(Date.now() - 1000 * 60 * 30), // 30 minutes ago
+    },
+    {
+      username: 'owner',
+      branch: Branch.Pokhara,
+      action: 'DELETE',
+      entity: 'Booking',
+      details: { message: 'Cancelled booking BKG-12346' },
+      ip: '192.168.1.1',
+      userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/114.0.0.0',
+      createdAt: new Date(Date.now() - 1000 * 60 * 15), // 15 minutes ago
+    },
+    // Manager actions
+    {
+      username: 'manager',
+      branch: Branch.Pokhara,
+      action: 'LOGIN',
+      entity: 'User',
+      details: { message: 'User logged in successfully' },
+      ip: '192.168.1.2',
+      userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) Safari/605.1.15',
+      createdAt: new Date(Date.now() - 1000 * 60 * 45), // 45 minutes ago
+    },
+    {
+      username: 'manager',
+      branch: Branch.Pokhara,
+      action: 'CHECK_IN',
+      entity: 'Booking',
+      details: { message: 'Checked in guest John Doe (BKG-12345)' },
+      ip: '192.168.1.2',
+      userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) Safari/605.1.15',
+      createdAt: new Date(Date.now() - 1000 * 60 * 20), // 20 minutes ago
+    },
+    {
+      username: 'manager',
+      branch: Branch.Pokhara,
+      action: 'UPDATE',
+      entity: 'Booking',
+      details: { message: 'Updated booking status to Confirmed' },
+      ip: '192.168.1.2',
+      userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) Safari/605.1.15',
+      createdAt: new Date(Date.now() - 1000 * 60 * 10), // 10 minutes ago
+    },
+    // Manager2 actions
+    {
+      username: 'manager2',
+      branch: Branch.Kathmandu1,
+      action: 'LOGIN',
+      entity: 'User',
+      details: { message: 'User logged in successfully' },
+      ip: '192.168.1.3',
+      userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Edge/114.0.1823.51',
+      createdAt: new Date(Date.now() - 1000 * 60 * 35), // 35 minutes ago
+    },
+    {
+      username: 'manager2',
+      branch: Branch.Kathmandu1,
+      action: 'CHECK_OUT',
+      entity: 'Booking',
+      details: { message: 'Checked out guest Jane Smith (BKG-12347)' },
+      ip: '192.168.1.3',
+      userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Edge/114.0.1823.51',
+      createdAt: new Date(Date.now() - 1000 * 60 * 5), // 5 minutes ago
+    },
+    // Manager3 actions
+    {
+      username: 'manager3',
+      branch: Branch.Kathmandu2,
+      action: 'LOGIN',
+      entity: 'User',
+      details: { message: 'User logged in successfully' },
+      ip: '192.168.1.4',
+      userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 14_0 like Mac OS X) AppleWebKit/605.1.15',
+      createdAt: new Date(Date.now() - 1000 * 60 * 50), // 50 minutes ago
+    },
+    {
+      username: 'manager3',
+      branch: Branch.Kathmandu2,
+      action: 'CREATE',
+      entity: 'Booking',
+      details: { message: 'Created booking BKG-12348 for Robert Johnson' },
+      ip: '192.168.1.4',
+      userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 14_0 like Mac OS X) AppleWebKit/605.1.15',
+      createdAt: new Date(Date.now() - 1000 * 60 * 25), // 25 minutes ago
+    },
+    // Manager4 actions
+    {
+      username: 'manager4',
+      branch: Branch.Bhairawaha,
+      action: 'LOGIN',
+      entity: 'User',
+      details: { message: 'User logged in successfully' },
+      ip: '192.168.1.5',
+      userAgent: 'Mozilla/5.0 (Linux; Android 11; SM-G991B) Chrome/114.0.5735.196',
+      createdAt: new Date(Date.now() - 1000 * 60 * 55), // 55 minutes ago
+    },
+    {
+      username: 'manager4',
+      branch: Branch.Bhairawaha,
+      action: 'UPDATE',
+      entity: 'RoomPricing',
+      details: { message: 'Updated Suite price to Rs. 10000' },
+      ip: '192.168.1.5',
+      userAgent: 'Mozilla/5.0 (Linux; Android 11; SM-G991B) Chrome/114.0.5735.196',
+      createdAt: new Date(Date.now() - 1000 * 60 * 8), // 8 minutes ago
+    },
+    // Viewer actions
+    {
+      username: 'viewer',
+      branch: Branch.Pokhara,
+      action: 'LOGIN',
+      entity: 'User',
+      details: { message: 'User logged in successfully' },
+      ip: '192.168.1.6',
+      userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Firefox/114.0',
+      createdAt: new Date(Date.now() - 1000 * 60 * 5), // 5 minutes ago
+    },
+    {
+      username: 'viewer',
+      branch: Branch.Pokhara,
+      action: 'VIEW',
+      entity: 'Booking',
+      details: { message: 'Viewed booking list' },
+      ip: '192.168.1.6',
+      userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Firefox/114.0',
+      createdAt: new Date(Date.now() - 1000 * 60 * 2), // 2 minutes ago
+    },
+  ];
+
+  for (const log of auditLogs) {
+    await prisma.auditLog.create({
+      data: log,
+    });
+  }
+  console.log(`✅ Created ${auditLogs.length} audit logs`);
+
+  // ==================== CREATE AUDIT LOG ====================
+  // (Legacy - keeping for backward compatibility)
+  console.log('📝 Creating additional audit logs...');
+
+  const legacyAuditLogs = [
     { username: 'owner', branch: Branch.Pokhara, action: 'LOGIN', entity: 'User', details: { message: 'User logged in' } },
     { username: 'owner', branch: Branch.Pokhara, action: 'UPDATE', entity: 'RoomPricing', details: { message: 'Updated pricing for Single room' } },
   ];
 
-  for (const log of auditLogs) {
-    await prisma.auditLog.create({ data: log });
+  for (const log of legacyAuditLogs) {
+    await prisma.auditLog.create({
+      data: log,
+    });
   }
-  console.log('✅ Created audit logs');
-
-  // ==================== NO SAMPLE BOOKINGS CREATED ====================
-  console.log('📋 No sample bookings created (removed permanently)');
+  console.log('✅ Created legacy audit logs');
 
   // ==================== SUMMARY ====================
   console.log('\n📊 Seeding Summary:');
@@ -349,13 +518,17 @@ async function main() {
   console.log(`✅ ${availabilityCount} room availability entries created`);
   console.log(`✅ ${seasonalRules.length} seasonal rules created`);
   console.log(`✅ ${branchCapacities.length} branch capacities created`);
-  console.log('✅ 0 sample bookings created (permanently removed)');
+  console.log(`✅ ${auditLogs.length + legacyAuditLogs.length} audit logs created`);
+  console.log('✅ 0 bookings created (sample bookings removed)');
   console.log('✅ Seeding complete!');
 
   console.log('\n🔑 Login Credentials:');
   console.log('  Owner:   owner / owner123');
   console.log('  Manager: manager / manager123 (Pokhara only)');
-  console.log('  Viewer:  viewer / viewer123');
+  console.log('  Manager2: manager2 / manager123 (Kathmandu1 only)');
+  console.log('  Manager3: manager3 / manager123 (Kathmandu2 only)');
+  console.log('  Manager4: manager4 / manager123 (Bhairawaha only)');
+  console.log('  Viewer:  viewer / viewer123 (View only)');
 
   console.log('\n🏨 Room Types Available:');
   console.log('  - Single (Capacity: 1) - Rs. 2,000/night');
@@ -364,10 +537,14 @@ async function main() {
   console.log('  - Quard (Capacity: 4) - Rs. 5,500/night');
   console.log('  - Suite (Capacity: 4) - Rs. 8,000/night');
 
-  console.log('\n🏷️ Facility Options (Available in UI):');
-  console.log('  - Standard (1.0x multiplier) - Base price');
-  console.log('  - Deluxe (1.5x multiplier) - 50% extra');
-  console.log('  - Premium (2.0x multiplier) - 100% extra');
+  console.log('\n📋 Audit Log Entries Created:');
+  console.log('  - LOGIN: User login events');
+  console.log('  - CREATE: New booking creation');
+  console.log('  - UPDATE: Updates to bookings and pricing');
+  console.log('  - DELETE: Booking cancellations');
+  console.log('  - CHECK_IN: Guest check-ins');
+  console.log('  - CHECK_OUT: Guest check-outs');
+  console.log('  - VIEW: Viewing activities');
 }
 
 main()

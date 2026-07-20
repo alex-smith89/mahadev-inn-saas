@@ -223,14 +223,14 @@ model BookingRoom {
   @@index([roomId])
 }
 
-// prisma/schema.prisma
+// Branch Capacity
 model BranchCapacity {
   id         String   @id @default(cuid())
   branch     Branch   @unique
   singleCap  Int      @default(0)
   doubleCap  Int      @default(0)
   tripleCap  Int      @default(0)
-  quardCap   Int      @default(0)  // ✅ Change from guardCap to quardCap
+  quardCap   Int      @default(0)
   suiteCap   Int      @default(0)
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
@@ -293,7 +293,7 @@ model RoomPricing {
   @@index([season])
 }
 
-// ✅ CORRECTED: Branch Room Pricing - Only these columns exist
+// Branch Room Pricing
 model BranchRoomPricing {
   id                String   @id @default(cuid())
   branch            Branch   @unique
@@ -350,15 +350,15 @@ model Feedback {
   @@index([status])
 }
 
-// Audit Log
+// ✅ AUDIT LOG MODEL - For tracking user activities
 model AuditLog {
   id         String   @id @default(cuid())
   username   String   @db.VarChar(50)
   branch     Branch?
-  action     String   @db.VarChar(50)
-  entity     String   @db.VarChar(50)
+  action     String   @db.VarChar(50)  // LOGIN, LOGOUT, CREATE, UPDATE, DELETE, CHECK_IN, CHECK_OUT, VIEW
+  entity     String   @db.VarChar(50)  // User, Booking, Room, RoomPricing, etc.
   entityId   String?  @db.VarChar(50)
-  details    Json?
+  details    Json?                      // Additional details about the action
   ip         String?  @db.VarChar(50)
   userAgent  String?  @db.Text
   createdAt  DateTime @default(now())

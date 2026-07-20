@@ -22,7 +22,7 @@ import { Response } from 'express';
 import { BookingsService } from './bookings.service';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { Branch } from '@prisma/client';
-// import { AuditService } from '../audit/audit.service'; // ✅ COMMENT OUT
+import { AuditService } from '../audit/audit.service';
 import { EmailService } from '../email/email.service';
 import * as jsPDF from 'jspdf';
 
@@ -33,11 +33,11 @@ export class BookingsController {
 
   constructor(
     private readonly svc: BookingsService,
-    // private readonly audit: AuditService, // ✅ COMMENT OUT
+    private readonly audit: AuditService,
     private readonly emailService: EmailService,
   ) {}
 
-  // ✅ CREATE BOOKING
+  // ✅ CREATE BOOKING - With Audit Log
   @Post()
   async create(@Req() req: any, @Body() dto: any) {
     try {
@@ -80,6 +80,33 @@ export class BookingsController {
 
       this.logger.log(`✅ Booking created with ID: ${booking.id}, Booking No: ${booking.bookingNo}`);
 
+      // ✅ Create audit log for booking creation
+      try {
+        await this.audit.log({
+          username: user.username || 'system',
+          branch: branch,
+          action: 'CREATE',
+          entity: 'Booking',
+          entityId: booking.id,
+          details: {
+            bookingNo: booking.bookingNo,
+            agentName: booking.agentName,
+            roomType: booking.roomType,
+            roomsCount: booking.roomsCount,
+            checkIn: booking.checkIn,
+            checkOut: booking.checkOut,
+            totalCost: booking.totalCost,
+            message: `Booking created by ${user.username} in ${branch}`,
+          },
+          ip: req.ip || null,
+          userAgent: req.headers?.['user-agent'] || null,
+        });
+        this.logger.log(`✅ Audit log created for booking: ${booking.bookingNo}`);
+      } catch (auditError) {
+        this.logger.error(`❌ Audit log error: ${auditError.message}`);
+      }
+
+      // ✅ Send email confirmation to guest
       let emailSent = false;
       let emailStatus = 'no_email';
       
@@ -129,7 +156,7 @@ export class BookingsController {
     }
   }
 
-  // ✅ CHECK-IN GUEST
+  // ✅ CHECK-IN GUEST - With Audit Log
   @Patch(':id/checkin')
   async checkInGuest(@Req() req: any, @Param('id') id: string) {
     try {
@@ -152,6 +179,28 @@ export class BookingsController {
 
       const booking = await this.svc.checkInGuest(id);
 
+      // ✅ Create audit log for check-in
+      try {
+        await this.audit.log({
+          username: user.username || 'system',
+          branch: booking.branch,
+          action: 'CHECK_IN',
+          entity: 'Booking',
+          entityId: booking.id,
+          details: {
+            bookingNo: booking.bookingNo,
+            agentName: booking.agentName,
+            roomType: booking.roomType,
+            message: `Guest checked in by ${user.username}`,
+          },
+          ip: req.ip || null,
+          userAgent: req.headers?.['user-agent'] || null,
+        });
+        this.logger.log(`✅ Audit log created for check-in: ${booking.bookingNo}`);
+      } catch (auditError) {
+        this.logger.error(`❌ Audit log error: ${auditError.message}`);
+      }
+
       return {
         success: true,
         data: booking,
@@ -166,7 +215,7 @@ export class BookingsController {
     }
   }
 
-  // ✅ CHECK-OUT GUEST
+  // ✅ CHECK-OUT GUEST - With Audit Log
   @Patch(':id/checkout')
   async checkOutGuest(@Req() req: any, @Param('id') id: string) {
     try {
@@ -189,6 +238,28 @@ export class BookingsController {
 
       const booking = await this.svc.checkOutGuest(id);
 
+      // ✅ Create audit log for check-out
+      try {
+        await this.audit.log({
+          username: user.username || 'system',
+          branch: booking.branch,
+          action: 'CHECK_OUT',
+          entity: 'Booking',
+          entityId: booking.id,
+          details: {
+            bookingNo: booking.bookingNo,
+            agentName: booking.agentName,
+            roomType: booking.roomType,
+            message: `Guest checked out by ${user.username}`,
+          },
+          ip: req.ip || null,
+          userAgent: req.headers?.['user-agent'] || null,
+        });
+        this.logger.log(`✅ Audit log created for check-out: ${booking.bookingNo}`);
+      } catch (auditError) {
+        this.logger.error(`❌ Audit log error: ${auditError.message}`);
+      }
+
       return {
         success: true,
         data: booking,
@@ -203,7 +274,7 @@ export class BookingsController {
     }
   }
 
-  // ✅ UPDATE STATUS
+  // ✅ UPDATE STATUS - With Audit Log
   @Patch(':id')
   async updateStatus(
     @Req() req: any,
@@ -234,6 +305,28 @@ export class BookingsController {
 
       const booking = await this.svc.update(id, { bookingStatus: body.bookingStatus });
 
+      // ✅ Create audit log for status update
+      try {
+        await this.audit.log({
+          username: user.username || 'system',
+          branch: booking.branch,
+          action: 'UPDATE',
+          entity: 'Booking',
+          entityId: booking.id,
+          details: {
+            bookingNo: booking.bookingNo,
+            oldStatus: existingBooking.bookingStatus,
+            newStatus: body.bookingStatus,
+            message: `Booking status updated from ${existingBooking.bookingStatus} to ${body.bookingStatus} by ${user.username}`,
+          },
+          ip: req.ip || null,
+          userAgent: req.headers?.['user-agent'] || null,
+        });
+        this.logger.log(`✅ Audit log created for status update: ${booking.bookingNo}`);
+      } catch (auditError) {
+        this.logger.error(`❌ Audit log error: ${auditError.message}`);
+      }
+
       if (booking && booking.email && (body.bookingStatus === 'Confirm' || body.bookingStatus === 'Confirmed')) {
         try {
           await this.emailService.sendBookingConfirmation(booking.email, booking);
@@ -255,7 +348,7 @@ export class BookingsController {
     }
   }
 
-  // ✅ UPDATE BOOKING
+  // ✅ UPDATE BOOKING - With Audit Log
   @Put(':id')
   async update(@Req() req: any, @Param('id') id: string, @Body() dto: any) {
     try {
@@ -300,6 +393,28 @@ export class BookingsController {
 
       const updated = await this.svc.update(id, { ...dto, branch });
 
+      // ✅ Create audit log for update
+      try {
+        await this.audit.log({
+          username: user.username || 'system',
+          branch: branch,
+          action: 'UPDATE',
+          entity: 'Booking',
+          entityId: updated.id,
+          details: {
+            bookingNo: updated.bookingNo,
+            agentName: updated.agentName,
+            roomType: updated.roomType,
+            message: `Booking updated by ${user.username}`,
+          },
+          ip: req.ip || null,
+          userAgent: req.headers?.['user-agent'] || null,
+        });
+        this.logger.log(`✅ Audit log created for update: ${updated.bookingNo}`);
+      } catch (auditError) {
+        this.logger.error(`❌ Audit log error: ${auditError.message}`);
+      }
+
       if (updated && updated.email) {
         try {
           await this.emailService.sendBookingConfirmation(updated.email, updated);
@@ -317,6 +432,53 @@ export class BookingsController {
       };
     } catch (error) {
       this.logger.error('❌ Error updating booking:', error);
+      throw error;
+    }
+  }
+
+  // ✅ DELETE BOOKING - With Audit Log
+  @Delete(':id')
+  async remove(@Req() req: any, @Param('id') id: string) {
+    try {
+      const existingBooking = await this.svc.prisma.booking.findUnique({
+        where: { id },
+      });
+
+      if (!existingBooking) {
+        throw new NotFoundException('Booking not found');
+      }
+
+      const user = req.user;
+      if (user.role !== 'OWNER') {
+        throw new ForbiddenException('Only owners can delete bookings');
+      }
+
+      await this.svc.remove(id);
+
+      // ✅ Create audit log for delete
+      try {
+        await this.audit.log({
+          username: user.username || 'system',
+          branch: existingBooking.branch,
+          action: 'DELETE',
+          entity: 'Booking',
+          entityId: existingBooking.id,
+          details: {
+            bookingNo: existingBooking.bookingNo,
+            agentName: existingBooking.agentName,
+            message: `Booking deleted by ${user.username}`,
+          },
+          ip: req.ip || null,
+          userAgent: req.headers?.['user-agent'] || null,
+        });
+        this.logger.log(`✅ Audit log created for delete: ${existingBooking.bookingNo}`);
+      } catch (auditError) {
+        this.logger.error(`❌ Audit log error: ${auditError.message}`);
+      }
+
+      return { success: true };
+    } catch (error) {
+      this.logger.error('Error deleting booking:', error);
       throw error;
     }
   }
@@ -448,31 +610,6 @@ export class BookingsController {
     } catch (error) {
       this.logger.error('Error listing bookings:', error);
       throw new InternalServerErrorException('Failed to fetch bookings');
-    }
-  }
-
-  // ✅ DELETE BOOKING
-  @Delete(':id')
-  async remove(@Req() req: any, @Param('id') id: string) {
-    try {
-      const existingBooking = await this.svc.prisma.booking.findUnique({
-        where: { id },
-      });
-
-      if (!existingBooking) {
-        throw new NotFoundException('Booking not found');
-      }
-
-      const user = req.user;
-      if (user.role !== 'OWNER') {
-        throw new ForbiddenException('Only owners can delete bookings');
-      }
-
-      await this.svc.remove(id);
-      return { success: true };
-    } catch (error) {
-      this.logger.error('Error deleting booking:', error);
-      throw error;
     }
   }
 
