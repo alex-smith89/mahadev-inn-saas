@@ -5,6 +5,7 @@ import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import jsPDF from 'jspdf';
+import html2canvas from 'html2canvas';
 
 const API_URL = 'http://localhost:4000/api';
 const NPR_TO_INR = 1.6;
@@ -427,205 +428,346 @@ export default function NewBookingPage() {
     return '';
   };
 
-  // ✅ Generate PDF Receipt
-  const generateReceiptPDF = (booking: any) => {
+  // ✅ Enhanced PDF Generator with html2canvas
+  const generateReceiptPDF = async (booking: any) => {
     try {
       console.log('📄 Generating PDF for booking:', booking.bookingNo);
       
-      const doc = new jsPDF({
+      // Format dates
+      const checkInDate = new Date(booking.checkIn).toLocaleDateString('en-US', {
+        month: '2-digit',
+        day: '2-digit',
+        year: 'numeric'
+      });
+      const checkOutDate = new Date(booking.checkOut).toLocaleDateString('en-US', {
+        month: '2-digit',
+        day: '2-digit',
+        year: 'numeric'
+      });
+
+      // Calculate totals
+      const totalCost = booking.totalCost || 0;
+      const vatAmount = totalCost * 0.13;
+      const subtotal = totalCost - vatAmount;
+
+      // Create HTML content
+      const receiptHTML = `
+        <!DOCTYPE html>
+        <html>
+          <head>
+            <meta charset="UTF-8">
+            <style>
+              body {
+                font-family: Arial, Helvetica, sans-serif;
+                margin: 0;
+                padding: 0;
+                background: white;
+              }
+              .receipt {
+                width: 700px;
+                margin: 0 auto;
+                padding: 40px;
+                background: white;
+              }
+              .header {
+                text-align: center;
+                border-bottom: 3px solid #4f46e5;
+                padding-bottom: 20px;
+                margin-bottom: 20px;
+              }
+              .hotel-name {
+                font-size: 28px;
+                font-weight: bold;
+                color: #4f46e5;
+                margin: 0;
+              }
+              .hotel-sub {
+                font-size: 12px;
+                color: #6b7280;
+                margin: 4px 0;
+              }
+              .title {
+                font-size: 18px;
+                color: #4f46e5;
+                margin: 8px 0;
+                font-weight: bold;
+              }
+              .branch {
+                font-size: 12px;
+                color: #6b7280;
+                margin: 4px 0;
+              }
+              .info-box {
+                background: #f5f5ff;
+                border: 1px solid #4f46e5;
+                border-radius: 8px;
+                padding: 15px;
+                margin: 20px 0;
+                display: grid;
+                grid-template-columns: 1fr 1fr;
+                gap: 6px 20px;
+              }
+              .info-item {
+                font-size: 11px;
+                color: #1a1a1a;
+              }
+              .info-item strong {
+                color: #6b7280;
+                font-weight: bold;
+              }
+              .status {
+                color: #22c55e;
+                font-weight: bold;
+              }
+              .section-title {
+                font-size: 14px;
+                font-weight: bold;
+                color: #4f46e5;
+                border-bottom: 2px solid #e5e7eb;
+                padding-bottom: 8px;
+                margin: 20px 0 10px 0;
+              }
+              table {
+                width: 100%;
+                border-collapse: collapse;
+                font-size: 11px;
+              }
+              table thead {
+                background: #4f46e5;
+                color: white;
+              }
+              table th {
+                padding: 8px 12px;
+                text-align: left;
+                font-weight: bold;
+              }
+              table td {
+                padding: 6px 12px;
+                border-bottom: 1px solid #e5e7eb;
+              }
+              .label-col {
+                color: #6b7280;
+                font-weight: bold;
+              }
+              .value-col {
+                text-align: right;
+                color: #1a1a1a;
+              }
+              .price-box {
+                background: #f5f5ff;
+                border: 1px solid #e5e7eb;
+                border-radius: 8px;
+                padding: 15px;
+                margin: 20px 0;
+              }
+              .price-row {
+                display: flex;
+                justify-content: space-between;
+                padding: 4px 0;
+                font-size: 11px;
+              }
+              .price-row.total {
+                border-top: 2px solid #4f46e5;
+                margin-top: 8px;
+                padding-top: 10px;
+                font-size: 16px;
+                font-weight: bold;
+                color: #4f46e5;
+              }
+              .remarks-box {
+                margin: 15px 0;
+              }
+              .remarks-label {
+                color: #6b7280;
+                font-weight: bold;
+                font-size: 11px;
+                margin-bottom: 4px;
+              }
+              .remarks-text {
+                font-size: 11px;
+                color: #1a1a1a;
+                background: #f9fafb;
+                padding: 8px 12px;
+                border-radius: 4px;
+                margin: 0;
+              }
+              .footer {
+                text-align: center;
+                border-top: 2px solid #4f46e5;
+                padding-top: 20px;
+                margin-top: 20px;
+              }
+              .footer-title {
+                color: #4f46e5;
+                font-size: 18px;
+                font-weight: bold;
+                margin: 0;
+              }
+              .footer-text {
+                color: #6b7280;
+                font-size: 11px;
+                margin: 4px 0;
+              }
+              .footer-small {
+                color: #6b7280;
+                font-size: 9px;
+                margin: 4px 0;
+              }
+              .footer-contact {
+                color: #6b7280;
+                font-size: 8px;
+                margin: 4px 0;
+              }
+            </style>
+          </head>
+          <body>
+            <div class="receipt">
+              <!-- Header -->
+              <div class="header">
+                <div class="hotel-name">🏨 MAHADEV INN</div>
+                <div class="hotel-sub">Luxury Hotel & Suites</div>
+                <div class="title">BOOKING CONFIRMATION</div>
+                <div class="branch">Branch: ${booking.branch || 'N/A'}</div>
+              </div>
+
+              <!-- Booking Info -->
+              <div class="info-box">
+                <div class="info-item"><strong>Booking No:</strong> ${booking.bookingNo || 'N/A'}</div>
+                <div class="info-item"><strong>Status:</strong> <span class="status">✅ ${booking.bookingStatus || 'Confirm'}</span></div>
+                <div class="info-item"><strong>Guest Name:</strong> ${booking.agentName || 'N/A'}</div>
+                <div class="info-item"><strong>Check-In:</strong> ${checkInDate}</div>
+                <div class="info-item"><strong>Contact:</strong> ${booking.agentContact || 'N/A'}</div>
+                <div class="info-item"><strong>Check-Out:</strong> ${checkOutDate}</div>
+                <div class="info-item"><strong>Email:</strong> ${booking.email || 'N/A'}</div>
+                <div class="info-item"><strong>Rooms:</strong> ${booking.roomsCount || 1} (${booking.roomType || 'N/A'})</div>
+                <div class="info-item"><strong>Total Heads:</strong> ${booking.heads || 1}</div>
+              </div>
+
+              <!-- Booking Details -->
+              <div class="section-title">📋 BOOKING DETAILS</div>
+              <table>
+                <thead>
+                  <tr>
+                    <th>Description</th>
+                    <th style="text-align: right;">Details</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td class="label-col">Room Type</td>
+                    <td class="value-col">${booking.roomType || 'N/A'}</td>
+                  </tr>
+                  <tr>
+                    <td class="label-col">Facility</td>
+                    <td class="value-col">${booking.facility || 'Standard'}</td>
+                  </tr>
+                  <tr>
+                    <td class="label-col">Meal Plan</td>
+                    <td class="value-col">${booking.mealPlan || 'EP'}</td>
+                  </tr>
+                  <tr>
+                    <td class="label-col">No. of Rooms</td>
+                    <td class="value-col">${booking.roomsCount || 1}</td>
+                  </tr>
+                  <tr>
+                    <td class="label-col">Total Heads</td>
+                    <td class="value-col">${booking.heads || 1}</td>
+                  </tr>
+                  <tr>
+                    <td class="label-col">Extra Persons</td>
+                    <td class="value-col">${booking.extraPersons || 0} ${booking.extraPersons > 0 ? `(Charge: Rs. ${(booking.extraPersonCharges || 0).toFixed(2)})` : ''}</td>
+                  </tr>
+                  <tr>
+                    <td class="label-col">Children Below 10</td>
+                    <td class="value-col">${booking.childrenBelow10 || 0} ${booking.childrenBelow10 > 0 ? '(FREE)' : ''}</td>
+                  </tr>
+                  <tr>
+                    <td class="label-col">Room Charges</td>
+                    <td class="value-col">Rs. ${(booking.roomCharges || 0).toFixed(2)} × ${booking.roomsCount || 1} × ${booking.nights || 1} nights</td>
+                  </tr>
+                </tbody>
+              </table>
+
+              <!-- Price Summary -->
+              <div class="price-box">
+                <div class="price-row">
+                  <span>Subtotal:</span>
+                  <span>Rs. ${subtotal.toFixed(2)}</span>
+                </div>
+                <div class="price-row">
+                  <span>VAT (13%):</span>
+                  <span>Rs. ${vatAmount.toFixed(2)}</span>
+                </div>
+                <div class="price-row total">
+                  <span>Total Amount:</span>
+                  <span>Rs. ${totalCost.toFixed(2)}</span>
+                </div>
+              </div>
+
+              <!-- Remarks -->
+              ${booking.remark ? `
+                <div class="remarks-box">
+                  <div class="remarks-label">Remarks:</div>
+                  <p class="remarks-text">${booking.remark}</p>
+                </div>
+              ` : ''}
+
+              <!-- Footer -->
+              <div class="footer">
+                <div class="footer-title">Thank You!</div>
+                <div class="footer-text">For choosing Mahadev Inn. We look forward to welcoming you!</div>
+                <div class="footer-small">This is a system-generated confirmation. Please keep it for your records.</div>
+                <div class="footer-contact">+977 1 4785959 | info@mahadevin.com | www.mahadevin.com</div>
+              </div>
+            </div>
+          </body>
+        </html>
+      `;
+
+      // Create a temporary div
+      const div = document.createElement('div');
+      div.innerHTML = receiptHTML;
+      div.style.position = 'fixed';
+      div.style.top = '-9999px';
+      div.style.left = '-9999px';
+      div.style.zIndex = '-9999';
+      document.body.appendChild(div);
+
+      // Wait for rendering
+      await new Promise(resolve => setTimeout(resolve, 200));
+
+      // Capture as canvas
+      const canvas = await html2canvas(div, {
+        scale: 2,
+        useCORS: true,
+        logging: false,
+        backgroundColor: '#ffffff',
+        width: 700,
+        height: div.scrollHeight,
+      });
+
+      // Remove temp div
+      document.body.removeChild(div);
+
+      // Create PDF
+      const imgData = canvas.toDataURL('image/png');
+      const pdf = new jsPDF({
         orientation: 'portrait',
         unit: 'mm',
         format: 'a4',
-        compress: true
+        compress: true,
       });
-      
-      const pageWidth = doc.internal.pageSize.getWidth();
-      const pageHeight = doc.internal.pageSize.getHeight();
-      let y = 15;
-      
-      // Colors
-      const primaryColor = [79, 70, 229];
-      const textColor = [31, 41, 55];
-      const secondaryColor = [107, 114, 128];
-      const successColor = [34, 197, 94];
-      
-      // --- Header Section ---
-      doc.setDrawColor(primaryColor[0], primaryColor[1], primaryColor[2]);
-      doc.setLineWidth(2);
-      doc.line(15, 10, pageWidth - 15, 10);
-      
-      // Hotel Name
-      doc.setTextColor(primaryColor[0], primaryColor[1], primaryColor[2]);
-      doc.setFontSize(24);
-      doc.setFont('helvetica', 'bold');
-      doc.text('MAHADEV INN', pageWidth / 2, y, { align: 'center' });
-      y += 8;
-      
-      doc.setTextColor(secondaryColor[0], secondaryColor[1], secondaryColor[2]);
-      doc.setFontSize(12);
-      doc.setFont('helvetica', 'normal');
-      doc.text('Booking Confirmation Receipt', pageWidth / 2, y, { align: 'center' });
-      y += 10;
-      
-      // Booking ID and Date
-      doc.setFillColor(245, 245, 255);
-      doc.rect(15, y - 2, pageWidth - 30, 10, 'F');
-      
-      doc.setTextColor(secondaryColor[0], secondaryColor[1], secondaryColor[2]);
-      doc.setFontSize(9);
-      doc.setFont('helvetica', 'bold');
-      doc.text('BOOKING ID', 20, y + 4);
-      doc.setTextColor(primaryColor[0], primaryColor[1], primaryColor[2]);
-      doc.setFontSize(10);
-      doc.setFont('helvetica', 'bold');
-      doc.text(booking.bookingNo || 'N/A', 60, y + 4);
-      
-      doc.setTextColor(secondaryColor[0], secondaryColor[1], secondaryColor[2]);
-      doc.setFontSize(9);
-      doc.setFont('helvetica', 'bold');
-      doc.text('BOOKING DATE', 120, y + 4);
-      const bookingDate = new Date(booking.bookedAt || new Date()).toLocaleDateString('en-US', {
-        month: 'short',
-        day: 'numeric',
-        year: 'numeric'
-      });
-      doc.setTextColor(textColor[0], textColor[1], textColor[2]);
-      doc.setFontSize(9);
-      doc.setFont('helvetica', 'normal');
-      doc.text(bookingDate, 155, y + 4);
-      
-      // Status Badges
-      doc.setFillColor(34, 197, 94);
-      doc.roundedRect(160, y - 1, 32, 5.5, 2, 2, 'F');
-      doc.setTextColor(255, 255, 255);
-      doc.setFontSize(6);
-      doc.setFont('helvetica', 'bold');
-      doc.text('CONFIRMED', 162, y + 3);
-      y += 15;
-      
-      // Divider
-      doc.setDrawColor(primaryColor[0], primaryColor[1], primaryColor[2]);
-      doc.setLineWidth(0.3);
-      doc.line(15, y, pageWidth - 15, y);
-      y += 8;
-      
-      // --- Booking Details Section ---
-      doc.setFillColor(245, 245, 255);
-      doc.rect(15, y - 2, pageWidth - 30, 7, 'F');
-      doc.setTextColor(primaryColor[0], primaryColor[1], primaryColor[2]);
-      doc.setFontSize(11);
-      doc.setFont('helvetica', 'bold');
-      doc.text('BOOKING DETAILS', 20, y + 3);
-      y += 10;
-      
-      const addRow = (label: string, value: string) => {
-        doc.setTextColor(secondaryColor[0], secondaryColor[1], secondaryColor[2]);
-        doc.setFontSize(8);
-        doc.setFont('helvetica', 'bold');
-        doc.text(label + ':', 20, y + 2.5);
-        doc.setTextColor(textColor[0], textColor[1], textColor[2]);
-        doc.setFontSize(9);
-        doc.setFont('helvetica', 'normal');
-        doc.text(String(value), 65, y + 2.5);
-        y += 7;
-      };
-      
-      addRow('Booking No', booking.bookingNo || 'N/A');
-      addRow('Guest Name', booking.agentName || 'N/A');
-      addRow('Contact', booking.agentContact || 'N/A');
-      addRow('Email', booking.email || 'N/A');
-      addRow('Branch', booking.branch || 'N/A');
-      addRow('Room Type', booking.roomType || 'N/A');
-      addRow('Rooms', String(booking.roomsCount || 1));
-      addRow('Heads', String(booking.heads || 1));
-      
-      const checkInStr = new Date(booking.checkIn).toLocaleDateString('en-US', {
-        month: 'short',
-        day: 'numeric',
-        year: 'numeric'
-      });
-      const checkOutStr = new Date(booking.checkOut).toLocaleDateString('en-US', {
-        month: 'short',
-        day: 'numeric',
-        year: 'numeric'
-      });
-      addRow('Check In', checkInStr);
-      addRow('Check Out', checkOutStr);
-      addRow('Nights', String(costBreakdown.nights || 0));
-      
-      y += 2;
-      
-      // Divider
-      doc.setDrawColor(200, 200, 200);
-      doc.setLineWidth(0.2);
-      doc.line(15, y, pageWidth - 15, y);
-      y += 8;
-      
-      // --- Price Summary Section ---
-      doc.setFillColor(245, 245, 255);
-      doc.rect(15, y - 2, pageWidth - 30, 7, 'F');
-      doc.setTextColor(primaryColor[0], primaryColor[1], primaryColor[2]);
-      doc.setFontSize(11);
-      doc.setFont('helvetica', 'bold');
-      doc.text('PRICE SUMMARY', 20, y + 3);
-      y += 10;
-      
-      const totalCost = costBreakdown.totalNPR || 0;
-      const vatAmount = costBreakdown.vatAmountNPR || 0;
-      const subtotal = costBreakdown.subtotalNPR || 0;
-      
-      addRow('Subtotal', `Rs. ${subtotal.toFixed(2)}`);
-      addRow('VAT (13%)', `Rs. ${vatAmount.toFixed(2)}`);
-      
-      // Total row with highlight
-      y += 2;
-      doc.setFillColor(primaryColor[0], primaryColor[1], primaryColor[2]);
-      doc.rect(18, y - 2, pageWidth - 36, 9, 'F');
-      doc.setTextColor(255, 255, 255);
-      doc.setFontSize(12);
-      doc.setFont('helvetica', 'bold');
-      doc.text('GRAND TOTAL', 22, y + 4);
-      doc.text(`Rs. ${totalCost.toFixed(2)}`, pageWidth - 20, y + 4, { align: 'right' });
-      y += 12;
-      
-      // Divider
-      doc.setDrawColor(primaryColor[0], primaryColor[1], primaryColor[2]);
-      doc.setLineWidth(0.3);
-      doc.line(15, y, pageWidth - 15, y);
-      y += 10;
-      
-      // Footer
-      doc.setTextColor(primaryColor[0], primaryColor[1], primaryColor[2]);
-      doc.setFontSize(16);
-      doc.setFont('helvetica', 'bold');
-      doc.text('Thank You!', pageWidth / 2, y, { align: 'center' });
-      y += 8;
-      
-      doc.setTextColor(secondaryColor[0], secondaryColor[1], secondaryColor[2]);
-      doc.setFontSize(9);
-      doc.setFont('helvetica', 'normal');
-      doc.text('For choosing Mahadev Inn. We look forward to welcoming you!', pageWidth / 2, y, { align: 'center' });
-      y += 6;
-      
-      doc.setFontSize(8);
-      doc.setTextColor(secondaryColor[0], secondaryColor[1], secondaryColor[2]);
-      doc.text('This is a system-generated receipt. Please keep it for your records.', pageWidth / 2, y, { align: 'center' });
-      y += 4;
-      
-      // Contact info
-      doc.setFontSize(7);
-      doc.setTextColor(secondaryColor[0], secondaryColor[1], secondaryColor[2]);
-      doc.text('+977 1 4785959  |  info@mahadevin.com  |  www.mahadevin.com', pageWidth / 2, y, { align: 'center' });
-      
-      // Bottom decorative line
-      doc.setDrawColor(primaryColor[0], primaryColor[1], primaryColor[2]);
-      doc.setLineWidth(2);
-      doc.line(15, y + 8, pageWidth - 15, y + 8);
-      
-      // Save the PDF
+
+      const pdfWidth = pdf.internal.pageSize.getWidth();
+      const pdfHeight = (canvas.height * pdfWidth) / canvas.width;
+
+      // Add image to PDF
+      pdf.addImage(imgData, 'PNG', 0, 0, pdfWidth, pdfHeight);
+
+      // Save PDF
       const fileName = `Booking_${booking.bookingNo || 'booking'}_${new Date().toISOString().split('T')[0]}.pdf`;
-      doc.save(fileName);
-      
+      pdf.save(fileName);
+
       console.log('✅ PDF generated successfully');
       return true;
     } catch (error) {
@@ -689,7 +831,7 @@ export default function NewBookingPage() {
         heads: Number(form.heads) || 1,
         childrenBelow10: childrenBelow10,
         mealPlan: form.mealPlan,
-        facility: form.facility?.trim() || null, // ✅ FIXED: null instead of undefined
+        facility: form.facility?.trim() || null,
         checkIn: currentTime,
         checkOut: form.checkOut,
         bookingStatus: form.bookingStatus,
@@ -706,7 +848,7 @@ export default function NewBookingPage() {
         totalCost: selectedCurrency === 'INR' ? totalCostINR : totalCostNPR,
         totalCostNPR: totalCostNPR,
         totalCostINR: totalCostINR,
-        remark: form.remark?.trim() || null, // ✅ FIXED: null instead of undefined
+        remark: form.remark?.trim() || null,
         bookedAt: currentTime,
         roomCapacity: costBreakdown.roomCapacity,
         totalCapacity: costBreakdown.totalCapacity,
@@ -743,17 +885,16 @@ export default function NewBookingPage() {
           ? `₹ ${totalCostINR.toLocaleString('en-IN', { maximumFractionDigits: 0 })}`
           : `Rs. ${totalCostNPR.toLocaleString('en-IN', { maximumFractionDigits: 0 })}`;
 
-        const childrenMsg = childrenBelow10 > 0 ? ` Children below 10: ${childrenBelow10} (FREE)` : '';
-        const breakfastMsg = Number(form.breakfastCharges) > 0 ? ` Breakfast: ${selectedCurrency === 'INR' ? `₹ ${(Number(form.breakfastCharges) * NPR_TO_INR).toLocaleString()}` : `Rs. ${Number(form.breakfastCharges).toLocaleString()}`}` : '';
-        const extraPersonMsg = extraPersons > 0 ? ` (${extraPersons} extra person(s) charged)` : '';
+        const childrenMsg = childrenBelow10 > 0 ? ` 👶 ${childrenBelow10} children below 10 (FREE)` : '';
+        const extraPersonMsg = extraPersons > 0 ? ` 👤 ${extraPersons} extra person(s) charged` : '';
         const roomCapacityMsg = ` (Room capacity: ${costBreakdown.roomCapacity} per room, Total: ${costBreakdown.totalCapacity} persons)`;
 
         setSuccess(
-          `✅ Booking confirmed at ${timeStr}! Total: ${displayTotal} (incl. 13% VAT)${extraPersonMsg}${childrenMsg}${breakfastMsg}${roomCapacityMsg}`
+          `✅ Booking confirmed at ${timeStr}! Total: ${displayTotal} (incl. 13% VAT)${extraPersonMsg}${childrenMsg}${roomCapacityMsg}`
         );
 
-        // ✅ Generate PDF receipt automatically
-        const pdfGenerated = generateReceiptPDF(booking);
+        // ✅ Generate PDF receipt automatically (async)
+        const pdfGenerated = await generateReceiptPDF(booking);
         if (pdfGenerated) {
           setSuccess(prev => prev + ' 📄 PDF receipt downloaded automatically.');
         }
