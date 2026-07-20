@@ -41,12 +41,12 @@ async function main() {
   console.log('👤 Creating users...');
 
   const users = [
-    { username: 'owner', password: ownerPassword, role: Role.OWNER, canViewAllBranches: true, canCreateBookings: false },
-    { username: 'manager', password: managerPassword, role: Role.MANAGER, canViewAllBranches: false, canCreateBookings: true },
+    { username: 'owner', password: ownerPassword, role: Role.OWNER, canViewAllBranches: true, canCreateBookings: true },
+    { username: 'manager1', password: managerPassword, role: Role.MANAGER, canViewAllBranches: false, canCreateBookings: true },
     { username: 'manager2', password: managerPassword, role: Role.MANAGER, canViewAllBranches: false, canCreateBookings: true },
     { username: 'manager3', password: managerPassword, role: Role.MANAGER, canViewAllBranches: false, canCreateBookings: true },
     { username: 'manager4', password: managerPassword, role: Role.MANAGER, canViewAllBranches: false, canCreateBookings: true },
-    { username: 'viewer', password: viewerPassword, role: Role.VIEWER, canViewAllBranches: true, canCreateBookings: true },
+    { username: 'viewer', password: viewerPassword, role: Role.VIEWER, canViewAllBranches: true, canCreateBookings: false },
   ];
 
   const createdUsers = [];
@@ -69,7 +69,7 @@ async function main() {
 
   const branchMap: Record<string, Branch[]> = {
     'owner': [Branch.Pokhara, Branch.Kathmandu1, Branch.Kathmandu2, Branch.Bhairawaha],
-    'manager': [Branch.Pokhara],
+    'manager1': [Branch.Pokhara],
     'manager2': [Branch.Kathmandu1],
     'manager3': [Branch.Kathmandu2],
     'manager4': [Branch.Bhairawaha],
@@ -324,190 +324,716 @@ async function main() {
   }
   console.log('✅ Created pricing history');
 
-  // ==================== CREATE AUDIT LOGS ====================
-  console.log('📝 Creating audit logs...');
+  // ==================== CREATE COMPREHENSIVE AUDIT LOGS ====================
+  console.log('📝 Creating comprehensive audit logs...');
 
-  const auditLogs = [
-    // Owner actions
+  const now = new Date();
+  
+  // Helper to create time offsets
+  const timeOffset = (minutes: number) => new Date(now.getTime() - minutes * 60 * 1000);
+
+  // IP addresses for different users
+  const ips = {
+    owner: '192.168.1.100',
+    manager1: '192.168.1.101',
+    manager2: '192.168.1.102',
+    manager3: '192.168.1.103',
+    manager4: '192.168.1.104',
+    viewer: '192.168.1.105',
+  };
+
+  const userAgents = {
+    owner: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/120.0.0.0',
+    manager1: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) Safari/605.1.15',
+    manager2: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Edge/120.0.0.0',
+    manager3: 'Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) AppleWebKit/605.1.15',
+    manager4: 'Mozilla/5.0 (Linux; Android 13; SM-G991B) Chrome/120.0.0.0',
+    viewer: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Firefox/120.0',
+  };
+
+  const auditLogs = [];
+
+  // ==================== OWNER LOGS (All Branches) ====================
+  console.log('  👑 Creating Owner audit logs...');
+  
+  // Owner LOGIN to all branches (multiple sessions)
+  auditLogs.push(
     {
       username: 'owner',
       branch: Branch.Pokhara,
       action: 'LOGIN',
       entity: 'User',
-      details: { message: 'User logged in successfully' },
-      ip: '192.168.1.1',
-      userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/114.0.0.0',
-      createdAt: new Date(Date.now() - 1000 * 60 * 60 * 2), // 2 hours ago
+      details: { message: 'Owner logged in to Pokhara branch', sessionId: 'sess-001' },
+      ip: ips.owner,
+      userAgent: userAgents.owner,
+      createdAt: timeOffset(120),
     },
     {
       username: 'owner',
+      branch: Branch.Kathmandu1,
+      action: 'LOGIN',
+      entity: 'User',
+      details: { message: 'Owner logged in to Kathmandu1 branch', sessionId: 'sess-002' },
+      ip: ips.owner,
+      userAgent: userAgents.owner,
+      createdAt: timeOffset(115),
+    },
+    {
+      username: 'owner',
+      branch: Branch.Kathmandu2,
+      action: 'LOGIN',
+      entity: 'User',
+      details: { message: 'Owner logged in to Kathmandu2 branch', sessionId: 'sess-003' },
+      ip: ips.owner,
+      userAgent: userAgents.owner,
+      createdAt: timeOffset(110),
+    },
+    {
+      username: 'owner',
+      branch: Branch.Bhairawaha,
+      action: 'LOGIN',
+      entity: 'User',
+      details: { message: 'Owner logged in to Bhairawaha branch', sessionId: 'sess-004' },
+      ip: ips.owner,
+      userAgent: userAgents.owner,
+      createdAt: timeOffset(105),
+    }
+  );
+
+  // Owner CREATE operations (all branches)
+  auditLogs.push(
+    {
+      username: 'owner',
       branch: Branch.Pokhara,
-      action: 'UPDATE',
-      entity: 'RoomPricing',
-      details: { message: 'Updated Single room price to Rs. 2500' },
-      ip: '192.168.1.1',
-      userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/114.0.0.0',
-      createdAt: new Date(Date.now() - 1000 * 60 * 60 * 1.5), // 1.5 hours ago
+      action: 'CREATE',
+      entity: 'Booking',
+      details: { message: 'Created booking BKG-1001 for John Doe', bookingId: 'BKG-1001', customerName: 'John Doe' },
+      ip: ips.owner,
+      userAgent: userAgents.owner,
+      createdAt: timeOffset(90),
     },
     {
       username: 'owner',
       branch: Branch.Kathmandu1,
       action: 'CREATE',
       entity: 'Booking',
-      details: { message: 'Created booking BKG-12345 for John Doe' },
-      ip: '192.168.1.1',
-      userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/114.0.0.0',
-      createdAt: new Date(Date.now() - 1000 * 60 * 30), // 30 minutes ago
+      details: { message: 'Created booking BKG-1002 for Jane Smith', bookingId: 'BKG-1002', customerName: 'Jane Smith' },
+      ip: ips.owner,
+      userAgent: userAgents.owner,
+      createdAt: timeOffset(85),
     },
+    {
+      username: 'owner',
+      branch: Branch.Kathmandu2,
+      action: 'CREATE',
+      entity: 'RoomType',
+      details: { message: 'Created new Deluxe Suite room type', roomType: 'Deluxe Suite', capacity: 4 },
+      ip: ips.owner,
+      userAgent: userAgents.owner,
+      createdAt: timeOffset(80),
+    },
+    {
+      username: 'owner',
+      branch: Branch.Bhairawaha,
+      action: 'CREATE',
+      entity: 'Booking',
+      details: { message: 'Created booking BKG-1003 for Robert Johnson', bookingId: 'BKG-1003', customerName: 'Robert Johnson' },
+      ip: ips.owner,
+      userAgent: userAgents.owner,
+      createdAt: timeOffset(75),
+    }
+  );
+
+  // Owner UPDATE operations (all branches)
+  auditLogs.push(
+    {
+      username: 'owner',
+      branch: Branch.Pokhara,
+      action: 'UPDATE',
+      entity: 'RoomPricing',
+      details: { message: 'Updated Single room price from Rs. 2000 to Rs. 2200', oldPrice: 2000, newPrice: 2200 },
+      ip: ips.owner,
+      userAgent: userAgents.owner,
+      createdAt: timeOffset(70),
+    },
+    {
+      username: 'owner',
+      branch: Branch.Kathmandu1,
+      action: 'UPDATE',
+      entity: 'RoomPricing',
+      details: { message: 'Updated Double room price from Rs. 3000 to Rs. 3200', oldPrice: 3000, newPrice: 3200 },
+      ip: ips.owner,
+      userAgent: userAgents.owner,
+      createdAt: timeOffset(65),
+    },
+    {
+      username: 'owner',
+      branch: Branch.Kathmandu2,
+      action: 'UPDATE',
+      entity: 'Booking',
+      details: { message: 'Updated booking BKG-1002 status from Pending to Confirmed', bookingId: 'BKG-1002', oldStatus: 'Pending', newStatus: 'Confirmed' },
+      ip: ips.owner,
+      userAgent: userAgents.owner,
+      createdAt: timeOffset(60),
+    },
+    {
+      username: 'owner',
+      branch: Branch.Bhairawaha,
+      action: 'UPDATE',
+      entity: 'RoomPricing',
+      details: { message: 'Updated Suite price from Rs. 8000 to Rs. 8500', oldPrice: 8000, newPrice: 8500 },
+      ip: ips.owner,
+      userAgent: userAgents.owner,
+      createdAt: timeOffset(55),
+    }
+  );
+
+  // Owner DELETE operations (all branches)
+  auditLogs.push(
     {
       username: 'owner',
       branch: Branch.Pokhara,
       action: 'DELETE',
       entity: 'Booking',
-      details: { message: 'Cancelled booking BKG-12346' },
-      ip: '192.168.1.1',
-      userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/114.0.0.0',
-      createdAt: new Date(Date.now() - 1000 * 60 * 15), // 15 minutes ago
+      details: { message: 'Cancelled booking BKG-1001', bookingId: 'BKG-1001', reason: 'Customer requested cancellation' },
+      ip: ips.owner,
+      userAgent: userAgents.owner,
+      createdAt: timeOffset(50),
     },
-    // Manager actions
     {
-      username: 'manager',
+      username: 'owner',
+      branch: Branch.Kathmandu1,
+      action: 'DELETE',
+      entity: 'RoomType',
+      details: { message: 'Removed outdated Standard Single room type', roomType: 'Standard Single' },
+      ip: ips.owner,
+      userAgent: userAgents.owner,
+      createdAt: timeOffset(45),
+    },
+    {
+      username: 'owner',
+      branch: Branch.Kathmandu2,
+      action: 'DELETE',
+      entity: 'Booking',
+      details: { message: 'Cancelled booking BKG-1003', bookingId: 'BKG-1003', reason: 'No show' },
+      ip: ips.owner,
+      userAgent: userAgents.owner,
+      createdAt: timeOffset(40),
+    }
+  );
+
+  // Owner CAPACITY UPDATE operations
+  auditLogs.push(
+    {
+      username: 'owner',
+      branch: Branch.Pokhara,
+      action: 'UPDATE',
+      entity: 'BranchCapacity',
+      details: { message: 'Increased Single room capacity from 10 to 12', roomType: 'Single', oldCapacity: 10, newCapacity: 12 },
+      ip: ips.owner,
+      userAgent: userAgents.owner,
+      createdAt: timeOffset(35),
+    },
+    {
+      username: 'owner',
+      branch: Branch.Kathmandu1,
+      action: 'UPDATE',
+      entity: 'BranchCapacity',
+      details: { message: 'Increased Double room capacity from 15 to 18', roomType: 'Double', oldCapacity: 15, newCapacity: 18 },
+      ip: ips.owner,
+      userAgent: userAgents.owner,
+      createdAt: timeOffset(30),
+    },
+    {
+      username: 'owner',
+      branch: Branch.Kathmandu2,
+      action: 'UPDATE',
+      entity: 'BranchCapacity',
+      details: { message: 'Increased Suite room capacity from 4 to 6', roomType: 'Suite', oldCapacity: 4, newCapacity: 6 },
+      ip: ips.owner,
+      userAgent: userAgents.owner,
+      createdAt: timeOffset(25),
+    },
+    {
+      username: 'owner',
+      branch: Branch.Bhairawaha,
+      action: 'UPDATE',
+      entity: 'BranchCapacity',
+      details: { message: 'Increased Triple room capacity from 8 to 10', roomType: 'Triple', oldCapacity: 8, newCapacity: 10 },
+      ip: ips.owner,
+      userAgent: userAgents.owner,
+      createdAt: timeOffset(20),
+    }
+  );
+
+  // ==================== MANAGER LOGS (Their respective branches only) ====================
+  console.log('  🏢 Creating Manager audit logs...');
+
+  // Manager1 - Pokhara
+  auditLogs.push(
+    {
+      username: 'manager1',
       branch: Branch.Pokhara,
       action: 'LOGIN',
       entity: 'User',
-      details: { message: 'User logged in successfully' },
-      ip: '192.168.1.2',
-      userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) Safari/605.1.15',
-      createdAt: new Date(Date.now() - 1000 * 60 * 45), // 45 minutes ago
+      details: { message: 'Manager1 logged in to Pokhara branch', sessionId: 'sess-101' },
+      ip: ips.manager1,
+      userAgent: userAgents.manager1,
+      createdAt: timeOffset(95),
     },
     {
-      username: 'manager',
+      username: 'manager1',
       branch: Branch.Pokhara,
       action: 'CHECK_IN',
       entity: 'Booking',
-      details: { message: 'Checked in guest John Doe (BKG-12345)' },
-      ip: '192.168.1.2',
-      userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) Safari/605.1.15',
-      createdAt: new Date(Date.now() - 1000 * 60 * 20), // 20 minutes ago
+      details: { message: 'Checked in guest Sarah Wilson (BKG-1005)', bookingId: 'BKG-1005', guestName: 'Sarah Wilson' },
+      ip: ips.manager1,
+      userAgent: userAgents.manager1,
+      createdAt: timeOffset(88),
     },
     {
-      username: 'manager',
+      username: 'manager1',
+      branch: Branch.Pokhara,
+      action: 'CREATE',
+      entity: 'Booking',
+      details: { message: 'Created booking BKG-1006 for Michael Brown', bookingId: 'BKG-1006', customerName: 'Michael Brown' },
+      ip: ips.manager1,
+      userAgent: userAgents.manager1,
+      createdAt: timeOffset(78),
+    },
+    {
+      username: 'manager1',
       branch: Branch.Pokhara,
       action: 'UPDATE',
       entity: 'Booking',
-      details: { message: 'Updated booking status to Confirmed' },
-      ip: '192.168.1.2',
-      userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) Safari/605.1.15',
-      createdAt: new Date(Date.now() - 1000 * 60 * 10), // 10 minutes ago
+      details: { message: 'Updated booking BKG-1006 from Pending to Confirmed', bookingId: 'BKG-1006', oldStatus: 'Pending', newStatus: 'Confirmed' },
+      ip: ips.manager1,
+      userAgent: userAgents.manager1,
+      createdAt: timeOffset(72),
     },
-    // Manager2 actions
+    {
+      username: 'manager1',
+      branch: Branch.Pokhara,
+      action: 'CHECK_OUT',
+      entity: 'Booking',
+      details: { message: 'Checked out guest Sarah Wilson (BKG-1005)', bookingId: 'BKG-1005', guestName: 'Sarah Wilson' },
+      ip: ips.manager1,
+      userAgent: userAgents.manager1,
+      createdAt: timeOffset(62),
+    }
+  );
+
+  // Manager2 - Kathmandu1
+  auditLogs.push(
     {
       username: 'manager2',
       branch: Branch.Kathmandu1,
       action: 'LOGIN',
       entity: 'User',
-      details: { message: 'User logged in successfully' },
-      ip: '192.168.1.3',
-      userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Edge/114.0.1823.51',
-      createdAt: new Date(Date.now() - 1000 * 60 * 35), // 35 minutes ago
+      details: { message: 'Manager2 logged in to Kathmandu1 branch', sessionId: 'sess-102' },
+      ip: ips.manager2,
+      userAgent: userAgents.manager2,
+      createdAt: timeOffset(92),
     },
     {
       username: 'manager2',
       branch: Branch.Kathmandu1,
-      action: 'CHECK_OUT',
+      action: 'CREATE',
       entity: 'Booking',
-      details: { message: 'Checked out guest Jane Smith (BKG-12347)' },
-      ip: '192.168.1.3',
-      userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Edge/114.0.1823.51',
-      createdAt: new Date(Date.now() - 1000 * 60 * 5), // 5 minutes ago
+      details: { message: 'Created booking BKG-1007 for Emma Davis', bookingId: 'BKG-1007', customerName: 'Emma Davis' },
+      ip: ips.manager2,
+      userAgent: userAgents.manager2,
+      createdAt: timeOffset(82),
     },
-    // Manager3 actions
+    {
+      username: 'manager2',
+      branch: Branch.Kathmandu1,
+      action: 'CHECK_IN',
+      entity: 'Booking',
+      details: { message: 'Checked in guest Emma Davis (BKG-1007)', bookingId: 'BKG-1007', guestName: 'Emma Davis' },
+      ip: ips.manager2,
+      userAgent: userAgents.manager2,
+      createdAt: timeOffset(68),
+    },
+    {
+      username: 'manager2',
+      branch: Branch.Kathmandu1,
+      action: 'UPDATE',
+      entity: 'Booking',
+      details: { message: 'Updated booking BKG-1007 with special requests', bookingId: 'BKG-1007', specialRequests: 'Extra pillows, late checkout' },
+      ip: ips.manager2,
+      userAgent: userAgents.manager2,
+      createdAt: timeOffset(58),
+    }
+  );
+
+  // Manager3 - Kathmandu2
+  auditLogs.push(
     {
       username: 'manager3',
       branch: Branch.Kathmandu2,
       action: 'LOGIN',
       entity: 'User',
-      details: { message: 'User logged in successfully' },
-      ip: '192.168.1.4',
-      userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 14_0 like Mac OS X) AppleWebKit/605.1.15',
-      createdAt: new Date(Date.now() - 1000 * 60 * 50), // 50 minutes ago
+      details: { message: 'Manager3 logged in to Kathmandu2 branch', sessionId: 'sess-103' },
+      ip: ips.manager3,
+      userAgent: userAgents.manager3,
+      createdAt: timeOffset(89),
     },
     {
       username: 'manager3',
       branch: Branch.Kathmandu2,
       action: 'CREATE',
       entity: 'Booking',
-      details: { message: 'Created booking BKG-12348 for Robert Johnson' },
-      ip: '192.168.1.4',
-      userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 14_0 like Mac OS X) AppleWebKit/605.1.15',
-      createdAt: new Date(Date.now() - 1000 * 60 * 25), // 25 minutes ago
+      details: { message: 'Created booking BKG-1008 for James Wilson', bookingId: 'BKG-1008', customerName: 'James Wilson' },
+      ip: ips.manager3,
+      userAgent: userAgents.manager3,
+      createdAt: timeOffset(79),
     },
-    // Manager4 actions
+    {
+      username: 'manager3',
+      branch: Branch.Kathmandu2,
+      action: 'CHECK_IN',
+      entity: 'Booking',
+      details: { message: 'Checked in guest James Wilson (BKG-1008)', bookingId: 'BKG-1008', guestName: 'James Wilson' },
+      ip: ips.manager3,
+      userAgent: userAgents.manager3,
+      createdAt: timeOffset(66),
+    },
+    {
+      username: 'manager3',
+      branch: Branch.Kathmandu2,
+      action: 'LOGIN',
+      entity: 'User',
+      details: { message: 'Manager3 logged in again for evening shift', sessionId: 'sess-104' },
+      ip: ips.manager3,
+      userAgent: userAgents.manager3,
+      createdAt: timeOffset(15),
+    }
+  );
+
+  // Manager4 - Bhairawaha
+  auditLogs.push(
     {
       username: 'manager4',
       branch: Branch.Bhairawaha,
       action: 'LOGIN',
       entity: 'User',
-      details: { message: 'User logged in successfully' },
-      ip: '192.168.1.5',
-      userAgent: 'Mozilla/5.0 (Linux; Android 11; SM-G991B) Chrome/114.0.5735.196',
-      createdAt: new Date(Date.now() - 1000 * 60 * 55), // 55 minutes ago
+      details: { message: 'Manager4 logged in to Bhairawaha branch', sessionId: 'sess-105' },
+      ip: ips.manager4,
+      userAgent: userAgents.manager4,
+      createdAt: timeOffset(87),
+    },
+    {
+      username: 'manager4',
+      branch: Branch.Bhairawaha,
+      action: 'CREATE',
+      entity: 'Booking',
+      details: { message: 'Created booking BKG-1009 for Lisa Anderson', bookingId: 'BKG-1009', customerName: 'Lisa Anderson' },
+      ip: ips.manager4,
+      userAgent: userAgents.manager4,
+      createdAt: timeOffset(77),
     },
     {
       username: 'manager4',
       branch: Branch.Bhairawaha,
       action: 'UPDATE',
-      entity: 'RoomPricing',
-      details: { message: 'Updated Suite price to Rs. 10000' },
-      ip: '192.168.1.5',
-      userAgent: 'Mozilla/5.0 (Linux; Android 11; SM-G991B) Chrome/114.0.5735.196',
-      createdAt: new Date(Date.now() - 1000 * 60 * 8), // 8 minutes ago
+      entity: 'Booking',
+      details: { message: 'Updated booking BKG-1009 - changed room type from Single to Double', bookingId: 'BKG-1009', oldRoomType: 'Single', newRoomType: 'Double' },
+      ip: ips.manager4,
+      userAgent: userAgents.manager4,
+      createdAt: timeOffset(67),
     },
-    // Viewer actions
+    {
+      username: 'manager4',
+      branch: Branch.Bhairawaha,
+      action: 'CHECK_IN',
+      entity: 'Booking',
+      details: { message: 'Checked in guest Lisa Anderson (BKG-1009)', bookingId: 'BKG-1009', guestName: 'Lisa Anderson' },
+      ip: ips.manager4,
+      userAgent: userAgents.manager4,
+      createdAt: timeOffset(57),
+    }
+  );
+
+  // ==================== VIEWER LOGS (View only - No CHECK_IN/CHECK_OUT) ====================
+  console.log('  👀 Creating Viewer audit logs...');
+
+  // Viewer can log in to all branches
+  auditLogs.push(
     {
       username: 'viewer',
       branch: Branch.Pokhara,
       action: 'LOGIN',
       entity: 'User',
-      details: { message: 'User logged in successfully' },
-      ip: '192.168.1.6',
-      userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Firefox/114.0',
-      createdAt: new Date(Date.now() - 1000 * 60 * 5), // 5 minutes ago
+      details: { message: 'Viewer logged in to Pokhara branch', sessionId: 'sess-201' },
+      ip: ips.viewer,
+      userAgent: userAgents.viewer,
+      createdAt: timeOffset(100),
     },
+    {
+      username: 'viewer',
+      branch: Branch.Kathmandu1,
+      action: 'LOGIN',
+      entity: 'User',
+      details: { message: 'Viewer logged in to Kathmandu1 branch', sessionId: 'sess-202' },
+      ip: ips.viewer,
+      userAgent: userAgents.viewer,
+      createdAt: timeOffset(96),
+    },
+    {
+      username: 'viewer',
+      branch: Branch.Kathmandu2,
+      action: 'LOGIN',
+      entity: 'User',
+      details: { message: 'Viewer logged in to Kathmandu2 branch', sessionId: 'sess-203' },
+      ip: ips.viewer,
+      userAgent: userAgents.viewer,
+      createdAt: timeOffset(92),
+    },
+    {
+      username: 'viewer',
+      branch: Branch.Bhairawaha,
+      action: 'LOGIN',
+      entity: 'User',
+      details: { message: 'Viewer logged in to Bhairawaha branch', sessionId: 'sess-204' },
+      ip: ips.viewer,
+      userAgent: userAgents.viewer,
+      createdAt: timeOffset(88),
+    }
+  );
+
+  // Viewer VIEW operations (all branches)
+  auditLogs.push(
     {
       username: 'viewer',
       branch: Branch.Pokhara,
       action: 'VIEW',
       entity: 'Booking',
-      details: { message: 'Viewed booking list' },
-      ip: '192.168.1.6',
-      userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Firefox/114.0',
-      createdAt: new Date(Date.now() - 1000 * 60 * 2), // 2 minutes ago
+      details: { message: 'Viewed booking list for Pokhara branch', filter: 'last 7 days' },
+      ip: ips.viewer,
+      userAgent: userAgents.viewer,
+      createdAt: timeOffset(80),
     },
-  ];
+    {
+      username: 'viewer',
+      branch: Branch.Kathmandu1,
+      action: 'VIEW',
+      entity: 'Booking',
+      details: { message: 'Viewed booking BKG-1002 details', bookingId: 'BKG-1002' },
+      ip: ips.viewer,
+      userAgent: userAgents.viewer,
+      createdAt: timeOffset(75),
+    },
+    {
+      username: 'viewer',
+      branch: Branch.Kathmandu2,
+      action: 'VIEW',
+      entity: 'RoomPricing',
+      details: { message: 'Viewed pricing for all room types', branch: 'Kathmandu2' },
+      ip: ips.viewer,
+      userAgent: userAgents.viewer,
+      createdAt: timeOffset(70),
+    },
+    {
+      username: 'viewer',
+      branch: Branch.Pokhara,
+      action: 'VIEW',
+      entity: 'AuditLog',
+      details: { message: 'Viewed audit logs', filter: 'last 24 hours' },
+      ip: ips.viewer,
+      userAgent: userAgents.viewer,
+      createdAt: timeOffset(65),
+    },
+    {
+      username: 'viewer',
+      branch: Branch.Bhairawaha,
+      action: 'VIEW',
+      entity: 'Booking',
+      details: { message: 'Viewed booking BKG-1009 details', bookingId: 'BKG-1009' },
+      ip: ips.viewer,
+      userAgent: userAgents.viewer,
+      createdAt: timeOffset(60),
+    },
+    {
+      username: 'viewer',
+      branch: Branch.Kathmandu1,
+      action: 'VIEW',
+      entity: 'RoomPricing',
+      details: { message: 'Viewed room availability for next 30 days' },
+      ip: ips.viewer,
+      userAgent: userAgents.viewer,
+      createdAt: timeOffset(55),
+    },
+    {
+      username: 'viewer',
+      branch: Branch.Pokhara,
+      action: 'VIEW',
+      entity: 'AuditLog',
+      details: { message: 'Viewed audit log summary', summaryType: 'daily' },
+      ip: ips.viewer,
+      userAgent: userAgents.viewer,
+      createdAt: timeOffset(50),
+    },
+    {
+      username: 'viewer',
+      branch: Branch.Bhairawaha,
+      action: 'VIEW',
+      entity: 'BranchCapacity',
+      details: { message: 'Viewed branch capacity and occupancy rates' },
+      ip: ips.viewer,
+      userAgent: userAgents.viewer,
+      createdAt: timeOffset(45),
+    }
+  );
 
+  // ==================== ADDITIONAL MANAGER LOGS (Multiple sessions) ====================
+  console.log('  📋 Creating additional manager activity logs...');
+
+  // Additional Manager1 activity (Pokhara)
+  auditLogs.push(
+    {
+      username: 'manager1',
+      branch: Branch.Pokhara,
+      action: 'LOGIN',
+      entity: 'User',
+      details: { message: 'Manager1 logged in for morning shift', sessionId: 'sess-106' },
+      ip: ips.manager1,
+      userAgent: userAgents.manager1,
+      createdAt: timeOffset(150),
+    },
+    {
+      username: 'manager1',
+      branch: Branch.Pokhara,
+      action: 'VIEW',
+      entity: 'Booking',
+      details: { message: 'Viewed daily occupancy report' },
+      ip: ips.manager1,
+      userAgent: userAgents.manager1,
+      createdAt: timeOffset(140),
+    },
+    {
+      username: 'manager1',
+      branch: Branch.Pokhara,
+      action: 'UPDATE',
+      entity: 'Booking',
+      details: { message: 'Updated booking BKG-1005 with early check-in request', bookingId: 'BKG-1005' },
+      ip: ips.manager1,
+      userAgent: userAgents.manager1,
+      createdAt: timeOffset(130),
+    }
+  );
+
+  // Additional Manager2 activity (Kathmandu1)
+  auditLogs.push(
+    {
+      username: 'manager2',
+      branch: Branch.Kathmandu1,
+      action: 'LOGIN',
+      entity: 'User',
+      details: { message: 'Manager2 logged in for afternoon shift', sessionId: 'sess-107' },
+      ip: ips.manager2,
+      userAgent: userAgents.manager2,
+      createdAt: timeOffset(145),
+    },
+    {
+      username: 'manager2',
+      branch: Branch.Kathmandu1,
+      action: 'CHECK_IN',
+      entity: 'Booking',
+      details: { message: 'Checked in guest Thomas Moore (BKG-1010)', bookingId: 'BKG-1010', guestName: 'Thomas Moore' },
+      ip: ips.manager2,
+      userAgent: userAgents.manager2,
+      createdAt: timeOffset(125),
+    },
+    {
+      username: 'manager2',
+      branch: Branch.Kathmandu1,
+      action: 'VIEW',
+      entity: 'Booking',
+      details: { message: 'Viewed upcoming bookings for next 14 days' },
+      ip: ips.manager2,
+      userAgent: userAgents.manager2,
+      createdAt: timeOffset(115),
+    }
+  );
+
+  // Additional Manager3 activity (Kathmandu2)
+  auditLogs.push(
+    {
+      username: 'manager3',
+      branch: Branch.Kathmandu2,
+      action: 'LOGIN',
+      entity: 'User',
+      details: { message: 'Manager3 logged in for night shift', sessionId: 'sess-108' },
+      ip: ips.manager3,
+      userAgent: userAgents.manager3,
+      createdAt: timeOffset(135),
+    },
+    {
+      username: 'manager3',
+      branch: Branch.Kathmandu2,
+      action: 'CHECK_OUT',
+      entity: 'Booking',
+      details: { message: 'Checked out guest James Wilson (BKG-1008)', bookingId: 'BKG-1008', guestName: 'James Wilson' },
+      ip: ips.manager3,
+      userAgent: userAgents.manager3,
+      createdAt: timeOffset(120),
+    },
+    {
+      username: 'manager3',
+      branch: Branch.Kathmandu2,
+      action: 'CREATE',
+      entity: 'Booking',
+      details: { message: 'Created booking BKG-1011 for Jennifer Lee', bookingId: 'BKG-1011', customerName: 'Jennifer Lee' },
+      ip: ips.manager3,
+      userAgent: userAgents.manager3,
+      createdAt: timeOffset(105),
+    }
+  );
+
+  // Additional Manager4 activity (Bhairawaha)
+  auditLogs.push(
+    {
+      username: 'manager4',
+      branch: Branch.Bhairawaha,
+      action: 'LOGIN',
+      entity: 'User',
+      details: { message: 'Manager4 logged in for weekend shift', sessionId: 'sess-109' },
+      ip: ips.manager4,
+      userAgent: userAgents.manager4,
+      createdAt: timeOffset(138),
+    },
+    {
+      username: 'manager4',
+      branch: Branch.Bhairawaha,
+      action: 'UPDATE',
+      entity: 'Booking',
+      details: { message: 'Updated booking BKG-1009 with room upgrade', bookingId: 'BKG-1009', upgrade: 'Double to Suite' },
+      ip: ips.manager4,
+      userAgent: userAgents.manager4,
+      createdAt: timeOffset(122),
+    },
+    {
+      username: 'manager4',
+      branch: Branch.Bhairawaha,
+      action: 'CHECK_OUT',
+      entity: 'Booking',
+      details: { message: 'Checked out guest Lisa Anderson (BKG-1009)', bookingId: 'BKG-1009', guestName: 'Lisa Anderson' },
+      ip: ips.manager4,
+      userAgent: userAgents.manager4,
+      createdAt: timeOffset(108),
+    }
+  );
+
+  // ==================== INSERT ALL AUDIT LOGS ====================
+  console.log(`  📝 Inserting ${auditLogs.length} audit logs...`);
+  
   for (const log of auditLogs) {
     await prisma.auditLog.create({
       data: log,
     });
   }
   console.log(`✅ Created ${auditLogs.length} audit logs`);
-
-  // ==================== CREATE AUDIT LOG ====================
-  // (Legacy - keeping for backward compatibility)
-  console.log('📝 Creating additional audit logs...');
-
-  const legacyAuditLogs = [
-    { username: 'owner', branch: Branch.Pokhara, action: 'LOGIN', entity: 'User', details: { message: 'User logged in' } },
-    { username: 'owner', branch: Branch.Pokhara, action: 'UPDATE', entity: 'RoomPricing', details: { message: 'Updated pricing for Single room' } },
-  ];
-
-  for (const log of legacyAuditLogs) {
-    await prisma.auditLog.create({
-      data: log,
-    });
-  }
-  console.log('✅ Created legacy audit logs');
 
   // ==================== SUMMARY ====================
   console.log('\n📊 Seeding Summary:');
@@ -518,17 +1044,34 @@ async function main() {
   console.log(`✅ ${availabilityCount} room availability entries created`);
   console.log(`✅ ${seasonalRules.length} seasonal rules created`);
   console.log(`✅ ${branchCapacities.length} branch capacities created`);
-  console.log(`✅ ${auditLogs.length + legacyAuditLogs.length} audit logs created`);
+  console.log(`✅ ${auditLogs.length} audit logs created`);
   console.log('✅ 0 bookings created (sample bookings removed)');
   console.log('✅ Seeding complete!');
 
   console.log('\n🔑 Login Credentials:');
-  console.log('  Owner:   owner / owner123');
-  console.log('  Manager: manager / manager123 (Pokhara only)');
-  console.log('  Manager2: manager2 / manager123 (Kathmandu1 only)');
-  console.log('  Manager3: manager3 / manager123 (Kathmandu2 only)');
-  console.log('  Manager4: manager4 / manager123 (Bhairawaha only)');
-  console.log('  Viewer:  viewer / viewer123 (View only)');
+  console.log('  👑 Owner:    owner / owner123 (All branches - Full access)');
+  console.log('  🏢 Manager1: manager1 / manager123 (Pokhara only)');
+  console.log('  🏢 Manager2: manager2 / manager123 (Kathmandu1 only)');
+  console.log('  🏢 Manager3: manager3 / manager123 (Kathmandu2 only)');
+  console.log('  🏢 Manager4: manager4 / manager123 (Bhairawaha only)');
+  console.log('  👀 Viewer:   viewer / viewer123 (All branches - View only)');
+
+  console.log('\n📋 Audit Log Summary:');
+  console.log('  👑 Owner Actions:');
+  console.log('     - LOGIN: All 4 branches');
+  console.log('     - CREATE: Bookings and room types (all branches)');
+  console.log('     - UPDATE: Pricing, bookings, and capacities (all branches)');
+  console.log('     - DELETE: Bookings and room types (all branches)');
+  console.log('  🏢 Manager Actions (their assigned branches only):');
+  console.log('     - LOGIN: Their assigned branch');
+  console.log('     - CREATE: Bookings');
+  console.log('     - UPDATE: Bookings');
+  console.log('     - CHECK_IN: Guest check-ins');
+  console.log('     - CHECK_OUT: Guest check-outs');
+  console.log('  👀 Viewer Actions (All branches - View only):');
+  console.log('     - LOGIN: All branches');
+  console.log('     - VIEW: Bookings, pricing, audit logs, capacities');
+  console.log('     - ❌ No CHECK_IN, CHECK_OUT, CREATE, UPDATE, or DELETE');
 
   console.log('\n🏨 Room Types Available:');
   console.log('  - Single (Capacity: 1) - Rs. 2,000/night');
@@ -537,14 +1080,7 @@ async function main() {
   console.log('  - Quard (Capacity: 4) - Rs. 5,500/night');
   console.log('  - Suite (Capacity: 4) - Rs. 8,000/night');
 
-  console.log('\n📋 Audit Log Entries Created:');
-  console.log('  - LOGIN: User login events');
-  console.log('  - CREATE: New booking creation');
-  console.log('  - UPDATE: Updates to bookings and pricing');
-  console.log('  - DELETE: Booking cancellations');
-  console.log('  - CHECK_IN: Guest check-ins');
-  console.log('  - CHECK_OUT: Guest check-outs');
-  console.log('  - VIEW: Viewing activities');
+  console.log('\n✅ Seeding completed successfully!');
 }
 
 main()

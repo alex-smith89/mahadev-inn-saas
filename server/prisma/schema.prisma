@@ -92,7 +92,7 @@ model Booking {
   email               String?         @db.VarChar(100)
   roomsCount          Int             @default(1)
   roomType            RoomTypeEnum
-  facility            String          @default("Standard") @db.VarChar(50)
+  facility            String?         @db.VarChar(50) // ✅ MADE OPTIONAL - was "Standard" @default("Standard")
   facilityMultiplier  Float           @default(1.0)
   price               Float?          @default(0)
   mealPlan            MealPlan        @default(EP)

@@ -689,7 +689,7 @@ export default function NewBookingPage() {
         heads: Number(form.heads) || 1,
         childrenBelow10: childrenBelow10,
         mealPlan: form.mealPlan,
-        facility: form.facility.trim() || undefined,
+        facility: form.facility?.trim() || null, // ✅ FIXED: null instead of undefined
         checkIn: currentTime,
         checkOut: form.checkOut,
         bookingStatus: form.bookingStatus,
@@ -706,7 +706,7 @@ export default function NewBookingPage() {
         totalCost: selectedCurrency === 'INR' ? totalCostINR : totalCostNPR,
         totalCostNPR: totalCostNPR,
         totalCostINR: totalCostINR,
-        remark: form.remark.trim() || undefined,
+        remark: form.remark?.trim() || null, // ✅ FIXED: null instead of undefined
         bookedAt: currentTime,
         roomCapacity: costBreakdown.roomCapacity,
         totalCapacity: costBreakdown.totalCapacity,

@@ -115,19 +115,6 @@ export default function DashboardPage() {
   const [branchCounts, setBranchCounts] = useState<{[key: string]: number}>({});
   const [branchStatusSummary, setBranchStatusSummary] = useState<{[key: string]: any}>({});
   
-  // ✅ AUDIT LOG STATES (Only for Viewer)
-  const [auditLogs, setAuditLogs] = useState<any[]>([]);
-  const [showAuditLogs, setShowAuditLogs] = useState(false);
-  const [auditLoading, setAuditLoading] = useState(false);
-  const [auditStats, setAuditStats] = useState({
-    totalActions: 0,
-    creates: 0,
-    updates: 0,
-    deletes: 0,
-    logins: 0,
-    users: 0,
-  });
-  
   // Checkout information states
   const [checkedOutGuests, setCheckedOutGuests] = useState<any[]>([]);
   const [vacantRooms, setVacantRooms] = useState<number>(0);
@@ -385,43 +372,6 @@ export default function DashboardPage() {
     }
   };
 
-  // ✅ Load Audit Logs (Only for Viewer)
-  const loadAuditLogs = async () => {
-    if (!isViewer) return;
-    
-    try {
-      setAuditLoading(true);
-      const token = localStorage.getItem('token');
-      const response = await fetch(`${API_URL}/audit`, {
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json',
-        },
-      });
-      
-      if (response.ok) {
-        const data = await response.json();
-        const logs = data.data || data || [];
-        setAuditLogs(logs.slice(0, 50)); // Show last 50 logs
-        
-        // Calculate stats
-        const stats = {
-          totalActions: logs.length,
-          creates: logs.filter((l: any) => l.action === 'CREATE').length,
-          updates: logs.filter((l: any) => l.action === 'UPDATE' || l.action === 'PATCH' || l.action === 'PUT').length,
-          deletes: logs.filter((l: any) => l.action === 'DELETE').length,
-          logins: logs.filter((l: any) => l.action === 'LOGIN').length,
-          users: new Set(logs.map((l: any) => l.username)).size,
-        };
-        setAuditStats(stats);
-      }
-    } catch (err) {
-      console.error('Error loading audit logs:', err);
-    } finally {
-      setAuditLoading(false);
-    }
-  };
-
   // Load Upcoming Checkouts
   const loadUpcomingCheckouts = async () => {
     try {
@@ -524,9 +474,6 @@ export default function DashboardPage() {
     await loadTodayCheckins();
     await loadTomorrowCheckins();
     await loadNotificationHistory();
-    if (isViewer) {
-      await loadAuditLogs();
-    }
     setLastRefresh(Date.now());
     setLastUpdate(new Date().toLocaleTimeString());
   };
@@ -1819,36 +1766,6 @@ export default function DashboardPage() {
     return branches;
   };
 
-  // ✅ Format audit log action with color
-  const getAuditActionColor = (action: string) => {
-    switch (action) {
-      case 'CREATE': return 'bg-green-100 text-green-800';
-      case 'UPDATE':
-      case 'PATCH':
-      case 'PUT': return 'bg-blue-100 text-blue-800';
-      case 'DELETE': return 'bg-red-100 text-red-800';
-      case 'LOGIN': return 'bg-purple-100 text-purple-800';
-      case 'CHECK_IN': return 'bg-indigo-100 text-indigo-800';
-      case 'CHECK_OUT': return 'bg-orange-100 text-orange-800';
-      default: return 'bg-gray-100 text-gray-800';
-    }
-  };
-
-  // ✅ Get audit action icon
-  const getAuditActionIcon = (action: string) => {
-    switch (action) {
-      case 'CREATE': return '📝';
-      case 'UPDATE':
-      case 'PATCH':
-      case 'PUT': return '✏️';
-      case 'DELETE': return '🗑️';
-      case 'LOGIN': return '🔑';
-      case 'CHECK_IN': return '✅';
-      case 'CHECK_OUT': return '📤';
-      default: return '📌';
-    }
-  };
-
   if (loading) {
     return (
       <div className="flex justify-center items-center h-screen">
@@ -1979,18 +1896,13 @@ export default function DashboardPage() {
 
             {/* ✅ ONLY VIEWER - Audit Log Link */}
             {isViewer && (
-              <button
-                onClick={() => {
-                  setShowAuditLogs(!showAuditLogs);
-                  if (!showAuditLogs) {
-                    loadAuditLogs();
-                  }
-                }}
-                className="flex items-center space-x-3 px-3 sm:px-4 py-2.5 sm:py-3 rounded-lg hover:bg-indigo-700 transition-colors text-sm sm:text-base w-full text-left"
+              <Link 
+                href="/dashboard/audit-logs" 
+                className="flex items-center space-x-3 px-3 sm:px-4 py-2.5 sm:py-3 rounded-lg hover:bg-indigo-700 transition-colors text-sm sm:text-base"
               >
                 <FiShield className="w-4 h-4 sm:w-5 sm:h-5 flex-shrink-0" />
-                <span className="truncate">Audit Log {showAuditLogs ? '▼' : '▶'}</span>
-              </button>
+                <span className="truncate">Audit Log</span>
+              </Link>
             )}
           </nav>
 
@@ -2911,123 +2823,7 @@ export default function DashboardPage() {
           )}
 
           {/* ============================================================ */}
-          {/* SECTION 2.2.11: AUDIT LOG - ONLY FOR VIEWER */}
-          {/* ============================================================ */}
-          {isViewer && showAuditLogs && (
-            <div className="bg-white rounded-xl shadow-sm p-3 sm:p-6 mb-4 sm:mb-6">
-              <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between mb-3 sm:mb-4 gap-3">
-                <h3 className="text-sm sm:text-lg font-semibold text-gray-800 flex items-center gap-2">
-                  <FiShield className="w-4 h-4 sm:w-5 sm:h-5 text-indigo-600" />
-                  Audit Log
-                  <span className="text-xs font-normal text-gray-400">
-                    ({auditLogs.length} entries)
-                  </span>
-                </h3>
-                <div className="flex flex-wrap items-center gap-2">
-                  <button
-                    onClick={loadAuditLogs}
-                    disabled={auditLoading}
-                    className="text-xs bg-indigo-100 text-indigo-700 px-2 sm:px-3 py-1 sm:py-1.5 rounded-lg hover:bg-indigo-200 transition-colors flex items-center gap-1 disabled:opacity-50"
-                  >
-                    <FiRefreshCw className={`w-3 h-3 ${auditLoading ? 'animate-spin' : ''}`} />
-                    {auditLoading ? 'Loading...' : 'Refresh'}
-                  </button>
-                  <button
-                    onClick={() => setShowAuditLogs(false)}
-                    className="text-xs bg-gray-100 text-gray-700 px-2 sm:px-3 py-1 sm:py-1.5 rounded-lg hover:bg-gray-200 transition-colors"
-                  >
-                    Close
-                  </button>
-                </div>
-              </div>
-
-              {/* Audit Stats Summary */}
-              <div className="grid grid-cols-3 sm:grid-cols-6 gap-2 mb-3 sm:mb-4">
-                <div className="bg-gray-50 rounded-lg p-2 text-center">
-                  <p className="text-lg sm:text-xl font-bold text-gray-800">{auditStats.totalActions}</p>
-                  <p className="text-[8px] sm:text-xs text-gray-500">Total</p>
-                </div>
-                <div className="bg-green-50 rounded-lg p-2 text-center">
-                  <p className="text-lg sm:text-xl font-bold text-green-600">{auditStats.creates}</p>
-                  <p className="text-[8px] sm:text-xs text-green-600">Created</p>
-                </div>
-                <div className="bg-blue-50 rounded-lg p-2 text-center">
-                  <p className="text-lg sm:text-xl font-bold text-blue-600">{auditStats.updates}</p>
-                  <p className="text-[8px] sm:text-xs text-blue-600">Updated</p>
-                </div>
-                <div className="bg-red-50 rounded-lg p-2 text-center">
-                  <p className="text-lg sm:text-xl font-bold text-red-600">{auditStats.deletes}</p>
-                  <p className="text-[8px] sm:text-xs text-red-600">Deleted</p>
-                </div>
-                <div className="bg-purple-50 rounded-lg p-2 text-center">
-                  <p className="text-lg sm:text-xl font-bold text-purple-600">{auditStats.logins}</p>
-                  <p className="text-[8px] sm:text-xs text-purple-600">Logins</p>
-                </div>
-                <div className="bg-indigo-50 rounded-lg p-2 text-center">
-                  <p className="text-lg sm:text-xl font-bold text-indigo-600">{auditStats.users}</p>
-                  <p className="text-[8px] sm:text-xs text-indigo-600">Users</p>
-                </div>
-              </div>
-
-              {/* Audit Logs Table */}
-              <div className="overflow-x-auto">
-                <table className="min-w-full divide-y divide-gray-200">
-                  <thead className="bg-gray-50">
-                    <tr>
-                      <th className="px-2 sm:px-4 py-1.5 sm:py-2 text-left text-[8px] sm:text-xs font-medium text-gray-500 uppercase">User</th>
-                      <th className="px-2 sm:px-4 py-1.5 sm:py-2 text-left text-[8px] sm:text-xs font-medium text-gray-500 uppercase">Action</th>
-                      <th className="px-2 sm:px-4 py-1.5 sm:py-2 text-left text-[8px] sm:text-xs font-medium text-gray-500 uppercase hidden sm:table-cell">Entity</th>
-                      <th className="px-2 sm:px-4 py-1.5 sm:py-2 text-left text-[8px] sm:text-xs font-medium text-gray-500 uppercase hidden md:table-cell">Branch</th>
-                      <th className="px-2 sm:px-4 py-1.5 sm:py-2 text-left text-[8px] sm:text-xs font-medium text-gray-500 uppercase hidden lg:table-cell">IP Address</th>
-                      <th className="px-2 sm:px-4 py-1.5 sm:py-2 text-left text-[8px] sm:text-xs font-medium text-gray-500 uppercase">Time</th>
-                    </tr>
-                  </thead>
-                  <tbody className="bg-white divide-y divide-gray-200">
-                    {auditLogs.length === 0 ? (
-                      <tr>
-                        <td colSpan={6} className="px-4 py-6 text-center text-gray-500 text-sm">
-                          {auditLoading ? 'Loading audit logs...' : 'No audit logs found'}
-                        </td>
-                      </tr>
-                    ) : (
-                      auditLogs.slice(0, 20).map((log) => (
-                        <tr key={log.id} className="hover:bg-gray-50 transition-colors">
-                          <td className="px-2 sm:px-4 py-1.5 sm:py-2 text-[10px] sm:text-sm text-gray-900 font-medium truncate max-w-[80px]">
-                            {log.username || 'system'}
-                          </td>
-                          <td className="px-2 sm:px-4 py-1.5 sm:py-2">
-                            <span className={`px-1.5 sm:px-2 py-0.5 sm:py-1 text-[8px] sm:text-xs rounded-full whitespace-nowrap ${getAuditActionColor(log.action)}`}>
-                              {getAuditActionIcon(log.action)} {log.action}
-                            </span>
-                          </td>
-                          <td className="px-2 sm:px-4 py-1.5 sm:py-2 text-[10px] sm:text-sm text-gray-500 hidden sm:table-cell truncate max-w-[100px]">
-                            {log.entity || 'N/A'}
-                          </td>
-                          <td className="px-2 sm:px-4 py-1.5 sm:py-2 text-[10px] sm:text-sm text-gray-500 hidden md:table-cell truncate max-w-[80px]">
-                            {log.branch || 'N/A'}
-                          </td>
-                          <td className="px-2 sm:px-4 py-1.5 sm:py-2 text-[8px] sm:text-xs text-gray-400 hidden lg:table-cell font-mono">
-                            {log.ip || '—'}
-                          </td>
-                          <td className="px-2 sm:px-4 py-1.5 sm:py-2 text-[8px] sm:text-xs text-gray-400 whitespace-nowrap">
-                            {new Date(log.createdAt || log.created_at).toLocaleString()}
-                          </td>
-                        </tr>
-                      ))
-                    )}
-                  </tbody>
-                </table>
-                {auditLogs.length > 20 && (
-                  <div className="mt-2 text-center text-xs text-gray-400">
-                    Showing 20 of {auditLogs.length} entries
-                  </div>
-                )}
-              </div>
-            </div>
-          )}
-
-          {/* ============================================================ */}
-          {/* SECTION 2.2.12: QUICK ACTIONS */}
+          {/* SECTION 2.2.11: QUICK ACTIONS */}
           {/* ============================================================ */}
           <div className="grid grid-cols-2 xs:grid-cols-4 gap-2 sm:gap-4">
             {isOwner || isManager ? (
@@ -3043,22 +2839,6 @@ export default function DashboardPage() {
                 <FiFileText className="w-4 h-4 sm:w-6 sm:h-6 mx-auto mb-1 sm:mb-2" />
                 <p className="text-[10px] sm:text-sm font-medium">Reports</p>
               </Link>
-            )}
-            
-            {/* ✅ Viewer can access Audit Log from Quick Actions */}
-            {isViewer && (
-              <button
-                onClick={() => {
-                  setShowAuditLogs(!showAuditLogs);
-                  if (!showAuditLogs) {
-                    loadAuditLogs();
-                  }
-                }}
-                className="bg-indigo-100 text-indigo-700 rounded-xl shadow-sm p-2 sm:p-4 hover:bg-indigo-200 transition-colors text-center"
-              >
-                <FiShield className="w-4 h-4 sm:w-6 sm:h-6 mx-auto mb-1 sm:mb-2" />
-                <p className="text-[10px] sm:text-sm font-medium">Audit Log</p>
-              </button>
             )}
           </div>
 
