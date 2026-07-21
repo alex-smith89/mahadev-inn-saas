@@ -1,0 +1,3 @@
+-- AlterTable
+ALTER TABLE "Booking" ALTER COLUMN "facility" DROP NOT NULL,
+ALTER COLUMN "facility" DROP DEFAULT;

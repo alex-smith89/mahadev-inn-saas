@@ -1886,6 +1886,15 @@ export default function DashboardPage() {
                   <FiGrid className="w-4 h-4 sm:w-5 sm:h-5 flex-shrink-0" />
                   <span className="truncate">Room Capacity</span>
                 </Link>
+
+                {/* ✅ ONLY OWNER - Audit Log Link */}
+                <Link 
+                  href="/dashboard/audit-logs" 
+                  className="flex items-center space-x-3 px-3 sm:px-4 py-2.5 sm:py-3 rounded-lg hover:bg-indigo-700 transition-colors text-sm sm:text-base"
+                >
+                  <FiShield className="w-4 h-4 sm:w-5 sm:h-5 flex-shrink-0" />
+                  <span className="truncate">Audit Log</span>
+                </Link>
               </>
             )}
             
@@ -1893,17 +1902,6 @@ export default function DashboardPage() {
               <FiPieChart className="w-4 h-4 sm:w-5 sm:h-5 flex-shrink-0" />
               <span className="truncate">Reports</span>
             </Link>
-
-            {/* ✅ ONLY VIEWER - Audit Log Link */}
-            {isViewer && (
-              <Link 
-                href="/dashboard/audit-logs" 
-                className="flex items-center space-x-3 px-3 sm:px-4 py-2.5 sm:py-3 rounded-lg hover:bg-indigo-700 transition-colors text-sm sm:text-base"
-              >
-                <FiShield className="w-4 h-4 sm:w-5 sm:h-5 flex-shrink-0" />
-                <span className="truncate">Audit Log</span>
-              </Link>
-            )}
           </nav>
 
           {/* Logout Button */}
