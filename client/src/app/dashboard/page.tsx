@@ -241,6 +241,19 @@ export default function DashboardPage() {
     return booking.bookingStatus === 'CheckedIn';
   };
 
+  // ✅ Check if check-out is allowed based on date
+  const isCheckOutAllowed = (booking: any): boolean => {
+    if (booking.bookingStatus !== 'CheckedIn') return false;
+    
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const checkOutDate = new Date(booking.checkOut);
+    checkOutDate.setHours(0, 0, 0, 0);
+    
+    // Allow check-out if today is the check-out date or after
+    return checkOutDate <= today;
+  };
+
   // Individual Auto Check-In
   const handleIndividualCheckIn = async (bookingId: string) => {
     if (!confirm('Are you sure you want to check in this guest?')) return;
@@ -281,7 +294,7 @@ export default function DashboardPage() {
     }
   };
 
-  // Individual Auto Check-Out
+  // ✅ Updated Individual Auto Check-Out with date validation
   const handleIndividualCheckOut = async (bookingId: string) => {
     if (!confirm('Are you sure you want to check out this guest?')) return;
     
@@ -291,6 +304,69 @@ export default function DashboardPage() {
 
     try {
       const token = localStorage.getItem('token');
+      
+      // ✅ First, get the booking details to check if it's the correct date
+      const bookingResponse = await fetch(`${API_URL}/bookings/${bookingId}`, {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+      });
+
+      if (bookingResponse.ok) {
+        const bookingData = await bookingResponse.json();
+        const booking = bookingData.data || bookingData;
+        
+        // ✅ Check if today is the check-out date
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        
+        const checkOutDate = new Date(booking.checkOut);
+        checkOutDate.setHours(0, 0, 0, 0);
+        
+        const checkInDate = new Date(booking.checkIn);
+        checkInDate.setHours(0, 0, 0, 0);
+        
+        // ✅ Check if the guest is already checked out
+        if (booking.bookingStatus === 'CheckedOut') {
+          setErrorMessage(`❌ Guest "${booking.agentName}" has already checked out.`);
+          showNotification(`❌ Guest already checked out`, 'warning');
+          setProcessingBookingId(null);
+          return;
+        }
+        
+        // ✅ Check if the guest is checked in
+        if (booking.bookingStatus !== 'CheckedIn') {
+          setErrorMessage(`❌ Guest "${booking.agentName}" is not checked in yet. Please check in first.`);
+          showNotification(`❌ Guest not checked in yet`, 'warning');
+          setProcessingBookingId(null);
+          return;
+        }
+        
+        // ✅ Check if today is the check-out date or after
+        if (checkOutDate > today) {
+          const dateStr = checkOutDate.toLocaleDateString('en-US', {
+            weekday: 'long',
+            year: 'numeric',
+            month: 'long',
+            day: 'numeric'
+          });
+          setErrorMessage(`❌ Cannot check out "${booking.agentName}" yet. Check-out date is ${dateStr}. Please wait until the check-out date.`);
+          showNotification(`❌ Check-out date is ${dateStr}`, 'warning');
+          setProcessingBookingId(null);
+          return;
+        }
+        
+        // ✅ If it's before check-in date
+        if (checkInDate > today) {
+          setErrorMessage(`❌ Guest "${booking.agentName}" has not checked in yet. Check-in date is ${checkInDate.toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}`);
+          showNotification(`❌ Guest not checked in yet`, 'warning');
+          setProcessingBookingId(null);
+          return;
+        }
+      }
+
+      // ✅ Proceed with check-out
       const response = await fetch(`${API_URL}/bookings/${bookingId}/checkout`, {
         method: 'PATCH',
         headers: {
@@ -301,7 +377,16 @@ export default function DashboardPage() {
 
       if (!response.ok) {
         const errorData = await response.json();
-        throw new Error(errorData.message || 'Failed to check out guest');
+        
+        // ✅ Check for specific error messages
+        if (errorData.message && errorData.message.includes('Check-out date')) {
+          setErrorMessage(`❌ ${errorData.message}`);
+          showNotification(`❌ ${errorData.message}`, 'warning');
+        } else {
+          throw new Error(errorData.message || 'Failed to check out guest');
+        }
+        setProcessingBookingId(null);
+        return;
       }
 
       const data = await response.json();
@@ -314,8 +399,15 @@ export default function DashboardPage() {
       
     } catch (err: any) {
       console.error('❌ Failed to check out guest:', err);
-      setErrorMessage(`❌ Failed to check out guest: ${err.message}`);
-      showNotification(`❌ Check-out failed: ${err.message}`, 'warning');
+      
+      // ✅ Show a more user-friendly error message
+      if (err.message && err.message.includes('Check-out date')) {
+        setErrorMessage(`❌ ${err.message}`);
+        showNotification(`❌ ${err.message}`, 'warning');
+      } else {
+        setErrorMessage(`❌ Failed to check out guest: ${err.message}`);
+        showNotification(`❌ Check-out failed: ${err.message}`, 'warning');
+      }
     } finally {
       setProcessingBookingId(null);
     }
@@ -2792,8 +2884,8 @@ export default function DashboardPage() {
                                     </button>
                                   )}
 
-                                  {/* Individual Check-Out Button */}
-                                  {canCheckOut(booking) && (
+                                  {/* ✅ Individual Check-Out Button - Only show if checked in and check-out is allowed */}
+                                  {canCheckOut(booking) && isCheckOutAllowed(booking) && (
                                     <button
                                       onClick={() => handleIndividualCheckOut(booking.id)}
                                       disabled={processingBookingId === booking.id}
@@ -2816,6 +2908,13 @@ export default function DashboardPage() {
                                         </>
                                       )}
                                     </button>
+                                  )}
+
+                                  {/* Show a message if checked in but can't check out yet */}
+                                  {canCheckOut(booking) && !isCheckOutAllowed(booking) && (
+                                    <span className="text-[8px] sm:text-xs text-orange-500 whitespace-nowrap">
+                                      ⏳ Check-out: {new Date(booking.checkOut).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                                    </span>
                                   )}
                                 </>
                               )}
