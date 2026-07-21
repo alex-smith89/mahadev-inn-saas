@@ -428,7 +428,7 @@ export default function NewBookingPage() {
     return '';
   };
 
-  // ✅ Enhanced PDF Generator with html2canvas
+  // ✅ Enhanced PDF Generator with Logo
   const generateReceiptPDF = async (booking: any) => {
     try {
       console.log('📄 Generating PDF for booking:', booking.bookingNo);
@@ -450,7 +450,7 @@ export default function NewBookingPage() {
       const vatAmount = totalCost * 0.13;
       const subtotal = totalCost - vatAmount;
 
-      // Create HTML content
+      // Create HTML content with logo
       const receiptHTML = `
         <!DOCTYPE html>
         <html>
@@ -475,27 +475,48 @@ export default function NewBookingPage() {
                 padding-bottom: 20px;
                 margin-bottom: 20px;
               }
-              .hotel-name {
-                font-size: 28px;
+              .logo-container {
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                margin-bottom: 8px;
+                gap: 20px;
+              }
+              .logo-image {
+                width: 80px;
+                height: 80px;
+                object-fit: contain;
+              }
+              .logo-text-container {
+                text-align: left;
+              }
+              .logo-text {
+                font-size: 32px;
                 font-weight: bold;
                 color: #4f46e5;
+                letter-spacing: 4px;
                 margin: 0;
+                line-height: 1.2;
               }
-              .hotel-sub {
-                font-size: 12px;
+              .logo-sub {
+                font-size: 11px;
                 color: #6b7280;
-                margin: 4px 0;
+                letter-spacing: 5px;
+                margin-top: 2px;
+                font-weight: 500;
               }
               .title {
                 font-size: 18px;
                 color: #4f46e5;
-                margin: 8px 0;
+                margin: 10px 0 4px 0;
                 font-weight: bold;
+                letter-spacing: 2px;
               }
               .branch {
                 font-size: 12px;
                 color: #6b7280;
-                margin: 4px 0;
+                margin: 0;
+                font-weight: 500;
               }
               .info-box {
                 background: #f5f5ff;
@@ -622,10 +643,15 @@ export default function NewBookingPage() {
           </head>
           <body>
             <div class="receipt">
-              <!-- Header -->
+              <!-- Header with Logo -->
               <div class="header">
-                <div class="hotel-name">🏨 MAHADEV INN</div>
-                <div class="hotel-sub">Luxury Hotel & Suites</div>
+                <div class="logo-container">
+                  <img src="/mahadev-logo.png" alt="Mahadev Inn Logo" class="logo-image" />
+                  <div class="logo-text-container">
+                    <div class="logo-text">MAHADEV INN</div>
+                    <div class="logo-sub">LUXURY HOTEL & SUITES</div>
+                  </div>
+                </div>
                 <div class="title">BOOKING CONFIRMATION</div>
                 <div class="branch">Branch: ${booking.branch || 'N/A'}</div>
               </div>
@@ -734,7 +760,7 @@ export default function NewBookingPage() {
       document.body.appendChild(div);
 
       // Wait for rendering
-      await new Promise(resolve => setTimeout(resolve, 200));
+      await new Promise(resolve => setTimeout(resolve, 300));
 
       // Capture as canvas
       const canvas = await html2canvas(div, {
@@ -744,6 +770,8 @@ export default function NewBookingPage() {
         backgroundColor: '#ffffff',
         width: 700,
         height: div.scrollHeight,
+        allowTaint: true,
+        useCORS: true,
       });
 
       // Remove temp div

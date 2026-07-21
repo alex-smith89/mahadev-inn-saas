@@ -44,6 +44,11 @@ export default function LoginPage() {
   const [selectedUser, setSelectedUser] = useState<any>(DEMO_USERS[1]);
   const [availableBranches, setAvailableBranches] = useState<string[]>(DEMO_USERS[1].branches);
 
+  // ✅ Clear any logout flag on mount
+  useEffect(() => {
+    localStorage.removeItem('isLoggingOut');
+  }, []);
+
   // ✅ Check if already logged in
   useEffect(() => {
     const token = localStorage.getItem('token');
@@ -58,14 +63,16 @@ export default function LoginPage() {
           setIsRedirecting(true);
           router.push('/dashboard');
         } else {
-          console.warn('⚠️ No branches found in user data, clearing...');
+          console.warn('⚠️ No branches found in user data:', userData);
           localStorage.removeItem('token');
           localStorage.removeItem('user');
+          localStorage.removeItem('selectedBranch');
         }
       } catch (e) {
         console.error('❌ Invalid user data, clearing...');
         localStorage.removeItem('token');
         localStorage.removeItem('user');
+        localStorage.removeItem('selectedBranch');
       }
     }
   }, [router, isRedirecting]);
@@ -162,12 +169,28 @@ export default function LoginPage() {
         };
         
         console.log('📋 Storing user data:', userData);
+        console.log('📋 Branches being stored:', userData.branches);
         
         localStorage.setItem('token', data.token || data.access_token);
         localStorage.setItem('user', JSON.stringify(userData));
         localStorage.setItem('selectedBranch', branch);
         localStorage.setItem('userRole', userData.role);
         localStorage.setItem('username', username);
+        
+        // ✅ Verify storage was successful
+        const verifyUser = localStorage.getItem('user');
+        if (verifyUser) {
+          const parsed = JSON.parse(verifyUser);
+          console.log('✅ Verified stored user data:', parsed);
+          console.log('✅ Branches in stored data:', parsed.branches);
+          
+          if (!parsed.branches || parsed.branches.length === 0) {
+            console.error('❌ Branches not stored correctly!');
+            setError('Failed to store branch data. Please try again.');
+            setLoading(false);
+            return;
+          }
+        }
         
         setSuccess(true);
         setLoading(false);
@@ -177,6 +200,8 @@ export default function LoginPage() {
           router.push('/dashboard');
         }, 800);
         return;
+      } else {
+        console.log('⚠️ Backend login failed with status:', response.status);
       }
     } catch (err) {
       console.log('⚠️ Backend not available, using demo mode');
@@ -203,6 +228,7 @@ export default function LoginPage() {
     };
 
     console.log('📋 Storing user data (demo):', userData);
+    console.log('📋 Branches being stored:', userData.branches);
 
     localStorage.setItem('token', token);
     localStorage.setItem('user', JSON.stringify(userData));
@@ -215,8 +241,13 @@ export default function LoginPage() {
     if (verifyUser) {
       const parsed = JSON.parse(verifyUser);
       console.log('✅ Verified stored user data:', parsed);
+      console.log('✅ Branches in stored data:', parsed.branches);
+      
       if (!parsed.branches || parsed.branches.length === 0) {
         console.error('❌ Branches not stored correctly!');
+        setError('Failed to store branch data. Please try again.');
+        setLoading(false);
+        return;
       }
     }
     
@@ -238,6 +269,7 @@ export default function LoginPage() {
     setError('');
     setSuccess(false);
     setLoading(false);
+    setIsRedirecting(false);
     
     setTimeout(() => {
       const form = document.querySelector('form');
