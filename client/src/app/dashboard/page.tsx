@@ -580,7 +580,17 @@ export default function DashboardPage() {
     const token = localStorage.getItem('token');
     const userStr = localStorage.getItem('user');
     
+    // Check if we're in logout flow
+    const logoutFlag = localStorage.getItem('isLoggingOut');
+    if (logoutFlag === 'true') {
+      console.log('🚪 Logout in progress, skipping auto-redirect...');
+      localStorage.removeItem('isLoggingOut');
+      setLoading(false);
+      return;
+    }
+    
     if (!token) {
+      console.log('❌ No token found, redirecting to login...');
       router.push('/login');
       return;
     }
@@ -589,8 +599,17 @@ export default function DashboardPage() {
       try {
         const userData = JSON.parse(userStr);
         console.log('📋 Full user data:', userData);
+        console.log('📋 User role:', userData.role);
         console.log('📋 Branches from user:', userData.branches);
-        console.log('👤 User role:', userData.role);
+        
+        // ✅ Validate that user has required data
+        if (!userData.role) {
+          console.error('❌ Invalid user data - missing role');
+          localStorage.removeItem('token');
+          localStorage.removeItem('user');
+          router.push('/login');
+          return;
+        }
         
         setUser(userData);
         
@@ -618,6 +637,8 @@ export default function DashboardPage() {
         setIsViewer(userData.role === 'VIEWER');
         setIsManager(userData.role === 'MANAGER');
         
+        console.log('👤 Role flags - Owner:', userData.role === 'OWNER', 'Manager:', userData.role === 'MANAGER', 'Viewer:', userData.role === 'VIEWER');
+        
         let savedBranch = localStorage.getItem('selectedBranch');
         
         if (userData.role === 'OWNER') {
@@ -628,6 +649,7 @@ export default function DashboardPage() {
             localStorage.setItem('selectedBranch', 'all');
           }
         } else {
+          // For MANAGER and VIEWER
           if (savedBranch && userBranches.includes(savedBranch)) {
             setSelectedBranch(savedBranch);
           } else if (userBranches.length > 0) {
@@ -636,15 +658,21 @@ export default function DashboardPage() {
           }
         }
         
-        console.log('✅ User loaded:', userData);
-        console.log('📋 Available branches:', userBranches);
-        console.log('📋 Selected branch:', savedBranch || 'none');
+        console.log('✅ User loaded successfully:', userData.username);
+        console.log('📋 Selected branch:', selectedBranch || 'not set');
+        
       } catch (e) {
         console.error('Error parsing user:', e);
         localStorage.removeItem('user');
+        localStorage.removeItem('token');
         router.push('/login');
         return;
       }
+    } else {
+      console.log('❌ No user data found, redirecting to login...');
+      localStorage.removeItem('token');
+      router.push('/login');
+      return;
     }
     
     setLoading(false);
@@ -1465,12 +1493,24 @@ export default function DashboardPage() {
     }, 300);
   };
 
+  // ✅ Updated Logout Function - Clean and Simple
   const handleLogout = () => {
+    console.log('🚪 Logging out...');
+    
+    // Set flag to indicate logout in progress
+    localStorage.setItem('isLoggingOut', 'true');
+    
+    // Clear all data
     localStorage.removeItem('token');
     localStorage.removeItem('user');
     localStorage.removeItem('selectedBranch');
     localStorage.removeItem('bookings');
     localStorage.removeItem('allBookingsCache');
+    localStorage.removeItem('userRole');
+    localStorage.removeItem('username');
+    localStorage.removeItem('forceRefresh');
+    
+    // Redirect to login
     router.push('/login');
   };
 
@@ -2723,62 +2763,79 @@ export default function DashboardPage() {
                           </td>
                           <td className="px-2 sm:px-4 py-1.5 sm:py-2">
                             <div className="flex items-center gap-1 sm:gap-2">
-                              {/* Individual Check-In Button */}
-                              {canCheckIn(booking) && (
-                                <button
-                                  onClick={() => handleIndividualCheckIn(booking.id)}
-                                  disabled={processingBookingId === booking.id}
-                                  className={`px-1.5 sm:px-3 py-0.5 sm:py-1 text-[8px] sm:text-xs font-medium rounded transition-colors flex items-center gap-0.5 sm:gap-1 whitespace-nowrap ${
-                                    processingBookingId === booking.id
-                                      ? 'bg-gray-400 cursor-not-allowed'
-                                      : 'bg-green-500 hover:bg-green-600 text-white'
-                                  }`}
-                                  title="Check in this guest"
-                                >
-                                  {processingBookingId === booking.id ? (
-                                    <>
-                                      <span className="animate-spin rounded-full h-2 w-2 sm:h-3 sm:w-3 border-b-2 border-white"></span>
-                                      <span className="hidden xs:inline">Processing...</span>
-                                    </>
-                                  ) : (
-                                    <>
-                                      <FiCheckCircle className="w-3 h-3 sm:w-4 sm:h-4" />
-                                      <span className="hidden xs:inline">Check-In</span>
-                                    </>
+                              {/* ✅ Only show Check-In/Check-Out buttons for Owner and Manager */}
+                              {(isOwner || isManager) && (
+                                <>
+                                  {/* Individual Check-In Button */}
+                                  {canCheckIn(booking) && (
+                                    <button
+                                      onClick={() => handleIndividualCheckIn(booking.id)}
+                                      disabled={processingBookingId === booking.id}
+                                      className={`px-1.5 sm:px-3 py-0.5 sm:py-1 text-[8px] sm:text-xs font-medium rounded transition-colors flex items-center gap-0.5 sm:gap-1 whitespace-nowrap ${
+                                        processingBookingId === booking.id
+                                          ? 'bg-gray-400 cursor-not-allowed'
+                                          : 'bg-green-500 hover:bg-green-600 text-white'
+                                      }`}
+                                      title="Check in this guest"
+                                    >
+                                      {processingBookingId === booking.id ? (
+                                        <>
+                                          <span className="animate-spin rounded-full h-2 w-2 sm:h-3 sm:w-3 border-b-2 border-white"></span>
+                                          <span className="hidden xs:inline">Processing...</span>
+                                        </>
+                                      ) : (
+                                        <>
+                                          <FiCheckCircle className="w-3 h-3 sm:w-4 sm:h-4" />
+                                          <span className="hidden xs:inline">Check-In</span>
+                                        </>
+                                      )}
+                                    </button>
                                   )}
-                                </button>
+
+                                  {/* Individual Check-Out Button */}
+                                  {canCheckOut(booking) && (
+                                    <button
+                                      onClick={() => handleIndividualCheckOut(booking.id)}
+                                      disabled={processingBookingId === booking.id}
+                                      className={`px-1.5 sm:px-3 py-0.5 sm:py-1 text-[8px] sm:text-xs font-medium rounded transition-colors flex items-center gap-0.5 sm:gap-1 whitespace-nowrap ${
+                                        processingBookingId === booking.id
+                                          ? 'bg-gray-400 cursor-not-allowed'
+                                          : 'bg-blue-500 hover:bg-blue-600 text-white'
+                                      }`}
+                                      title="Check out this guest"
+                                    >
+                                      {processingBookingId === booking.id ? (
+                                        <>
+                                          <span className="animate-spin rounded-full h-2 w-2 sm:h-3 sm:w-3 border-b-2 border-white"></span>
+                                          <span className="hidden xs:inline">Processing...</span>
+                                        </>
+                                      ) : (
+                                        <>
+                                          <FiClock className="w-3 h-3 sm:w-4 sm:h-4" />
+                                          <span className="hidden xs:inline">Check-Out</span>
+                                        </>
+                                      )}
+                                    </button>
+                                  )}
+                                </>
                               )}
 
-                              {/* Individual Check-Out Button */}
-                              {canCheckOut(booking) && (
-                                <button
-                                  onClick={() => handleIndividualCheckOut(booking.id)}
-                                  disabled={processingBookingId === booking.id}
-                                  className={`px-1.5 sm:px-3 py-0.5 sm:py-1 text-[8px] sm:text-xs font-medium rounded transition-colors flex items-center gap-0.5 sm:gap-1 whitespace-nowrap ${
-                                    processingBookingId === booking.id
-                                      ? 'bg-gray-400 cursor-not-allowed'
-                                      : 'bg-blue-500 hover:bg-blue-600 text-white'
-                                  }`}
-                                  title="Check out this guest"
-                                >
-                                  {processingBookingId === booking.id ? (
-                                    <>
-                                      <span className="animate-spin rounded-full h-2 w-2 sm:h-3 sm:w-3 border-b-2 border-white"></span>
-                                      <span className="hidden xs:inline">Processing...</span>
-                                    </>
-                                  ) : (
-                                    <>
-                                      <FiClock className="w-3 h-3 sm:w-4 sm:h-4" />
-                                      <span className="hidden xs:inline">Check-Out</span>
-                                    </>
-                                  )}
-                                </button>
-                              )}
-
-                              {/* Status indicator for already checked out/cancelled */}
-                              {!canCheckIn(booking) && !canCheckOut(booking) && (
+                              {/* Status indicator for Viewer (read-only) */}
+                              {!isOwner && !isManager && (
                                 <span className="text-[8px] sm:text-xs text-gray-400">
-                                  {booking.bookingStatus === 'CheckedOut' ? '✅ Done' : booking.bookingStatus === 'Cancelled' ? '❌ Cancelled' : '—'}
+                                  {booking.bookingStatus === 'CheckedOut' ? '✅ Done' : 
+                                   booking.bookingStatus === 'Cancelled' ? '❌ Cancelled' : 
+                                   booking.bookingStatus === 'CheckedIn' ? '📋 Checked In' : 
+                                   '👁️ View Only'}
+                                </span>
+                              )}
+
+                              {/* Status indicator for Owner/Manager when no actions available */}
+                              {(isOwner || isManager) && !canCheckIn(booking) && !canCheckOut(booking) && (
+                                <span className="text-[8px] sm:text-xs text-gray-400">
+                                  {booking.bookingStatus === 'CheckedOut' ? '✅ Done' : 
+                                   booking.bookingStatus === 'Cancelled' ? '❌ Cancelled' : 
+                                   booking.bookingStatus === 'CheckedIn' ? '📋 Checked In' : '—'}
                                 </span>
                               )}
                             </div>

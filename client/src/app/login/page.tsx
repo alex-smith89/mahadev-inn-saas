@@ -47,10 +47,26 @@ export default function LoginPage() {
   // ✅ Check if already logged in
   useEffect(() => {
     const token = localStorage.getItem('token');
-    if (token && !isRedirecting) {
-      console.log('✅ Token found, redirecting to dashboard...');
-      setIsRedirecting(true);
-      router.push('/dashboard');
+    const userStr = localStorage.getItem('user');
+    
+    if (token && userStr && !isRedirecting) {
+      try {
+        const userData = JSON.parse(userStr);
+        // ✅ Verify branches exist before redirecting
+        if (userData.branches && userData.branches.length > 0) {
+          console.log('✅ Token found with branches:', userData.branches);
+          setIsRedirecting(true);
+          router.push('/dashboard');
+        } else {
+          console.warn('⚠️ No branches found in user data, clearing...');
+          localStorage.removeItem('token');
+          localStorage.removeItem('user');
+        }
+      } catch (e) {
+        console.error('❌ Invalid user data, clearing...');
+        localStorage.removeItem('token');
+        localStorage.removeItem('user');
+      }
     }
   }, [router, isRedirecting]);
 
@@ -109,9 +125,12 @@ export default function LoginPage() {
       return;
     }
 
+    // ✅ Clear any existing data before login
+    localStorage.clear();
+
     // ✅ Try backend login first
     try {
-      console.log('📤 Attempting login with backend...');
+      console.log('📤 Attempting login with backend for user:', username);
       
       const response = await fetch(`${API_URL}/auth/login`, {
         method: 'POST',
@@ -131,14 +150,23 @@ export default function LoginPage() {
         const data = await response.json();
         console.log('✅ Login successful from backend');
         
+        // ✅ Ensure branches are properly stored
+        const userData = {
+          id: data.user?.id,
+          username: data.user?.username || username,
+          role: data.user?.role || user.role,
+          branches: user.branches, // Use branches from DEMO_USERS
+          selectedBranch: branch,
+          email: data.user?.email,
+          displayName: user.displayName
+        };
+        
+        console.log('📋 Storing user data:', userData);
+        
         localStorage.setItem('token', data.token || data.access_token);
-        localStorage.setItem('user', JSON.stringify({ 
-          ...data.user, 
-          branches: user.branches,
-          selectedBranch: branch 
-        }));
+        localStorage.setItem('user', JSON.stringify(userData));
         localStorage.setItem('selectedBranch', branch);
-        localStorage.setItem('userRole', data.user?.role || user.role);
+        localStorage.setItem('userRole', userData.role);
         localStorage.setItem('username', username);
         
         setSuccess(true);
@@ -155,7 +183,7 @@ export default function LoginPage() {
     }
 
     // ✅ Demo login (fallback if backend is not available)
-    console.log('📤 Using demo login...');
+    console.log('📤 Using demo login for user:', username);
     
     const token = btoa(JSON.stringify({
       username: user.username,
@@ -163,15 +191,34 @@ export default function LoginPage() {
       timestamp: Date.now()
     }));
 
+    // ✅ Store user data with proper structure including branches
+    const userData = {
+      id: Date.now(),
+      username: user.username,
+      role: user.role,
+      branches: user.branches, // ✅ This is critical - branches must be stored
+      selectedBranch: branch,
+      displayName: user.displayName,
+      email: `${user.username}@mahadevin.com`
+    };
+
+    console.log('📋 Storing user data (demo):', userData);
+
     localStorage.setItem('token', token);
-    localStorage.setItem('user', JSON.stringify({ 
-      ...user, 
-      branches: user.branches,
-      selectedBranch: branch 
-    }));
+    localStorage.setItem('user', JSON.stringify(userData));
     localStorage.setItem('selectedBranch', branch);
     localStorage.setItem('userRole', user.role);
     localStorage.setItem('username', user.username);
+    
+    // ✅ Verify storage was successful
+    const verifyUser = localStorage.getItem('user');
+    if (verifyUser) {
+      const parsed = JSON.parse(verifyUser);
+      console.log('✅ Verified stored user data:', parsed);
+      if (!parsed.branches || parsed.branches.length === 0) {
+        console.error('❌ Branches not stored correctly!');
+      }
+    }
     
     setSuccess(true);
     setLoading(false);
@@ -184,10 +231,13 @@ export default function LoginPage() {
 
   // ✅ Quick login function
   const quickLogin = (user: string, pass: string, branchName: string) => {
+    console.log('🔄 Quick login for user:', user);
     setUsername(user);
     setPassword(pass);
     setBranch(branchName);
     setError('');
+    setSuccess(false);
+    setLoading(false);
     
     setTimeout(() => {
       const form = document.querySelector('form');
@@ -233,7 +283,7 @@ export default function LoginPage() {
           <p className="text-sm text-slate-500 mt-1">Sign in to manage your hotel</p>
         </div>
 
-        {/* Quick Login Buttons - Below Welcome Back */}
+        {/* Quick Login Buttons */}
         <div className="mb-6">
           <p className="text-xs text-gray-500 text-center mb-2">Quick Login</p>
           <div className="grid grid-cols-3 gap-2">
@@ -285,7 +335,11 @@ export default function LoginPage() {
             <label className="block text-sm font-medium text-gray-700 mb-1">Username</label>
             <select
               value={username}
-              onChange={(e) => setUsername(e.target.value)}
+              onChange={(e) => {
+                setUsername(e.target.value);
+                setPassword('');
+                setError('');
+              }}
               className="w-full border border-gray-300 rounded-lg px-4 py-3 focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none transition bg-white"
               disabled={loading || success}
             >
