@@ -667,10 +667,14 @@ export default function DashboardPage() {
     };
   }, [selectedBranch, user]);
 
-  // Initialize user data
+  // ✅ Initialize user data - FIXED for Manager
   useEffect(() => {
     const token = localStorage.getItem('token');
     const userStr = localStorage.getItem('user');
+    
+    console.log('🔍 Dashboard init - Checking localStorage...');
+    console.log('🔍 Token exists:', !!token);
+    console.log('🔍 User data exists:', !!userStr);
     
     // Check if we're in logout flow
     const logoutFlag = localStorage.getItem('isLoggingOut');
@@ -690,7 +694,7 @@ export default function DashboardPage() {
     if (userStr) {
       try {
         const userData = JSON.parse(userStr);
-        console.log('📋 Full user data:', userData);
+        console.log('📋 Full user data from localStorage:', userData);
         console.log('📋 User role:', userData.role);
         console.log('📋 Branches from user:', userData.branches);
         
@@ -706,31 +710,16 @@ export default function DashboardPage() {
         // ✅ Check if branches exist and are not empty
         if (!userData.branches || userData.branches.length === 0) {
           console.error('❌ No branches found for user:', userData.username);
-          // Try to get branches from DEMO_USERS based on username
-          const DEMO_USERS = [
-            { username: 'owner', branches: ['Pokhara', 'Kathmandu1', 'Kathmandu2', 'Bhairawaha'] },
-            { username: 'manager', branches: ['Pokhara', 'Kathmandu1', 'Kathmandu2', 'Bhairawaha'] },
-            { username: 'viewer', branches: ['Pokhara', 'Kathmandu1', 'Kathmandu2', 'Bhairawaha'] },
-          ];
-          const demoUser = DEMO_USERS.find(u => u.username === userData.username);
-          if (demoUser && demoUser.branches && demoUser.branches.length > 0) {
-            console.log('✅ Found branches from DEMO_USERS:', demoUser.branches);
-            userData.branches = demoUser.branches;
-            // Update localStorage with fixed data
+          // Set default branches based on role
+          if (userData.role === 'OWNER' || userData.role === 'MANAGER' || userData.role === 'VIEWER') {
+            userData.branches = ['Pokhara', 'Kathmandu1', 'Kathmandu2', 'Bhairawaha'];
             localStorage.setItem('user', JSON.stringify(userData));
+            console.log('✅ Set default branches for', userData.role, ':', userData.branches);
           } else {
-            console.error('❌ No branches found even in DEMO_USERS');
-            // Set default branches for Manager
-            if (userData.role === 'MANAGER') {
-              userData.branches = ['Pokhara', 'Kathmandu1', 'Kathmandu2', 'Bhairawaha'];
-              localStorage.setItem('user', JSON.stringify(userData));
-              console.log('✅ Set default branches for Manager:', userData.branches);
-            } else {
-              localStorage.removeItem('token');
-              localStorage.removeItem('user');
-              router.push('/login');
-              return;
-            }
+            localStorage.removeItem('token');
+            localStorage.removeItem('user');
+            router.push('/login');
+            return;
           }
         }
         
