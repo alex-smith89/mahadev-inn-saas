@@ -223,15 +223,25 @@ model BookingRoom {
   @@index([roomId])
 }
 
-// Branch Capacity
+// ✅ UPDATED: Branch Capacity with Extra Bed Charges
 model BranchCapacity {
   id         String   @id @default(cuid())
   branch     Branch   @unique
+  
+  // Room Capacity
   singleCap  Int      @default(0)
   doubleCap  Int      @default(0)
   tripleCap  Int      @default(0)
   quardCap   Int      @default(0)
   suiteCap   Int      @default(0)
+  
+  // ✅ Extra Bed Charges (per night)
+  singleExtraBedCharge   Int @default(0)
+  doubleExtraBedCharge   Int @default(0)
+  tripleExtraBedCharge   Int @default(0)
+  quardExtraBedCharge    Int @default(0)
+  suiteExtraBedCharge    Int @default(0)
+  
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
   
@@ -326,7 +336,7 @@ model PricingHistory {
   @@index([season])
 }
 
-// ===== ✅ NEW: MEAL PLAN PRICING MODELS =====
+// ===== ✅ MEAL PLAN PRICING MODELS =====
 
 // Meal Plan Pricing - Stores current pricing for each branch
 model MealPlanPricing {

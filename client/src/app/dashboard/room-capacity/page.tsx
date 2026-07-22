@@ -21,11 +21,11 @@ interface BranchCapacity {
   tripleCap: number;
   quardCap: number;
   suiteCap: number;
-  singleExtraBedCharge?: number;
-  doubleExtraBedCharge?: number;
-  tripleExtraBedCharge?: number;
-  quardExtraBedCharge?: number;
-  suiteExtraBedCharge?: number;
+  singleExtraBedCharge: number;
+  doubleExtraBedCharge: number;
+  tripleExtraBedCharge: number;
+  guardExtraBedCharge: number;  // ✅ Corrected: 'guard' not 'quard'
+  suiteExtraBedCharge: number;
   createdAt: string;
   updatedAt: string;
 }
@@ -69,6 +69,15 @@ export default function RoomCapacityPage() {
   const [isBranchDropdownOpen, setIsBranchDropdownOpen] = useState(false);
   const [rooms, setRooms] = useState<Room[]>([]);
   const dropdownRef = useRef<HTMLDivElement>(null);
+
+  // Extra bed charge presets for quick fill
+  const EXTRA_BED_PRESETS = [
+    { label: 'None', values: { single: 0, double: 0, triple: 0, guard: 0, suite: 0 } },
+    { label: 'Low', values: { single: 500, double: 500, triple: 500, guard: 500, suite: 500 } },
+    { label: 'Medium', values: { single: 1000, double: 1500, triple: 1500, guard: 2000, suite: 2500 } },
+    { label: 'High', values: { single: 1500, double: 2000, triple: 2500, guard: 3000, suite: 3500 } },
+    { label: 'Premium', values: { single: 2000, double: 2500, triple: 3000, guard: 3500, suite: 4000 } },
+  ];
 
   useEffect(() => {
     const token = localStorage.getItem('token');
@@ -142,7 +151,9 @@ export default function RoomCapacityPage() {
 
       if (branchRes.ok) {
         const data = await branchRes.json();
+        console.log('📊 Branch capacity data from API:', data);
         setBranchCapacity(data);
+        
         const caps = {
           singleCap: data.singleCap || 0,
           doubleCap: data.doubleCap || 0,
@@ -153,19 +164,38 @@ export default function RoomCapacityPage() {
         setEditingCapacity(caps);
         setOriginalCapacity(caps);
         
-        // ✅ Load extra bed charges
+        // ✅ Load extra bed charges - using 'guardExtraBedCharge' (correct column name)
         const extraCharges = {
           singleExtraBedCharge: data.singleExtraBedCharge || 0,
           doubleExtraBedCharge: data.doubleExtraBedCharge || 0,
           tripleExtraBedCharge: data.tripleExtraBedCharge || 0,
-          quardExtraBedCharge: data.quardExtraBedCharge || 0,
+          guardExtraBedCharge: data.guardExtraBedCharge || 0,  // ✅ Correct field name
           suiteExtraBedCharge: data.suiteExtraBedCharge || 0,
         };
+        console.log('📊 Extra bed charges loaded:', extraCharges);
         setEditingExtraBedCharges(extraCharges);
         setOriginalExtraBedCharges(extraCharges);
-        console.log('✅ Branch capacity loaded:', data);
       } else {
         console.error('❌ Failed to load branch capacity');
+        // Set default values
+        const defaultCaps = {
+          singleCap: 0,
+          doubleCap: 0,
+          tripleCap: 0,
+          quardCap: 0,
+          suiteCap: 0,
+        };
+        setEditingCapacity(defaultCaps);
+        setOriginalCapacity(defaultCaps);
+        const defaultExtra = {
+          singleExtraBedCharge: 0,
+          doubleExtraBedCharge: 0,
+          tripleExtraBedCharge: 0,
+          guardExtraBedCharge: 0,  // ✅ Correct field name
+          suiteExtraBedCharge: 0,
+        };
+        setEditingExtraBedCharges(defaultExtra);
+        setOriginalExtraBedCharges(defaultExtra);
       }
 
       // Load room type capacities
@@ -235,6 +265,16 @@ export default function RoomCapacityPage() {
     if (!isNaN(numValue) && numValue >= 0) {
       setEditingRoomCapacity(prev => ({ ...prev, [roomType]: numValue }));
     }
+  };
+
+  const applyExtraBedPreset = (preset: typeof EXTRA_BED_PRESETS[0]) => {
+    setEditingExtraBedCharges({
+      singleExtraBedCharge: preset.values.single,
+      doubleExtraBedCharge: preset.values.double,
+      tripleExtraBedCharge: preset.values.triple,
+      guardExtraBedCharge: preset.values.guard,  // ✅ Correct field name
+      suiteExtraBedCharge: preset.values.suite,
+    });
   };
 
   const getRoomTypePrefix = (roomType: string) => {
@@ -313,7 +353,6 @@ export default function RoomCapacityPage() {
     return createdRooms;
   };
 
-  // ✅ Save Branch Capacity with Extra Bed Charges
   const saveBranchCapacity = async () => {
     try {
       setSaving(true);
@@ -327,7 +366,7 @@ export default function RoomCapacityPage() {
         singleExtraBedCharge: editingExtraBedCharges.singleExtraBedCharge || 0,
         doubleExtraBedCharge: editingExtraBedCharges.doubleExtraBedCharge || 0,
         tripleExtraBedCharge: editingExtraBedCharges.tripleExtraBedCharge || 0,
-        quardExtraBedCharge: editingExtraBedCharges.quardExtraBedCharge || 0,
+        guardExtraBedCharge: editingExtraBedCharges.guardExtraBedCharge || 0,  // ✅ Correct field name
         suiteExtraBedCharge: editingExtraBedCharges.suiteExtraBedCharge || 0,
       };
       
@@ -489,7 +528,7 @@ export default function RoomCapacityPage() {
   };
 
   const hasExtraBedChargesChanged = () => {
-    const charges = ['singleExtraBedCharge', 'doubleExtraBedCharge', 'tripleExtraBedCharge', 'quardExtraBedCharge', 'suiteExtraBedCharge'];
+    const charges = ['singleExtraBedCharge', 'doubleExtraBedCharge', 'tripleExtraBedCharge', 'guardExtraBedCharge', 'suiteExtraBedCharge'];
     for (const key of charges) {
       if ((editingExtraBedCharges[key] || 0) !== (originalExtraBedCharges[key] || 0)) {
         return true;
@@ -720,10 +759,26 @@ export default function RoomCapacityPage() {
 
                 {/* Extra Bed Charges Section */}
                 <div>
-                  <h3 className="text-md font-semibold text-gray-700 mb-3 flex items-center">
-                    <FiUserPlus className="mr-2 text-indigo-600" />
-                    Extra Bed Charges (per night)
-                  </h3>
+                  <div className="flex items-center justify-between mb-3">
+                    <h3 className="text-md font-semibold text-gray-700 flex items-center">
+                      <FiUserPlus className="mr-2 text-indigo-600" />
+                      Extra Bed Charges (per night)
+                    </h3>
+                    <div className="flex items-center space-x-2">
+                      <span className="text-xs text-gray-500">Presets:</span>
+                      <div className="flex space-x-1">
+                        {EXTRA_BED_PRESETS.map((preset) => (
+                          <button
+                            key={preset.label}
+                            onClick={() => applyExtraBedPreset(preset)}
+                            className="text-xs px-2 py-1 bg-gray-100 hover:bg-indigo-100 rounded transition-colors"
+                          >
+                            {preset.label}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
                   <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-1">Single</label>
@@ -771,13 +826,13 @@ export default function RoomCapacityPage() {
                       </div>
                     </div>
                     <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">Quard</label>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Guard</label>
                       <div className="relative">
                         <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 text-sm">Rs.</span>
                         <input
                           type="number"
-                          value={editingExtraBedCharges.quardExtraBedCharge || 0}
-                          onChange={(e) => handleExtraBedChargeChange('quardExtraBedCharge', e.target.value)}
+                          value={editingExtraBedCharges.guardExtraBedCharge || 0}
+                          onChange={(e) => handleExtraBedChargeChange('guardExtraBedCharge', e.target.value)}
                           className="w-full border border-gray-300 rounded-lg pl-8 pr-3 py-2 focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none transition"
                           min="0"
                           step="100"
@@ -880,7 +935,15 @@ export default function RoomCapacityPage() {
                       </tr>
                     ) : (
                       roomTypeCapacities.map((r) => {
-                        const extraBedKey = `${r.roomType.toLowerCase()}ExtraBedCharge`;
+                        // ✅ Map room type to the correct field name
+                        const roomTypeMap: {[key: string]: string} = {
+                          'Single': 'singleExtraBedCharge',
+                          'Double': 'doubleExtraBedCharge',
+                          'Triple': 'tripleExtraBedCharge',
+                          'Quard': 'guardExtraBedCharge',  // ✅ Map Quard to guardExtraBedCharge
+                          'Suite': 'suiteExtraBedCharge',
+                        };
+                        const extraBedKey = roomTypeMap[r.roomType] || `${r.roomType.toLowerCase()}ExtraBedCharge`;
                         return (
                           <tr key={r.id} className="hover:bg-gray-50 transition-colors">
                             <td className="px-4 py-3 font-medium text-gray-900">{r.roomType}</td>
