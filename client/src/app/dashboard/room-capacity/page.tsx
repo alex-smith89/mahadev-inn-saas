@@ -6,7 +6,8 @@ import Link from 'next/link';
 import { 
   FiArrowLeft, FiSave, FiRefreshCw, FiAlertCircle,
   FiCheckCircle, FiHome, FiEdit2, FiPlus, FiX,
-  FiTrendingUp, FiTrendingDown, FiGrid, FiChevronDown
+  FiTrendingUp, FiTrendingDown, FiGrid, FiChevronDown,
+  FiUserPlus
 } from 'react-icons/fi';
 
 // ✅ FIX: Use the correct API URL with /api prefix
@@ -20,6 +21,11 @@ interface BranchCapacity {
   tripleCap: number;
   quardCap: number;
   suiteCap: number;
+  singleExtraBedCharge?: number;
+  doubleExtraBedCharge?: number;
+  tripleExtraBedCharge?: number;
+  quardExtraBedCharge?: number;
+  suiteExtraBedCharge?: number;
   createdAt: string;
   updatedAt: string;
 }
@@ -54,8 +60,10 @@ export default function RoomCapacityPage() {
   const [branchCapacity, setBranchCapacity] = useState<BranchCapacity | null>(null);
   const [roomTypeCapacities, setRoomTypeCapacities] = useState<RoomTypeCapacity[]>([]);
   const [editingCapacity, setEditingCapacity] = useState<{[key: string]: number}>({});
+  const [editingExtraBedCharges, setEditingExtraBedCharges] = useState<{[key: string]: number}>({});
   const [editingRoomCapacity, setEditingRoomCapacity] = useState<{[key: string]: number}>({});
   const [originalCapacity, setOriginalCapacity] = useState<{[key: string]: number}>({});
+  const [originalExtraBedCharges, setOriginalExtraBedCharges] = useState<{[key: string]: number}>({});
   const [summary, setSummary] = useState<any[]>([]);
   const [viewMode, setViewMode] = useState<'branch' | 'summary'>('branch');
   const [isBranchDropdownOpen, setIsBranchDropdownOpen] = useState(false);
@@ -127,7 +135,7 @@ export default function RoomCapacityPage() {
 
       console.log('📊 Loading data for branch:', selectedBranch);
 
-      // Load branch capacity - ✅ FIXED URL
+      // Load branch capacity
       const branchRes = await fetch(`${API_URL}/room-capacity/branch/${selectedBranch}`, {
         headers: { 'Authorization': `Bearer ${token}` }
       });
@@ -144,12 +152,23 @@ export default function RoomCapacityPage() {
         };
         setEditingCapacity(caps);
         setOriginalCapacity(caps);
+        
+        // ✅ Load extra bed charges
+        const extraCharges = {
+          singleExtraBedCharge: data.singleExtraBedCharge || 0,
+          doubleExtraBedCharge: data.doubleExtraBedCharge || 0,
+          tripleExtraBedCharge: data.tripleExtraBedCharge || 0,
+          quardExtraBedCharge: data.quardExtraBedCharge || 0,
+          suiteExtraBedCharge: data.suiteExtraBedCharge || 0,
+        };
+        setEditingExtraBedCharges(extraCharges);
+        setOriginalExtraBedCharges(extraCharges);
         console.log('✅ Branch capacity loaded:', data);
       } else {
         console.error('❌ Failed to load branch capacity');
       }
 
-      // Load room type capacities - ✅ FIXED URL
+      // Load room type capacities
       const roomRes = await fetch(`${API_URL}/room-capacity/room-types/${selectedBranch}`, {
         headers: { 'Authorization': `Bearer ${token}` }
       });
@@ -167,7 +186,7 @@ export default function RoomCapacityPage() {
         console.error('❌ Failed to load room type capacities');
       }
 
-      // Load rooms for this branch - ✅ FIXED URL
+      // Load rooms for this branch
       const roomsRes = await fetch(`${API_URL}/rooms/branch/${selectedBranch}`, {
         headers: { 'Authorization': `Bearer ${token}` }
       });
@@ -178,7 +197,7 @@ export default function RoomCapacityPage() {
         console.log('✅ Rooms loaded:', data.length);
       }
 
-      // Load summary - ✅ FIXED URL
+      // Load summary
       const summaryRes = await fetch(`${API_URL}/room-capacity/summary`, {
         headers: { 'Authorization': `Bearer ${token}` }
       });
@@ -201,6 +220,13 @@ export default function RoomCapacityPage() {
     const numValue = parseInt(value);
     if (!isNaN(numValue) && numValue >= 0) {
       setEditingCapacity(prev => ({ ...prev, [field]: numValue }));
+    }
+  };
+
+  const handleExtraBedChargeChange = (field: string, value: string) => {
+    const numValue = parseInt(value);
+    if (!isNaN(numValue) && numValue >= 0) {
+      setEditingExtraBedCharges(prev => ({ ...prev, [field]: numValue }));
     }
   };
 
@@ -257,7 +283,6 @@ export default function RoomCapacityPage() {
       const roomNumber = `${branchPrefix}-${typePrefix}-${String(nextNumber++).padStart(3, '0')}`;
       
       try {
-        // ✅ FIXED URL
         const response = await fetch(`${API_URL}/rooms`, {
           method: 'POST',
           headers: {
@@ -288,6 +313,7 @@ export default function RoomCapacityPage() {
     return createdRooms;
   };
 
+  // ✅ Save Branch Capacity with Extra Bed Charges
   const saveBranchCapacity = async () => {
     try {
       setSaving(true);
@@ -296,10 +322,18 @@ export default function RoomCapacityPage() {
       
       const token = localStorage.getItem('token');
       
-      // ✅ FIXED URL
+      const payload = {
+        ...editingCapacity,
+        singleExtraBedCharge: editingExtraBedCharges.singleExtraBedCharge || 0,
+        doubleExtraBedCharge: editingExtraBedCharges.doubleExtraBedCharge || 0,
+        tripleExtraBedCharge: editingExtraBedCharges.tripleExtraBedCharge || 0,
+        quardExtraBedCharge: editingExtraBedCharges.quardExtraBedCharge || 0,
+        suiteExtraBedCharge: editingExtraBedCharges.suiteExtraBedCharge || 0,
+      };
+      
       const url = `${API_URL}/room-capacity/branch/${selectedBranch}`;
       console.log('📤 Sending PUT request to:', url);
-      console.log('📤 With body:', editingCapacity);
+      console.log('📤 With body:', payload);
       
       const response = await fetch(url, {
         method: 'PUT',
@@ -307,7 +341,7 @@ export default function RoomCapacityPage() {
           'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify(editingCapacity),
+        body: JSON.stringify(payload),
       });
 
       console.log('📊 Response status:', response.status);
@@ -346,7 +380,10 @@ export default function RoomCapacityPage() {
         }
       }
 
-      let successMessage = '✅ Branch capacity updated successfully!';
+      // Update original extra bed charges
+      setOriginalExtraBedCharges(editingExtraBedCharges);
+
+      let successMessage = '✅ Branch capacity and extra bed charges updated successfully!';
       if (createdCount > 0) {
         successMessage += ` Created ${createdCount} new room(s).`;
       }
@@ -375,7 +412,6 @@ export default function RoomCapacityPage() {
       const currentRooms = rooms.filter(r => r.roomType === roomType);
       const currentCount = currentRooms.length;
 
-      // ✅ FIXED URL
       const response = await fetch(`${API_URL}/room-capacity/room-type/${selectedBranch}/${roomType}`, {
         method: 'PUT',
         headers: {
@@ -452,6 +488,21 @@ export default function RoomCapacityPage() {
     return false;
   };
 
+  const hasExtraBedChargesChanged = () => {
+    const charges = ['singleExtraBedCharge', 'doubleExtraBedCharge', 'tripleExtraBedCharge', 'quardExtraBedCharge', 'suiteExtraBedCharge'];
+    for (const key of charges) {
+      if ((editingExtraBedCharges[key] || 0) !== (originalExtraBedCharges[key] || 0)) {
+        return true;
+      }
+    }
+    return false;
+  };
+
+  const formatCurrency = (amount: number) => {
+    if (!amount) return 'Rs. 0';
+    return `Rs. ${amount.toLocaleString()}`;
+  };
+
   if (loading && !branchCapacity) {
     return (
       <div className="flex justify-center items-center h-screen">
@@ -471,7 +522,7 @@ export default function RoomCapacityPage() {
             </Link>
             <div>
               <h1 className="text-2xl font-bold text-gray-800">Room Capacity Management</h1>
-              <p className="text-sm text-gray-500">Manage room capacity for each branch and room type</p>
+              <p className="text-sm text-gray-500">Manage room capacity and extra bed charges for each branch</p>
             </div>
           </div>
           <div className="flex items-center space-x-3 flex-wrap gap-2">
@@ -602,88 +653,181 @@ export default function RoomCapacityPage() {
           </div>
         ) : (
           <>
+            {/* Branch Capacity Section */}
             <div className="bg-white rounded-xl shadow-sm p-6 mb-6">
               <h2 className="text-lg font-semibold text-gray-800 mb-4 flex items-center">
                 <FiHome className="mr-2" />
-                {selectedBranch || 'Select Branch'} - Branch Capacity
+                {selectedBranch || 'Select Branch'} - Branch Capacity & Extra Bed Charges
               </h2>
               
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                {/* Room Capacity Section */}
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Single Rooms</label>
-                  <input
-                    type="number"
-                    value={editingCapacity.singleCap || 0}
-                    onChange={(e) => handleCapacityChange('singleCap', e.target.value)}
-                    className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none transition"
-                    min="0"
-                  />
+                  <h3 className="text-md font-semibold text-gray-700 mb-3">Room Capacity</h3>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Single</label>
+                      <input
+                        type="number"
+                        value={editingCapacity.singleCap || 0}
+                        onChange={(e) => handleCapacityChange('singleCap', e.target.value)}
+                        className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none transition"
+                        min="0"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Double</label>
+                      <input
+                        type="number"
+                        value={editingCapacity.doubleCap || 0}
+                        onChange={(e) => handleCapacityChange('doubleCap', e.target.value)}
+                        className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none transition"
+                        min="0"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Triple</label>
+                      <input
+                        type="number"
+                        value={editingCapacity.tripleCap || 0}
+                        onChange={(e) => handleCapacityChange('tripleCap', e.target.value)}
+                        className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none transition"
+                        min="0"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Quard</label>
+                      <input
+                        type="number"
+                        value={editingCapacity.quardCap || 0}
+                        onChange={(e) => handleCapacityChange('quardCap', e.target.value)}
+                        className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none transition"
+                        min="0"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Suite</label>
+                      <input
+                        type="number"
+                        value={editingCapacity.suiteCap || 0}
+                        onChange={(e) => handleCapacityChange('suiteCap', e.target.value)}
+                        className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none transition"
+                        min="0"
+                      />
+                    </div>
+                  </div>
                 </div>
+
+                {/* Extra Bed Charges Section */}
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Double Rooms</label>
-                  <input
-                    type="number"
-                    value={editingCapacity.doubleCap || 0}
-                    onChange={(e) => handleCapacityChange('doubleCap', e.target.value)}
-                    className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none transition"
-                    min="0"
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Triple Rooms</label>
-                  <input
-                    type="number"
-                    value={editingCapacity.tripleCap || 0}
-                    onChange={(e) => handleCapacityChange('tripleCap', e.target.value)}
-                    className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none transition"
-                    min="0"
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Quard Rooms</label>
-                  <input
-                    type="number"
-                    value={editingCapacity.quardCap || 0}
-                    onChange={(e) => handleCapacityChange('quardCap', e.target.value)}
-                    className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none transition"
-                    min="0"
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Suite Rooms</label>
-                  <input
-                    type="number"
-                    value={editingCapacity.suiteCap || 0}
-                    onChange={(e) => handleCapacityChange('suiteCap', e.target.value)}
-                    className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none transition"
-                    min="0"
-                  />
+                  <h3 className="text-md font-semibold text-gray-700 mb-3 flex items-center">
+                    <FiUserPlus className="mr-2 text-indigo-600" />
+                    Extra Bed Charges (per night)
+                  </h3>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Single</label>
+                      <div className="relative">
+                        <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 text-sm">Rs.</span>
+                        <input
+                          type="number"
+                          value={editingExtraBedCharges.singleExtraBedCharge || 0}
+                          onChange={(e) => handleExtraBedChargeChange('singleExtraBedCharge', e.target.value)}
+                          className="w-full border border-gray-300 rounded-lg pl-8 pr-3 py-2 focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none transition"
+                          min="0"
+                          step="100"
+                          placeholder="0"
+                        />
+                      </div>
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Double</label>
+                      <div className="relative">
+                        <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 text-sm">Rs.</span>
+                        <input
+                          type="number"
+                          value={editingExtraBedCharges.doubleExtraBedCharge || 0}
+                          onChange={(e) => handleExtraBedChargeChange('doubleExtraBedCharge', e.target.value)}
+                          className="w-full border border-gray-300 rounded-lg pl-8 pr-3 py-2 focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none transition"
+                          min="0"
+                          step="100"
+                          placeholder="0"
+                        />
+                      </div>
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Triple</label>
+                      <div className="relative">
+                        <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 text-sm">Rs.</span>
+                        <input
+                          type="number"
+                          value={editingExtraBedCharges.tripleExtraBedCharge || 0}
+                          onChange={(e) => handleExtraBedChargeChange('tripleExtraBedCharge', e.target.value)}
+                          className="w-full border border-gray-300 rounded-lg pl-8 pr-3 py-2 focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none transition"
+                          min="0"
+                          step="100"
+                          placeholder="0"
+                        />
+                      </div>
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Quard</label>
+                      <div className="relative">
+                        <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 text-sm">Rs.</span>
+                        <input
+                          type="number"
+                          value={editingExtraBedCharges.quardExtraBedCharge || 0}
+                          onChange={(e) => handleExtraBedChargeChange('quardExtraBedCharge', e.target.value)}
+                          className="w-full border border-gray-300 rounded-lg pl-8 pr-3 py-2 focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none transition"
+                          min="0"
+                          step="100"
+                          placeholder="0"
+                        />
+                      </div>
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Suite</label>
+                      <div className="relative">
+                        <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 text-sm">Rs.</span>
+                        <input
+                          type="number"
+                          value={editingExtraBedCharges.suiteExtraBedCharge || 0}
+                          onChange={(e) => handleExtraBedChargeChange('suiteExtraBedCharge', e.target.value)}
+                          className="w-full border border-gray-300 rounded-lg pl-8 pr-3 py-2 focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none transition"
+                          min="0"
+                          step="100"
+                          placeholder="0"
+                        />
+                      </div>
+                    </div>
+                  </div>
                 </div>
               </div>
 
-              <div className="mt-4 flex justify-between items-center">
+              <div className="mt-4 flex justify-between items-center flex-wrap gap-2">
                 <div className="text-sm text-gray-500">
-                  {hasCapacityChanged() ? (
+                  {hasCapacityChanged() || hasExtraBedChargesChanged() ? (
                     <span className="text-yellow-600">⚠️ Changes detected. Click Save to apply.</span>
                   ) : (
-                    <span className="text-green-600">✓ All capacities are up to date.</span>
+                    <span className="text-green-600">✓ All settings are up to date.</span>
                   )}
                 </div>
                 <button
                   onClick={saveBranchCapacity}
-                  disabled={saving || !hasCapacityChanged()}
+                  disabled={saving || (!hasCapacityChanged() && !hasExtraBedChargesChanged())}
                   className={`px-4 py-2 rounded-lg transition-colors flex items-center space-x-2 ${
-                    saving || !hasCapacityChanged()
+                    saving || (!hasCapacityChanged() && !hasExtraBedChargesChanged())
                       ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
                       : 'bg-indigo-600 text-white hover:bg-indigo-700'
                   }`}
                 >
                   <FiSave className="w-4 h-4" />
-                  <span>{saving ? 'Saving...' : 'Save Branch Capacity'}</span>
+                  <span>{saving ? 'Saving...' : 'Save All Changes'}</span>
                 </button>
               </div>
             </div>
 
+            {/* Summary Cards */}
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
               <div className="bg-white rounded-xl shadow-sm p-4 border-l-4 border-blue-500">
                 <p className="text-sm text-gray-500">Total Rooms</p>
@@ -711,6 +855,7 @@ export default function RoomCapacityPage() {
               </div>
             </div>
 
+            {/* Room Type Capacity Table */}
             <div className="bg-white rounded-xl shadow-sm p-6">
               <h2 className="text-lg font-semibold text-gray-800 mb-4">Room Type Capacity</h2>
               
@@ -722,53 +867,61 @@ export default function RoomCapacityPage() {
                       <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Total Rooms</th>
                       <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Occupied</th>
                       <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Available</th>
+                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Extra Bed Charge</th>
                       <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Actions</th>
                     </tr>
                   </thead>
                   <tbody className="bg-white divide-y divide-gray-200">
                     {roomTypeCapacities.length === 0 ? (
                       <tr>
-                        <td colSpan={5} className="px-4 py-8 text-center text-gray-500">
+                        <td colSpan={6} className="px-4 py-8 text-center text-gray-500">
                           No room types configured
                         </td>
                       </tr>
                     ) : (
-                      roomTypeCapacities.map((r) => (
-                        <tr key={r.id} className="hover:bg-gray-50 transition-colors">
-                          <td className="px-4 py-3 font-medium text-gray-900">{r.roomType}</td>
-                          <td className="px-4 py-3">
-                            <input
-                              type="number"
-                              value={editingRoomCapacity[r.roomType] || r.totalRooms}
-                              onChange={(e) => handleRoomCapacityChange(r.roomType, e.target.value)}
-                              className="w-24 border border-gray-300 rounded-lg px-2 py-1 focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none transition"
-                              min="0"
-                            />
-                          </td>
-                          <td className="px-4 py-3 text-orange-600">{r.occupiedRooms}</td>
-                          <td className="px-4 py-3 text-green-600">{r.availableRooms}</td>
-                          <td className="px-4 py-3">
-                            <button
-                              onClick={() => saveRoomCapacity(r.roomType)}
-                              disabled={saving || (editingRoomCapacity[r.roomType] || r.totalRooms) === r.totalRooms}
-                              className={`px-3 py-1 rounded-lg transition-colors flex items-center space-x-1 text-sm ${
-                                saving || (editingRoomCapacity[r.roomType] || r.totalRooms) === r.totalRooms
-                                  ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
-                                  : 'bg-indigo-600 text-white hover:bg-indigo-700'
-                              }`}
-                            >
-                              <FiSave className="w-4 h-4" />
-                              <span>Save</span>
-                            </button>
-                          </td>
-                        </tr>
-                      ))
+                      roomTypeCapacities.map((r) => {
+                        const extraBedKey = `${r.roomType.toLowerCase()}ExtraBedCharge`;
+                        return (
+                          <tr key={r.id} className="hover:bg-gray-50 transition-colors">
+                            <td className="px-4 py-3 font-medium text-gray-900">{r.roomType}</td>
+                            <td className="px-4 py-3">
+                              <input
+                                type="number"
+                                value={editingRoomCapacity[r.roomType] || r.totalRooms}
+                                onChange={(e) => handleRoomCapacityChange(r.roomType, e.target.value)}
+                                className="w-24 border border-gray-300 rounded-lg px-2 py-1 focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none transition"
+                                min="0"
+                              />
+                            </td>
+                            <td className="px-4 py-3 text-orange-600">{r.occupiedRooms}</td>
+                            <td className="px-4 py-3 text-green-600">{r.availableRooms}</td>
+                            <td className="px-4 py-3 text-indigo-600 font-medium">
+                              {formatCurrency(editingExtraBedCharges[extraBedKey] || 0)}
+                            </td>
+                            <td className="px-4 py-3">
+                              <button
+                                onClick={() => saveRoomCapacity(r.roomType)}
+                                disabled={saving || (editingRoomCapacity[r.roomType] || r.totalRooms) === r.totalRooms}
+                                className={`px-3 py-1 rounded-lg transition-colors flex items-center space-x-1 text-sm ${
+                                  saving || (editingRoomCapacity[r.roomType] || r.totalRooms) === r.totalRooms
+                                    ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
+                                    : 'bg-indigo-600 text-white hover:bg-indigo-700'
+                                }`}
+                              >
+                                <FiSave className="w-4 h-4" />
+                                <span>Save</span>
+                              </button>
+                            </td>
+                          </tr>
+                        );
+                      })
                     )}
                   </tbody>
                 </table>
               </div>
             </div>
 
+            {/* Rooms List */}
             {rooms.length > 0 && (
               <div className="bg-white rounded-xl shadow-sm p-6 mt-6">
                 <h2 className="text-lg font-semibold text-gray-800 mb-4">
