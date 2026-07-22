@@ -9,6 +9,7 @@ import { NotificationModule } from './notification/notification.module';
 import { AutomationModule } from './automation/automation.module';
 import { RoomPricingModule } from './room-pricing/room-pricing.module';
 import { RoomCapacityModule } from './room-capacity/room-capacity.module';
+import { MealPricingModule } from './meal-pricing/meal-pricing.module';
 
 @Module({
   imports: [
@@ -21,7 +22,7 @@ import { RoomCapacityModule } from './room-capacity/room-capacity.module';
     AutomationModule,
     RoomPricingModule,
     RoomCapacityModule,
-    // AuditModule, // ❌ Remove this line
+    MealPricingModule, // ✅ Make sure this is here
   ],
 })
 export class AppModule {}

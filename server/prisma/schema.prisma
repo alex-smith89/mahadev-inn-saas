@@ -92,7 +92,7 @@ model Booking {
   email               String?         @db.VarChar(100)
   roomsCount          Int             @default(1)
   roomType            RoomTypeEnum
-  facility            String?         @db.VarChar(50) // ✅ MADE OPTIONAL - was "Standard" @default("Standard")
+  facility            String?         @db.VarChar(50)
   facilityMultiplier  Float           @default(1.0)
   price               Float?          @default(0)
   mealPlan            MealPlan        @default(EP)
@@ -326,6 +326,51 @@ model PricingHistory {
   @@index([season])
 }
 
+// ===== ✅ NEW: MEAL PLAN PRICING MODELS =====
+
+// Meal Plan Pricing - Stores current pricing for each branch
+model MealPlanPricing {
+  id               Int      @id @default(autoincrement())
+  branch           Branch   @unique
+  kitchenCharges   Int      @default(0)
+  diningCharges    Int      @default(0)
+  breakfastCharges Int      @default(0)
+  createdBy        String?  @db.VarChar(50)
+  updatedBy        String?  @db.VarChar(50)
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  // Relations
+  history          MealPlanHistory[]
+
+  @@map("meal_plan_pricing")
+  @@index([branch])
+}
+
+// Meal Plan History - Tracks all changes to meal plan pricing
+model MealPlanHistory {
+  id        Int      @id @default(autoincrement())
+  branch    Branch
+  type      String   @db.VarChar(50)  // "Kitchen Charges", "Dining Charges", "Breakfast Charges"
+  oldValue  Int      @default(0)
+  newValue  Int      @default(0)
+  changedBy String   @db.VarChar(50)
+  reason    String?  @db.Text
+  createdAt DateTime @default(now())
+
+  // Relations
+  pricing   MealPlanPricing? @relation(fields: [pricingId], references: [id])
+  pricingId Int?             @map("pricing_id")
+
+  @@map("meal_plan_history")
+  @@index([branch])
+  @@index([type])
+  @@index([createdAt])
+  @@index([pricingId])
+}
+
+// ===== END MEAL PLAN PRICING MODELS =====
+
 // Feedback
 model Feedback {
   id          String   @id @default(cuid())
@@ -350,7 +395,7 @@ model Feedback {
   @@index([status])
 }
 
-// ✅ AUDIT LOG MODEL - For tracking user activities
+// Audit Log Model - For tracking user activities
 model AuditLog {
   id         String   @id @default(cuid())
   username   String   @db.VarChar(50)

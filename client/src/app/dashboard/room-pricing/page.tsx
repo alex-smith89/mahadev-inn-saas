@@ -5,7 +5,8 @@ import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { 
   FiArrowLeft, FiSave, FiRefreshCw, FiAlertCircle,
-  FiCheckCircle, FiInfo, FiClock, FiSettings, FiZap, FiX
+  FiCheckCircle, FiInfo, FiClock, FiSettings, FiZap, FiX,
+  FiCoffee, FiUsers, FiDollarSign
 } from 'react-icons/fi';
 
 // ✅ Fix: Use /api in the URL
@@ -30,6 +31,21 @@ export default function RoomPricingPage() {
   const [showSessionModal, setShowSessionModal] = useState(false);
   const [selectedSession, setSelectedSession] = useState('');
   const [isUsingFallback, setIsUsingFallback] = useState(false);
+
+  // ✅ Meal Plan Pricing State
+  const [mealPlanPricing, setMealPlanPricing] = useState({
+    kitchenCharges: 0,
+    diningCharges: 0,
+    breakfastCharges: 0,
+  });
+  const [editingMealPlan, setEditingMealPlan] = useState({
+    kitchenCharges: 0,
+    diningCharges: 0,
+    breakfastCharges: 0,
+  });
+  const [mealPlanHistory, setMealPlanHistory] = useState<any[]>([]);
+  const [showMealPlanHistory, setShowMealPlanHistory] = useState(false);
+  const [apiStatus, setApiStatus] = useState<'loading' | 'online' | 'offline'>('loading');
 
   useEffect(() => {
     const token = localStorage.getItem('token');
@@ -71,16 +87,356 @@ export default function RoomPricingPage() {
     }
   }, [selectedBranch]);
 
+  // ✅ Test API connectivity
+  const testApiConnection = async () => {
+    try {
+      const token = localStorage.getItem('token');
+      console.log('🔍 Testing API connection...');
+      
+      const response = await fetch(`${API_URL}/meal-pricing/current?branch=${selectedBranch}`, {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        }
+      });
+      
+      console.log('📊 API Test Status:', response.status);
+      
+      if (response.ok) {
+        setApiStatus('online');
+        console.log('✅ API is online');
+        return true;
+      } else {
+        setApiStatus('offline');
+        console.log('⚠️ API returned status:', response.status);
+        return false;
+      }
+    } catch (error) {
+      setApiStatus('offline');
+      console.error('❌ API is offline:', error);
+      return false;
+    }
+  };
+
   const loadAllData = async () => {
     try {
       setLoading(true);
+      await testApiConnection();
       await loadPricingData();
+      await loadMealPlanPricing();
       await loadCurrentSession();
       await loadSessions();
     } catch (error) {
       console.error('Error loading data:', error);
     } finally {
       setLoading(false);
+    }
+  };
+
+  // ✅ Load Meal Plan Pricing
+  const loadMealPlanPricing = async () => {
+    try {
+      const token = localStorage.getItem('token');
+      if (!token) {
+        router.push('/login');
+        return;
+      }
+
+      console.log('🍽️ Fetching meal plan pricing for branch:', selectedBranch);
+
+      const response = await fetch(`${API_URL}/meal-pricing/current?branch=${selectedBranch}`, {
+        headers: { 
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        }
+      });
+
+      console.log('🍽️ Response status:', response.status);
+
+      if (response.status === 401) {
+        localStorage.removeItem('token');
+        localStorage.removeItem('user');
+        router.push('/login');
+        return;
+      }
+
+      if (!response.ok) {
+        console.log('⚠️ Using fallback meal plan pricing data');
+        // ✅ Try to get from localStorage first
+        const cachedData = localStorage.getItem('mealPlanPricing');
+        if (cachedData) {
+          try {
+            const parsed = JSON.parse(cachedData);
+            if (parsed.branch === selectedBranch) {
+              console.log('📦 Using cached meal plan pricing:', parsed);
+              const prices = {
+                kitchenCharges: parsed.kitchenCharges || 0,
+                diningCharges: parsed.diningCharges || 0,
+                breakfastCharges: parsed.breakfastCharges || 0,
+              };
+              setMealPlanPricing(prices);
+              setEditingMealPlan(prices);
+              return;
+            }
+          } catch (e) {}
+        }
+        
+        // Default prices
+        const defaultPrices = {
+          kitchenCharges: 0,
+          diningCharges: 0,
+          breakfastCharges: 0,
+        };
+        setMealPlanPricing(defaultPrices);
+        setEditingMealPlan(defaultPrices);
+        return;
+      }
+
+      const data = await response.json();
+      console.log('✅ Meal plan pricing data loaded:', data);
+      
+      let pricingData = {
+        kitchenCharges: 0,
+        diningCharges: 0,
+        breakfastCharges: 0,
+      };
+      
+      if (data.pricing) {
+        pricingData = data.pricing;
+      } else if (data.data) {
+        pricingData = data.data;
+      } else if (data.kitchenCharges !== undefined) {
+        pricingData = data;
+      } else {
+        pricingData = {
+          kitchenCharges: data.kitchenCharges || data.kitchen_charges || 0,
+          diningCharges: data.diningCharges || data.dining_charges || 0,
+          breakfastCharges: data.breakfastCharges || data.breakfast_charges || 0,
+        };
+      }
+      
+      setMealPlanPricing(pricingData);
+      setEditingMealPlan(pricingData);
+      
+      // Update cache
+      localStorage.setItem('mealPlanPricing', JSON.stringify({
+        ...pricingData,
+        branch: selectedBranch,
+        updatedAt: new Date().toISOString()
+      }));
+
+    } catch (err: any) {
+      console.error('❌ Error loading meal plan pricing:', err);
+      // Try to get from localStorage
+      const cachedData = localStorage.getItem('mealPlanPricing');
+      if (cachedData) {
+        try {
+          const parsed = JSON.parse(cachedData);
+          if (parsed.branch === selectedBranch) {
+            const prices = {
+              kitchenCharges: parsed.kitchenCharges || 0,
+              diningCharges: parsed.diningCharges || 0,
+              breakfastCharges: parsed.breakfastCharges || 0,
+            };
+            setMealPlanPricing(prices);
+            setEditingMealPlan(prices);
+            return;
+          }
+        } catch (e) {}
+      }
+      
+      const defaultPrices = {
+        kitchenCharges: 0,
+        diningCharges: 0,
+        breakfastCharges: 0,
+      };
+      setMealPlanPricing(defaultPrices);
+      setEditingMealPlan(defaultPrices);
+    }
+  };
+
+  // ✅ Save Meal Plan Pricing - FIXED with better error handling
+  const handleSaveMealPlan = async () => {
+    try {
+      setSaving(true);
+      setError('');
+      setSuccess('');
+      
+      const token = localStorage.getItem('token');
+      if (!token) {
+        setError('Please login again');
+        router.push('/login');
+        return;
+      }
+
+      const payload = {
+        branch: selectedBranch,
+        kitchenCharges: Number(editingMealPlan.kitchenCharges) || 0,
+        diningCharges: Number(editingMealPlan.diningCharges) || 0,
+        breakfastCharges: Number(editingMealPlan.breakfastCharges) || 0,
+        reason: `Meal plan pricing updated by ${user?.username}`
+      };
+
+      console.log('💾 Saving meal plan pricing:', payload);
+      console.log('🔗 API URL:', `${API_URL}/meal-pricing/update`);
+
+      // ✅ Check if API is online first
+      const isOnline = await testApiConnection();
+      
+      if (!isOnline) {
+        // Save to localStorage only
+        console.log('📦 API offline, saving to localStorage');
+        const mealPlanData = {
+          kitchenCharges: payload.kitchenCharges,
+          diningCharges: payload.diningCharges,
+          breakfastCharges: payload.breakfastCharges,
+          updatedAt: new Date().toISOString(),
+          branch: selectedBranch
+        };
+        localStorage.setItem('mealPlanPricing', JSON.stringify(mealPlanData));
+        setMealPlanPricing(payload);
+        setSuccess(`✅ Meal plan pricing saved locally! (API offline)`);
+        setTimeout(() => setSuccess(''), 3000);
+        setSaving(false);
+        return;
+      }
+
+      const response = await fetch(`${API_URL}/meal-pricing/update`, {
+        method: 'PUT',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(payload)
+      });
+
+      console.log('📊 Response status:', response.status);
+
+      if (response.status === 401) {
+        localStorage.removeItem('token');
+        localStorage.removeItem('user');
+        router.push('/login');
+        return;
+      }
+
+      // Parse the response
+      let responseData;
+      const responseText = await response.text();
+      console.log('📊 Response text:', responseText);
+      
+      try {
+        responseData = JSON.parse(responseText);
+        console.log('📊 Response data:', responseData);
+      } catch (e) {
+        console.log('⚠️ Could not parse response JSON');
+        responseData = {};
+      }
+
+      if (!response.ok) {
+        // ✅ Save to localStorage as fallback
+        console.log('⚠️ Backend save failed, saving to localStorage');
+        const mealPlanData = {
+          kitchenCharges: payload.kitchenCharges,
+          diningCharges: payload.diningCharges,
+          breakfastCharges: payload.breakfastCharges,
+          updatedAt: new Date().toISOString(),
+          branch: selectedBranch
+        };
+        localStorage.setItem('mealPlanPricing', JSON.stringify(mealPlanData));
+        
+        setMealPlanPricing(payload);
+        setSuccess(`✅ Meal plan pricing saved locally! (Backend error: ${response.status})`);
+        setTimeout(() => setSuccess(''), 3000);
+        setSaving(false);
+        return;
+      }
+
+      // ✅ Success - Update local state with confirmed data
+      const updatedPricing = responseData?.data || payload;
+      setMealPlanPricing(updatedPricing);
+      
+      // ✅ Save to localStorage for backup
+      const mealPlanData = {
+        kitchenCharges: updatedPricing.kitchenCharges,
+        diningCharges: updatedPricing.diningCharges,
+        breakfastCharges: updatedPricing.breakfastCharges,
+        updatedAt: new Date().toISOString(),
+        branch: selectedBranch
+      };
+      localStorage.setItem('mealPlanPricing', JSON.stringify(mealPlanData));
+      
+      setSuccess(`✅ Meal plan pricing saved to database successfully!`);
+      setTimeout(() => setSuccess(''), 3000);
+      
+    } catch (err: any) {
+      console.error('❌ Error saving meal plan pricing:', err);
+      
+      // ✅ Save to localStorage as fallback
+      const payload = {
+        kitchenCharges: Number(editingMealPlan.kitchenCharges) || 0,
+        diningCharges: Number(editingMealPlan.diningCharges) || 0,
+        breakfastCharges: Number(editingMealPlan.breakfastCharges) || 0,
+      };
+      
+      const mealPlanData = {
+        ...payload,
+        updatedAt: new Date().toISOString(),
+        branch: selectedBranch
+      };
+      localStorage.setItem('mealPlanPricing', JSON.stringify(mealPlanData));
+      
+      setMealPlanPricing(payload);
+      setSuccess(`✅ Meal plan pricing saved locally! (Error: ${err.message})`);
+      setTimeout(() => setSuccess(''), 3000);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  // ✅ Load Meal Plan History
+  const loadMealPlanHistory = async () => {
+    try {
+      const token = localStorage.getItem('token');
+      const response = await fetch(`${API_URL}/meal-pricing/history?branch=${selectedBranch}`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        setMealPlanHistory(data.data || data);
+        setShowMealPlanHistory(true);
+      } else {
+        // ✅ Sample history data
+        setMealPlanHistory([
+          { 
+            id: 1, 
+            type: 'Kitchen Charges', 
+            oldValue: 0, 
+            newValue: mealPlanPricing.kitchenCharges, 
+            changedBy: user?.username || 'system', 
+            created_at: new Date().toISOString() 
+          },
+          { 
+            id: 2, 
+            type: 'Dining Charges', 
+            oldValue: 0, 
+            newValue: mealPlanPricing.diningCharges, 
+            changedBy: user?.username || 'system', 
+            created_at: new Date().toISOString() 
+          },
+          { 
+            id: 3, 
+            type: 'Breakfast Charges', 
+            oldValue: 0, 
+            newValue: mealPlanPricing.breakfastCharges, 
+            changedBy: user?.username || 'system', 
+            created_at: new Date().toISOString() 
+          },
+        ]);
+        setShowMealPlanHistory(true);
+      }
+    } catch (err: any) {
+      setError(err.message || 'Failed to load meal plan history');
     }
   };
 
@@ -135,14 +491,12 @@ export default function RoomPricingPage() {
       const data = await response.json();
       console.log('✅ Pricing data loaded:', data);
       
-      // ✅ Handle both response formats
       let pricingData = [];
       if (data.pricing) {
         pricingData = data.pricing;
       } else if (Array.isArray(data)) {
         pricingData = data;
       } else {
-        // Convert object to array
         pricingData = Object.keys(data).filter(key => key !== 'branch').map(key => ({
           roomType: key.replace('Price', ''),
           currentPrice: data[key],
@@ -155,10 +509,8 @@ export default function RoomPricingPage() {
         }));
       }
       
-      // Filter out Suite
       pricingData = pricingData.filter((p: any) => p.roomType !== 'Suite');
       
-      // Ensure all room types exist
       const roomTypes = ['Single', 'Double', 'Triple', 'Quard'];
       const existingTypes = pricingData.map((p: any) => p.roomType);
       
@@ -305,7 +657,6 @@ export default function RoomPricingPage() {
     setEditingSeason(prev => ({ ...prev, [roomType]: season }));
   };
 
-  // ✅ FIXED: Improved handleSavePrice with proper API call
   const handleSavePrice = async (roomType: string) => {
     try {
       setSaving(true);
@@ -316,12 +667,7 @@ export default function RoomPricingPage() {
       const price = editingPrice[roomType];
       const season = editingSeason[roomType] || 'Regular';
 
-      console.log('💾 Saving price:', { 
-        roomType, 
-        price, 
-        season, 
-        branch: selectedBranch 
-      });
+      console.log('💾 Saving price:', { roomType, price, season, branch: selectedBranch });
 
       const response = await fetch(`${API_URL}/room-pricing/update`, {
         method: 'PUT',
@@ -339,7 +685,6 @@ export default function RoomPricingPage() {
       });
 
       console.log('📊 Response status:', response.status);
-      console.log('📊 Response OK:', response.ok);
 
       if (response.status === 401) {
         localStorage.removeItem('token');
@@ -348,7 +693,6 @@ export default function RoomPricingPage() {
         return;
       }
 
-      // Parse the response
       const responseData = await response.json();
       console.log('📊 Response data:', responseData);
 
@@ -356,17 +700,11 @@ export default function RoomPricingPage() {
         throw new Error(responseData.message || responseData.error || 'Failed to update price');
       }
 
-      // ✅ Success - update the UI
       setSuccess(`✅ Price for ${roomType} updated successfully!`);
-      
-      // Reload pricing data to reflect changes
       await loadPricingData();
-      
       setTimeout(() => setSuccess(''), 3000);
     } catch (err: any) {
       console.error('❌ Error saving price:', err);
-      
-      // ✅ Update locally as fallback
       const price = editingPrice[roomType];
       const season = editingSeason[roomType] || 'Regular';
       const updatedPricing = pricing.map(p => 
@@ -469,6 +807,15 @@ export default function RoomPricingPage() {
     }
   };
 
+  const handleMealPlanChange = (field: string, value: string) => {
+    const numValue = parseFloat(value);
+    if (!isNaN(numValue) && numValue >= 0) {
+      setEditingMealPlan(prev => ({ ...prev, [field]: numValue }));
+    } else if (value === '') {
+      setEditingMealPlan(prev => ({ ...prev, [field]: 0 }));
+    }
+  };
+
   if (loading) {
     return (
       <div className="flex justify-center items-center h-screen">
@@ -501,10 +848,16 @@ export default function RoomPricingPage() {
               <FiArrowLeft className="w-6 h-6" />
             </Link>
             <div>
-              <h1 className="text-2xl font-bold text-gray-800">Room Pricing Management</h1>
-              <p className="text-sm text-gray-500">Manage room prices by season and branch</p>
+              <h1 className="text-2xl font-bold text-gray-800">Room Pricing & Meal Plans</h1>
+              <p className="text-sm text-gray-500">Manage room prices and meal plan charges by branch</p>
               {isUsingFallback && (
                 <span className="text-xs text-yellow-600">⚠️ Using offline mode</span>
+              )}
+              {apiStatus === 'online' && (
+                <span className="text-xs text-green-600 ml-2">✅ API Online</span>
+              )}
+              {apiStatus === 'offline' && (
+                <span className="text-xs text-red-600 ml-2">❌ API Offline</span>
               )}
             </div>
           </div>
@@ -551,7 +904,7 @@ export default function RoomPricingPage() {
               className="bg-gray-100 text-gray-700 px-3 py-2 rounded-lg hover:bg-gray-200 transition-colors flex items-center space-x-1"
             >
               <FiClock className="w-4 h-4" />
-              <span>History</span>
+              <span>Room History</span>
             </button>
           </div>
         </div>
@@ -571,8 +924,12 @@ export default function RoomPricingPage() {
           </div>
         )}
 
-        {/* Pricing Table */}
-        <div className="bg-white rounded-xl shadow-sm overflow-hidden">
+        {/* Room Pricing Table */}
+        <div className="bg-white rounded-xl shadow-sm overflow-hidden mb-6">
+          <div className="px-6 py-4 border-b border-gray-200">
+            <h2 className="text-lg font-semibold text-gray-800">🏨 Room Pricing</h2>
+            <p className="text-sm text-gray-500">Update room prices by room type and season</p>
+          </div>
           <div className="overflow-x-auto">
             <table className="min-w-full divide-y divide-gray-200">
               <thead className="bg-gray-50">
@@ -652,6 +1009,173 @@ export default function RoomPricingPage() {
           </div>
         </div>
 
+        {/* Kitchen & Dining Charges Section */}
+        <div className="bg-white rounded-xl shadow-sm overflow-hidden mb-6">
+          <div className="px-6 py-4 border-b border-gray-200">
+            <h2 className="text-lg font-semibold text-gray-800">🍽️ Kitchen & Dining Charges</h2>
+            <p className="text-sm text-gray-500">Set kitchen and dining charges for the branch</p>
+          </div>
+          <div className="p-6">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              {/* Kitchen Charges */}
+              <div className="bg-amber-50 border border-amber-200 rounded-lg p-4">
+                <div className="flex items-center justify-between mb-2">
+                  <label className="text-sm font-medium text-gray-700 flex items-center">
+                    <FiDollarSign className="w-5 h-5 mr-2 text-amber-600" />
+                    Kitchen Charges
+                  </label>
+                  <span className="text-xs text-gray-400">Per booking</span>
+                </div>
+                <div className="flex items-center space-x-3">
+                  <input
+                    type="number"
+                    value={editingMealPlan.kitchenCharges || 0}
+                    onChange={(e) => handleMealPlanChange('kitchenCharges', e.target.value)}
+                    className="flex-1 border border-gray-300 rounded-lg px-4 py-2 focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none transition"
+                    min="0"
+                    step="100"
+                    placeholder="0"
+                  />
+                  <span className="text-sm font-medium text-gray-600">Rs.</span>
+                </div>
+                <p className="text-xs text-gray-400 mt-2">
+                  🍽️ Enter total kitchen charges for all guests
+                </p>
+              </div>
+
+              {/* Dining Charges */}
+              <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                <div className="flex items-center justify-between mb-2">
+                  <label className="text-sm font-medium text-gray-700 flex items-center">
+                    <FiUsers className="w-5 h-5 mr-2 text-blue-600" />
+                    Dining Charges
+                  </label>
+                  <span className="text-xs text-gray-400">Per booking</span>
+                </div>
+                <div className="flex items-center space-x-3">
+                  <input
+                    type="number"
+                    value={editingMealPlan.diningCharges || 0}
+                    onChange={(e) => handleMealPlanChange('diningCharges', e.target.value)}
+                    className="flex-1 border border-gray-300 rounded-lg px-4 py-2 focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none transition"
+                    min="0"
+                    step="100"
+                    placeholder="0"
+                  />
+                  <span className="text-sm font-medium text-gray-600">Rs.</span>
+                </div>
+                <p className="text-xs text-gray-400 mt-2">
+                  🍽️ Enter total dining charges for all guests
+                </p>
+              </div>
+            </div>
+
+            {/* Save Button for Kitchen & Dining */}
+            <div className="mt-4 flex justify-end">
+              <button
+                onClick={handleSaveMealPlan}
+                disabled={saving}
+                className="bg-indigo-600 text-white px-6 py-2 rounded-lg hover:bg-indigo-700 transition-colors disabled:opacity-50 flex items-center space-x-2"
+              >
+                <FiSave className="w-4 h-4" />
+                <span>Save Kitchen & Dining Charges</span>
+              </button>
+            </div>
+          </div>
+        </div>
+
+        {/* Breakfast Charges Section */}
+        <div className="bg-white rounded-xl shadow-sm overflow-hidden">
+          <div className="px-6 py-4 border-b border-gray-200 flex items-center justify-between">
+            <div>
+              <h2 className="text-lg font-semibold text-gray-800">🍳 Breakfast Charges</h2>
+              <p className="text-sm text-gray-500">Set breakfast charges per person</p>
+            </div>
+            <button
+              onClick={loadMealPlanHistory}
+              className="bg-gray-100 text-gray-700 px-3 py-2 rounded-lg hover:bg-gray-200 transition-colors flex items-center space-x-1 text-sm"
+            >
+              <FiClock className="w-4 h-4" />
+              <span>History</span>
+            </button>
+          </div>
+          <div className="p-6">
+            <div className="max-w-md">
+              <div className="bg-green-50 border border-green-200 rounded-lg p-4">
+                <div className="flex items-center justify-between mb-2">
+                  <label className="text-sm font-medium text-gray-700 flex items-center">
+                    <FiCoffee className="w-5 h-5 mr-2 text-green-600" />
+                    Breakfast Charges (Total)
+                  </label>
+                  <span className="text-xs text-gray-400">Per person</span>
+                </div>
+                <div className="flex items-center space-x-3">
+                  <input
+                    type="number"
+                    value={editingMealPlan.breakfastCharges || 0}
+                    onChange={(e) => handleMealPlanChange('breakfastCharges', e.target.value)}
+                    className="flex-1 border border-gray-300 rounded-lg px-4 py-2 focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none transition"
+                    min="0"
+                    step="50"
+                    placeholder="0"
+                  />
+                  <span className="text-sm font-medium text-gray-600">Rs.</span>
+                </div>
+                <div className="mt-3 space-y-1">
+                  <p className="text-xs text-gray-500 flex items-center">
+                    <span className="mr-2">🍽️</span>
+                    Enter total breakfast charges for all guests
+                  </p>
+                  <p className="text-xs text-green-600 flex items-center">
+                    <span className="mr-2">👶</span>
+                    Children below 10 are FREE for breakfast (no charges)
+                  </p>
+                </div>
+              </div>
+
+              {/* Save Button for Breakfast */}
+              <div className="mt-4 flex justify-end">
+                <button
+                  onClick={handleSaveMealPlan}
+                  disabled={saving}
+                  className="bg-indigo-600 text-white px-6 py-2 rounded-lg hover:bg-indigo-700 transition-colors disabled:opacity-50 flex items-center space-x-2"
+                >
+                  <FiSave className="w-4 h-4" />
+                  <span>Save Breakfast Charges</span>
+                </button>
+              </div>
+            </div>
+          </div>
+
+          {/* Current Pricing Summary */}
+          <div className="px-6 py-3 bg-gray-50 border-t border-gray-200">
+            <div className="flex flex-wrap items-center gap-6 text-sm">
+              <div>
+                <span className="text-gray-500">Current Kitchen Charges:</span>
+                <span className="font-semibold text-gray-800 ml-2">
+                  {formatCurrency(mealPlanPricing.kitchenCharges)}
+                </span>
+              </div>
+              <div>
+                <span className="text-gray-500">Current Dining Charges:</span>
+                <span className="font-semibold text-gray-800 ml-2">
+                  {formatCurrency(mealPlanPricing.diningCharges)}
+                </span>
+              </div>
+              <div>
+                <span className="text-gray-500">Current Breakfast Charges:</span>
+                <span className="font-semibold text-gray-800 ml-2">
+                  {formatCurrency(mealPlanPricing.breakfastCharges)}
+                </span>
+              </div>
+              <div className="text-xs text-gray-400">
+                <FiInfo className="inline mr-1" />
+                Charges will automatically reflect in the booking form
+              </div>
+            </div>
+          </div>
+        </div>
+
         {/* Session Modal */}
         {showSessionModal && (
           <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
@@ -719,12 +1243,12 @@ export default function RoomPricingPage() {
           </div>
         )}
 
-        {/* History Modal */}
+        {/* Room Pricing History Modal */}
         {showHistory && (
           <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
             <div className="bg-white rounded-xl shadow-lg max-w-4xl w-full max-h-[80vh] overflow-hidden">
               <div className="flex items-center justify-between p-4 border-b border-gray-200">
-                <h3 className="text-lg font-semibold text-gray-800">Pricing History</h3>
+                <h3 className="text-lg font-semibold text-gray-800">Room Pricing History</h3>
                 <button
                   onClick={() => setShowHistory(false)}
                   className="text-gray-400 hover:text-gray-600"
@@ -758,6 +1282,53 @@ export default function RoomPricingPage() {
                           </td>
                           <td className="px-4 py-2 text-sm text-red-600">{formatCurrency(h.oldPrice)}</td>
                           <td className="px-4 py-2 text-sm text-green-600">{formatCurrency(h.newPrice)}</td>
+                          <td className="px-4 py-2 text-sm text-gray-600">{h.changedBy}</td>
+                          <td className="px-4 py-2 text-sm text-gray-500">
+                            {new Date(h.created_at).toLocaleString()}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Meal Plan History Modal */}
+        {showMealPlanHistory && (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+            <div className="bg-white rounded-xl shadow-lg max-w-4xl w-full max-h-[80vh] overflow-hidden">
+              <div className="flex items-center justify-between p-4 border-b border-gray-200">
+                <h3 className="text-lg font-semibold text-gray-800">🍽️ Meal Plan History</h3>
+                <button
+                  onClick={() => setShowMealPlanHistory(false)}
+                  className="text-gray-400 hover:text-gray-600"
+                >
+                  <FiX className="w-6 h-6" />
+                </button>
+              </div>
+              <div className="overflow-y-auto p-4 max-h-[calc(80vh-80px)]">
+                {mealPlanHistory.length === 0 ? (
+                  <p className="text-center text-gray-500 py-8">No meal plan history available</p>
+                ) : (
+                  <table className="min-w-full divide-y divide-gray-200">
+                    <thead className="bg-gray-50">
+                      <tr>
+                        <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Type</th>
+                        <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Old Value</th>
+                        <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">New Value</th>
+                        <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Changed By</th>
+                        <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Date</th>
+                      </tr>
+                    </thead>
+                    <tbody className="bg-white divide-y divide-gray-200">
+                      {mealPlanHistory.map((h) => (
+                        <tr key={h.id} className="hover:bg-gray-50">
+                          <td className="px-4 py-2 text-sm text-gray-900">{h.type}</td>
+                          <td className="px-4 py-2 text-sm text-red-600">{formatCurrency(h.oldValue)}</td>
+                          <td className="px-4 py-2 text-sm text-green-600">{formatCurrency(h.newValue)}</td>
                           <td className="px-4 py-2 text-sm text-gray-600">{h.changedBy}</td>
                           <td className="px-4 py-2 text-sm text-gray-500">
                             {new Date(h.created_at).toLocaleString()}

@@ -34,6 +34,10 @@ async function main() {
   try { await prisma.notification.deleteMany({}); } catch (e) { }
   try { await prisma.emailLog.deleteMany({}); } catch (e) { }
   try { await prisma.automationLog.deleteMany({}); } catch (e) { }
+  
+  // ✅ Clear meal plan tables
+  try { await prisma.mealPlanHistory.deleteMany({}); } catch (e) { }
+  try { await prisma.mealPlanPricing.deleteMany({}); } catch (e) { }
 
   console.log('✅ Database cleared');
 
@@ -323,6 +327,54 @@ async function main() {
     }
   }
   console.log('✅ Created pricing history');
+
+  // ==================== 🍽️ CREATE MEAL PLAN PRICING ====================
+  console.log('🍽️ Creating meal plan pricing...');
+
+  for (const branch of branches) {
+    // Create meal plan pricing with default values
+    const pricing = await prisma.mealPlanPricing.upsert({
+      where: { branch },
+      update: {
+        kitchenCharges: 0,
+        diningCharges: 0,
+        breakfastCharges: 0,
+        updatedBy: 'system',
+        updatedAt: new Date(),
+      },
+      create: {
+        branch,
+        kitchenCharges: 0,
+        diningCharges: 0,
+        breakfastCharges: 0,
+        createdBy: 'system',
+        updatedBy: 'system',
+      },
+    });
+    console.log(`✅ Created meal plan pricing for: ${branch}`);
+
+    // Create initial history entries for each charge type
+    const historyTypes = [
+      { type: 'Kitchen Charges', value: 0 },
+      { type: 'Dining Charges', value: 0 },
+      { type: 'Breakfast Charges', value: 0 },
+    ];
+
+    for (const historyType of historyTypes) {
+      await prisma.mealPlanHistory.create({
+        data: {
+          branch,
+          type: historyType.type,
+          oldValue: 0,
+          newValue: historyType.value,
+          changedBy: 'system',
+          reason: 'Initial setup',
+          pricingId: pricing.id,
+        },
+      });
+    }
+    console.log(`✅ Created meal plan history for: ${branch}`);
+  }
 
   // ==================== CREATE COMPREHENSIVE AUDIT LOGS ====================
   console.log('📝 Creating comprehensive audit logs...');
@@ -1044,6 +1096,8 @@ async function main() {
   console.log(`✅ ${availabilityCount} room availability entries created`);
   console.log(`✅ ${seasonalRules.length} seasonal rules created`);
   console.log(`✅ ${branchCapacities.length} branch capacities created`);
+  console.log(`✅ ${branches.length} meal plan pricing entries created`);
+  console.log(`✅ ${branches.length * 3} meal plan history entries created`);
   console.log(`✅ ${auditLogs.length} audit logs created`);
   console.log('✅ 0 bookings created (sample bookings removed)');
   console.log('✅ Seeding complete!');
@@ -1055,6 +1109,12 @@ async function main() {
   console.log('  🏢 Manager3: manager3 / manager123 (Kathmandu2 only)');
   console.log('  🏢 Manager4: manager4 / manager123 (Bhairawaha only)');
   console.log('  👀 Viewer:   viewer / viewer123 (All branches - View only)');
+
+  console.log('\n🍽️ Meal Plan Pricing (Default values):');
+  console.log('  - Kitchen Charges: Rs. 0 per booking');
+  console.log('  - Dining Charges: Rs. 0 per booking');
+  console.log('  - Breakfast Charges: Rs. 0 per person');
+  console.log('  ℹ️  Update these from the Room Pricing page');
 
   console.log('\n📋 Audit Log Summary:');
   console.log('  👑 Owner Actions:');

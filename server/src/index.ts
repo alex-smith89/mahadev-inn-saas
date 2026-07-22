@@ -4,6 +4,7 @@ import dotenv from 'dotenv';
 import { PrismaClient } from '@prisma/client';
 import checkoutRoutes from './routes/checkoutRoutes';
 import notificationRoutes from './routes/notificationRoutes';
+import mealPricingRoutes from './routes/mealPricingRoutes';
 import cron from 'node-cron';
 import { CheckoutService } from './services/checkoutService';
 
@@ -24,6 +25,7 @@ app.use(express.json());
 // ✅ Register routes
 app.use('/api/checkout', checkoutRoutes);
 app.use('/api/notifications', notificationRoutes);
+app.use('/api/meal-pricing', mealPricingRoutes);
 
 // ✅ Health check
 app.get('/api/health', (req, res) => {
@@ -145,6 +147,7 @@ app.listen(PORT, async () => {
   console.log(`🚀 Server running on http://localhost:${PORT}`);
   console.log(`📊 Health check: http://localhost:${PORT}/api/health`);
   console.log(`🔧 Checkout test: http://localhost:${PORT}/api/checkout/test`);
+  console.log(`🍽️ Meal plan pricing: http://localhost:${PORT}/api/meal-pricing/current?branch=Pokhara`);
   console.log('🔄 Automated checkout scheduler started (runs every hour and at 12 PM)');
   
   // ✅ Check for missed checkouts on startup
