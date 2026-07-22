@@ -6,43 +6,89 @@ import Image from 'next/image';
 
 const API_URL = 'http://localhost:4000/api';
 
-// ✅ Complete user database with correct branch mappings
+// ✅ Complete user database - MATCHES YOUR SEED DATA
 const DEMO_USERS = [
   { 
     username: 'owner', 
     password: 'owner123', 
     role: 'OWNER', 
     branches: ['Pokhara', 'Kathmandu1', 'Kathmandu2', 'Bhairawaha'],
-    displayName: 'Hotel Owner'
+    displayName: 'Hotel Owner',
+    branchPasswords: {
+      'Pokhara': 'owner123',
+      'Kathmandu1': 'owner123',
+      'Kathmandu2': 'owner123',
+      'Bhairawaha': 'owner123'
+    }
   },
   { 
-    username: 'manager', 
-    password: 'manager123', 
+    username: 'manager1', 
+    password: 'manager123',
     role: 'MANAGER', 
-    branches: ['Pokhara', 'Kathmandu1', 'Kathmandu2', 'Bhairawaha'],
-    displayName: 'General Manager'
+    branches: ['Pokhara'],
+    displayName: 'Manager - Pokhara',
+    branchPasswords: {
+      'Pokhara': 'manager123',
+    }
+  },
+  { 
+    username: 'manager2', 
+    password: 'manager123',
+    role: 'MANAGER', 
+    branches: ['Kathmandu1'],
+    displayName: 'Manager - Kathmandu 1',
+    branchPasswords: {
+      'Kathmandu1': 'manager123',
+    }
+  },
+  { 
+    username: 'manager3', 
+    password: 'manager123',
+    role: 'MANAGER', 
+    branches: ['Kathmandu2'],
+    displayName: 'Manager - Kathmandu 2',
+    branchPasswords: {
+      'Kathmandu2': 'manager123',
+    }
+  },
+  { 
+    username: 'manager4', 
+    password: 'manager123',
+    role: 'MANAGER', 
+    branches: ['Bhairawaha'],
+    displayName: 'Manager - Bhairawaha',
+    branchPasswords: {
+      'Bhairawaha': 'manager123',
+    }
   },
   { 
     username: 'viewer', 
     password: 'viewer123', 
     role: 'VIEWER', 
     branches: ['Pokhara', 'Kathmandu1', 'Kathmandu2', 'Bhairawaha'],
-    displayName: 'Guest Viewer'
+    displayName: 'Guest Viewer',
+    branchPasswords: {
+      'Pokhara': 'viewer123',
+      'Kathmandu1': 'viewer123',
+      'Kathmandu2': 'viewer123',
+      'Bhairawaha': 'viewer123'
+    }
   },
 ];
 
 export default function LoginPage() {
   const router = useRouter();
-  const [username, setUsername] = useState('manager');
+  const [username, setUsername] = useState('manager1');
   const [password, setPassword] = useState('');
   const [branch, setBranch] = useState('Pokhara');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const [success, setSuccess] = useState(false);
-  const [isRedirecting, setIsRedirecting] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [selectedUser, setSelectedUser] = useState<any>(DEMO_USERS[1]);
   const [availableBranches, setAvailableBranches] = useState<string[]>(DEMO_USERS[1].branches);
+  const [branchPasswordHint, setBranchPasswordHint] = useState<string>('');
+  const [isCheckingAuth, setIsCheckingAuth] = useState(true);
 
   // ✅ Clear any logout flag on mount
   useEffect(() => {
@@ -51,33 +97,44 @@ export default function LoginPage() {
 
   // ✅ Check if already logged in
   useEffect(() => {
-    const token = localStorage.getItem('token');
-    const userStr = localStorage.getItem('user');
-    
-    if (token && userStr && !isRedirecting) {
+    const checkAuth = () => {
       try {
-        const userData = JSON.parse(userStr);
-        // ✅ Verify branches exist before redirecting
-        if (userData.branches && userData.branches.length > 0) {
-          console.log('✅ Token found with branches:', userData.branches);
-          setIsRedirecting(true);
-          router.push('/dashboard');
-        } else {
-          console.warn('⚠️ No branches found in user data:', userData);
-          localStorage.removeItem('token');
-          localStorage.removeItem('user');
-          localStorage.removeItem('selectedBranch');
+        const token = localStorage.getItem('token');
+        const userStr = localStorage.getItem('user');
+        
+        console.log('🔍 Login page - Checking auth');
+        console.log('Token exists:', !!token);
+        console.log('User exists:', !!userStr);
+        
+        if (token && userStr) {
+          const userData = JSON.parse(userStr);
+          console.log('User data from storage:', userData);
+          
+          if (userData.branches && userData.branches.length > 0) {
+            console.log('✅ User has branches, redirecting to dashboard');
+            window.location.href = '/dashboard';
+            return;
+          } else {
+            console.warn('⚠️ No branches found, clearing storage');
+            localStorage.removeItem('token');
+            localStorage.removeItem('user');
+            localStorage.removeItem('selectedBranch');
+          }
         }
-      } catch (e) {
-        console.error('❌ Invalid user data, clearing...');
+      } catch (error) {
+        console.error('Error checking auth:', error);
         localStorage.removeItem('token');
         localStorage.removeItem('user');
         localStorage.removeItem('selectedBranch');
+      } finally {
+        setIsCheckingAuth(false);
       }
-    }
-  }, [router, isRedirecting]);
+    };
 
-  // ✅ Update available branches when username changes
+    checkAuth();
+  }, []);
+
+  // ✅ Update available branches and password hint
   useEffect(() => {
     const user = DEMO_USERS.find(u => u.username === username);
     if (user) {
@@ -86,18 +143,28 @@ export default function LoginPage() {
       if (user.branches.length > 0 && !user.branches.includes(branch)) {
         setBranch(user.branches[0]);
       }
+      if (user.branchPasswords && user.branchPasswords[branch]) {
+        setBranchPasswordHint(user.branchPasswords[branch]);
+      } else {
+        setBranchPasswordHint(user.password || '');
+      }
       setError('');
+      
+      // Clear password when switching users for security
+      if (user.role === 'MANAGER') {
+        setPassword('');
+      }
     }
-  }, [username]);
+  }, [username, branch]);
 
-  // ✅ Handle login
+  // ✅ Handle login - Try backend first, fallback to demo
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
     setSuccess(false);
     setLoading(true);
 
-    // ✅ Validate inputs
+    // Validations
     if (!username || !password) {
       setError('Please enter username and password');
       setLoading(false);
@@ -110,7 +177,6 @@ export default function LoginPage() {
       return;
     }
 
-    // ✅ Check if user exists
     const user = DEMO_USERS.find(u => u.username === username);
     if (!user) {
       setError(`User "${username}" does not exist.`);
@@ -118,16 +184,20 @@ export default function LoginPage() {
       return;
     }
 
-    // ✅ Check password
-    if (user.password !== password) {
-      setError('Invalid password. Please try again.');
+    if (!user.branches.includes(branch)) {
+      setError(`User "${username}" does not have access to "${branch}" branch.\n\nAvailable branches: ${user.branches.join(', ')}`);
       setLoading(false);
       return;
     }
 
-    // ✅ Check branch access
-    if (!user.branches.includes(branch)) {
-      setError(`User "${username}" does not have access to "${branch}" branch.\n\nAvailable branches: ${user.branches.join(', ')}`);
+    // Get correct password for this branch
+    let correctPassword = user.password;
+    if (user.branchPasswords && user.branchPasswords[branch]) {
+      correctPassword = user.branchPasswords[branch];
+    }
+
+    if (correctPassword !== password) {
+      setError(`Invalid password for "${branch}" branch.\n\n${user.role === 'MANAGER' ? 'Each manager has a specific branch. Please check your credentials.' : 'Please try again.'}`);
       setLoading(false);
       return;
     }
@@ -157,19 +227,19 @@ export default function LoginPage() {
         const data = await response.json();
         console.log('✅ Login successful from backend');
         
-        // ✅ Ensure branches are properly stored
         const userData = {
           id: data.user?.id,
           username: data.user?.username || username,
           role: data.user?.role || user.role,
-          branches: user.branches, // Use branches from DEMO_USERS
+          branches: user.branches,
           selectedBranch: branch,
           email: data.user?.email,
-          displayName: user.displayName
+          displayName: user.displayName,
+          branchSpecificPassword: user.role === 'MANAGER' ? true : false,
+          loginTimestamp: Date.now()
         };
         
         console.log('📋 Storing user data:', userData);
-        console.log('📋 Branches being stored:', userData.branches);
         
         localStorage.setItem('token', data.token || data.access_token);
         localStorage.setItem('user', JSON.stringify(userData));
@@ -177,58 +247,47 @@ export default function LoginPage() {
         localStorage.setItem('userRole', userData.role);
         localStorage.setItem('username', username);
         
-        // ✅ Verify storage was successful
-        const verifyUser = localStorage.getItem('user');
-        if (verifyUser) {
-          const parsed = JSON.parse(verifyUser);
-          console.log('✅ Verified stored user data:', parsed);
-          console.log('✅ Branches in stored data:', parsed.branches);
-          
-          if (!parsed.branches || parsed.branches.length === 0) {
-            console.error('❌ Branches not stored correctly!');
-            setError('Failed to store branch data. Please try again.');
-            setLoading(false);
-            return;
-          }
-        }
-        
         setSuccess(true);
         setLoading(false);
         
         setTimeout(() => {
-          setIsRedirecting(true);
-          router.push('/dashboard');
-        }, 800);
+          window.location.href = '/dashboard';
+        }, 500);
         return;
       } else {
         console.log('⚠️ Backend login failed with status:', response.status);
+        // Continue to demo login
       }
     } catch (err) {
       console.log('⚠️ Backend not available, using demo mode');
+      // Continue to demo login
     }
 
-    // ✅ Demo login (fallback if backend is not available)
+    // ✅ Demo login (fallback)
     console.log('📤 Using demo login for user:', username);
+    console.log('📍 Branch:', branch);
+    console.log('🔑 Role:', user.role);
     
     const token = btoa(JSON.stringify({
       username: user.username,
       role: user.role,
+      branch: branch,
       timestamp: Date.now()
     }));
 
-    // ✅ Store user data with proper structure including branches
     const userData = {
       id: Date.now(),
       username: user.username,
       role: user.role,
-      branches: user.branches, // ✅ This is critical - branches must be stored
+      branches: user.branches,
       selectedBranch: branch,
       displayName: user.displayName,
-      email: `${user.username}@mahadevin.com`
+      email: `${user.username}@mahadevin.com`,
+      branchSpecificPassword: user.role === 'MANAGER' ? true : false,
+      loginTimestamp: Date.now()
     };
 
     console.log('📋 Storing user data (demo):', userData);
-    console.log('📋 Branches being stored:', userData.branches);
 
     localStorage.setItem('token', token);
     localStorage.setItem('user', JSON.stringify(userData));
@@ -236,40 +295,34 @@ export default function LoginPage() {
     localStorage.setItem('userRole', user.role);
     localStorage.setItem('username', user.username);
     
-    // ✅ Verify storage was successful
-    const verifyUser = localStorage.getItem('user');
-    if (verifyUser) {
-      const parsed = JSON.parse(verifyUser);
-      console.log('✅ Verified stored user data:', parsed);
-      console.log('✅ Branches in stored data:', parsed.branches);
-      
-      if (!parsed.branches || parsed.branches.length === 0) {
-        console.error('❌ Branches not stored correctly!');
-        setError('Failed to store branch data. Please try again.');
-        setLoading(false);
-        return;
-      }
-    }
-    
     setSuccess(true);
     setLoading(false);
     
     setTimeout(() => {
-      setIsRedirecting(true);
-      router.push('/dashboard');
-    }, 800);
+      window.location.href = '/dashboard';
+    }, 500);
   };
 
   // ✅ Quick login function
-  const quickLogin = (user: string, pass: string, branchName: string) => {
-    console.log('🔄 Quick login for user:', user);
+  const quickLogin = (user: string, branchName: string) => {
+    console.log('🔄 Quick login for user:', user, 'branch:', branchName);
+    
+    const userData = DEMO_USERS.find(u => u.username === user);
+    let pass = '';
+    if (userData) {
+      if (userData.branchPasswords && userData.branchPasswords[branchName]) {
+        pass = userData.branchPasswords[branchName];
+      } else {
+        pass = userData.password;
+      }
+    }
+    
     setUsername(user);
     setPassword(pass);
     setBranch(branchName);
     setError('');
     setSuccess(false);
     setLoading(false);
-    setIsRedirecting(false);
     
     setTimeout(() => {
       const form = document.querySelector('form');
@@ -279,13 +332,13 @@ export default function LoginPage() {
     }, 300);
   };
 
-  // ✅ Show redirecting state
-  if (isRedirecting) {
+  // ✅ Show loading while checking auth
+  if (isCheckingAuth) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-gray-50 via-indigo-100 to-purple-200 p-4">
         <div className="bg-white p-8 rounded-2xl shadow-xl max-w-md w-full text-center">
           <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-indigo-600 mx-auto mb-4"></div>
-          <p className="text-gray-600">Redirecting to dashboard...</p>
+          <p className="text-gray-600">Checking authentication...</p>
         </div>
       </div>
     );
@@ -318,28 +371,56 @@ export default function LoginPage() {
         {/* Quick Login Buttons */}
         <div className="mb-6">
           <p className="text-xs text-gray-500 text-center mb-2">Quick Login</p>
-          <div className="grid grid-cols-3 gap-2">
+          <div className="grid grid-cols-2 gap-2">
             <button
               type="button"
-              onClick={() => quickLogin('owner', 'owner123', 'Pokhara')}
+              onClick={() => quickLogin('owner', 'Pokhara')}
               className="text-xs py-2 px-3 bg-purple-100 text-purple-700 rounded-lg hover:bg-purple-200 transition-colors font-medium"
             >
-              👑 Owner
+              👑 Owner - Pokhara
             </button>
             <button
               type="button"
-              onClick={() => quickLogin('manager', 'manager123', 'Pokhara')}
-              className="text-xs py-2 px-3 bg-indigo-100 text-indigo-700 rounded-lg hover:bg-indigo-200 transition-colors font-medium"
-            >
-              📋 Manager
-            </button>
-            <button
-              type="button"
-              onClick={() => quickLogin('viewer', 'viewer123', 'Pokhara')}
+              onClick={() => quickLogin('viewer', 'Pokhara')}
               className="text-xs py-2 px-3 bg-green-100 text-green-700 rounded-lg hover:bg-green-200 transition-colors font-medium"
             >
-              👁️ Viewer
+              👁️ Viewer - Pokhara
             </button>
+          </div>
+          
+          {/* Manager Quick Login Buttons */}
+          <div className="mt-2">
+            <p className="text-xs text-gray-500 text-center mb-1"></p>
+            <div className="grid grid-cols-2 gap-1">
+              <button
+                type="button"
+                onClick={() => quickLogin('manager1', 'Pokhara')}
+                className="text-xs py-1.5 px-2 bg-indigo-50 text-indigo-700 rounded-lg hover:bg-indigo-100 transition-colors border border-indigo-200"
+              >
+                🏔️ Pokhara
+              </button>
+              <button
+                type="button"
+                onClick={() => quickLogin('manager2', 'Kathmandu1')}
+                className="text-xs py-1.5 px-2 bg-indigo-50 text-indigo-700 rounded-lg hover:bg-indigo-100 transition-colors border border-indigo-200"
+              >
+                🏙️ KTM-1
+              </button>
+              <button
+                type="button"
+                onClick={() => quickLogin('manager3', 'Kathmandu2')}
+                className="text-xs py-1.5 px-2 bg-indigo-50 text-indigo-700 rounded-lg hover:bg-indigo-100 transition-colors border border-indigo-200"
+              >
+                🏙️ KTM-2
+              </button>
+              <button
+                type="button"
+                onClick={() => quickLogin('manager4', 'Bhairawaha')}
+                className="text-xs py-1.5 px-2 bg-indigo-50 text-indigo-700 rounded-lg hover:bg-indigo-100 transition-colors border border-indigo-200"
+              >
+                🕌 Bhairawaha
+              </button>
+            </div>
           </div>
         </div>
 
@@ -386,35 +467,10 @@ export default function LoginPage() {
               <div className="mt-1 text-xs text-gray-500">
                 <span className="font-medium">Role:</span> {selectedUser.role} • 
                 <span className="font-medium ml-2">Branches:</span> {selectedUser.branches.join(', ')}
+                {selectedUser.role === 'MANAGER' && (
+                  <span className="ml-2 text-indigo-600 font-medium"></span>
+                )}
               </div>
-            )}
-          </div>
-
-          {/* Password */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Password</label>
-            <div className="relative">
-              <input
-                type={showPassword ? "text" : "password"}
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                className="w-full border border-gray-300 rounded-lg px-4 py-3 focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none transition pr-12"
-                required
-                placeholder="Enter your password"
-                disabled={loading || success}
-              />
-              <button
-                type="button"
-                onClick={() => setShowPassword(!showPassword)}
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-700"
-              >
-                {showPassword ? '👁️' : '👁️‍🗨️'}
-              </button>
-            </div>
-            {selectedUser && (
-              <p className="text-xs text-gray-400 mt-1">
-                Hint: Password for {selectedUser.username} is "{selectedUser.password}"
-              </p>
             )}
           </div>
 
@@ -434,8 +490,46 @@ export default function LoginPage() {
             </select>
             {availableBranches.length > 0 && (
               <p className="text-xs text-gray-400 mt-1">
-                Available branches: {availableBranches.join(', ')}
+               
               </p>
+            )}
+          </div>
+
+          {/* Password */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Password for {branch}
+              {selectedUser?.role === 'MANAGER' && (
+                <span className="ml-2 text-xs text-indigo-600 font-normal">
+                  
+                </span>
+              )}
+            </label>
+            <div className="relative">
+              <input
+                type={showPassword ? "text" : "password"}
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                className="w-full border border-gray-300 rounded-lg px-4 py-3 focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none transition pr-12"
+                required
+                placeholder={`Enter password for ${branch}`}
+                disabled={loading || success}
+              />
+              <button
+                type="button"
+                onClick={() => setShowPassword(!showPassword)}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-700"
+              >
+                {showPassword ? '👁️‍🗨️' : '👁️'}
+              </button>
+            </div>
+            {selectedUser && branchPasswordHint && (
+              <div className="mt-1 flex items-center justify-between">
+                
+                {selectedUser.role === 'MANAGER' && (
+                  <span className="text-xs text-indigo-500 font-medium"></span>
+                )}
+              </div>
             )}
           </div>
 
@@ -456,30 +550,12 @@ export default function LoginPage() {
             ) : success ? (
               'Redirecting...'
             ) : (
-              'Sign In'
+              `Sign In to ${branch}`
             )}
           </button>
         </form>
 
-        {/* User Access Guide */}
-        <div className="mt-4 p-3 bg-blue-50 rounded-lg border border-blue-200">
-          <p className="text-xs text-blue-800 font-medium mb-1">📋 User Access:</p>
-          <div className="text-xs text-blue-700 space-y-1">
-            <div className="flex justify-between items-center border-b border-blue-100 pb-1">
-              <span className="font-medium">👑 owner</span>
-              <span>All branches (owner123)</span>
-            </div>
-            <div className="flex justify-between items-center border-b border-blue-100 pb-1">
-              <span className="font-medium">📋 manager</span>
-              <span>All branches (manager123)</span>
-            </div>
-            <div className="flex justify-between items-center">
-              <span className="font-medium">👁️ viewer</span>
-              <span>All branches (viewer123)</span>
-            </div>
-          </div>
-        </div>
-
+       
         {/* Footer */}
         <div className="mt-4 text-center text-xs text-gray-400">
           <p>Mahadev Inn Hotel Management System</p>
